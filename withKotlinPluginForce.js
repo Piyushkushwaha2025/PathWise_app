@@ -4,6 +4,11 @@ module.exports = function withKotlinPluginForce(config) {
   return withProjectBuildGradle(config, async config => {
     if (config.modResults.language === 'groovy') {
       config.modResults.contents = config.modResults.contents.replace(
+        /buildscript\s*{/,
+        'buildscript {\n  ext {\n    kotlinVersion = "2.1.20"\n    kspVersion = "2.1.20-1.0.29"\n  }'
+      );
+      
+      config.modResults.contents = config.modResults.contents.replace(
         /classpath\('org\.jetbrains\.kotlin:kotlin-gradle-plugin'\)/g,
         'classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.20")'
       );
