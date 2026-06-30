@@ -2,16 +2,11 @@
   "expo": {
     "name": "PathWise",
     "slug": "pathwise-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "pathwise",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#050505"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.pathwise.app"
@@ -35,7 +30,10 @@
               "pathPrefix": "/"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -43,22 +41,34 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
+    "updates": {
+      "url": "https://u.expo.dev/983f9008-442a-4984-9f18-859c152558c4"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "plugins": [
-      "./withKotlinPluginForce.js",
       "expo-router",
       "expo-secure-store",
+      "expo-font",
       [
-        "expo-build-properties",
+        "expo-splash-screen",
         {
-          "android": {
-            "kotlinVersion": "2.1.20"
+          "image": "./assets/splash-symbol.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#050505",
+          "dark": {
+            "image": "./assets/splash-symbol.png",
+            "backgroundColor": "#050505"
           }
         }
       ],
       [
-        "expo-font",
+        "@sentry/react-native",
         {
-          "fonts": []
+          "organization": "pathwise-po",
+          "project": "react-native"
         }
       ]
     ],
@@ -69,8 +79,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "29b55f6e-0527-4a4f-b551-6c435b12caca"
+        "projectId": "983f9008-442a-4984-9f18-859c152558c4"
       }
-    }
+    },
+    "owner": "its-dangerous"
   }
 }

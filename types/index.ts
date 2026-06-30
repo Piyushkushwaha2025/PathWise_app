@@ -1,34 +1,42 @@
-// Shared TypeScript interfaces — mirror actual MongoDB models exactly
-
-export interface RoadmapModule {
-  id: string;
-  title: string;
-  description: string;
-}
+/**
+ * Type definitions for the app
+ */
 
 export interface CustomRoadmap {
-  _id: string;
+  _id?: string;
   id?: string;
-  userId: string;
-  topic: string;
   title: string;
-  color: 'blue' | 'purple' | 'green' | 'pink' | 'yellow';
-  modules: RoadmapModule[];
-  createdAt: string;
+  description: string;
   image?: string;
-  author?: string;
-  category?: string;
+  color: string;
+  modules?: RoadmapModule[];
 }
 
-// progress: { [roadmapId]: [completedModuleId, ...] }
-export type UserProgress = Record<string, string[]>;
-
-export interface EnrollmentsResponse {
-  enrolledRoadmaps: string[];
+export interface RoadmapModule {
+  title: string;
+  description?: string;
+  topics?: RoadmapTopic[];
 }
 
-export interface ProgressResponse {
-  progress: UserProgress;
+export interface RoadmapTopic {
+  title: string;
+  objectives?: string[] | ObjectiveItem[];
+  problems?: string[] | ProblemItem[];
+  hindiVideo?: string;
+  englishVideo?: string;
+  practiceUrl?: string;
+  article?: string;
+}
+
+export interface ObjectiveItem {
+  title: string;
+  description?: string;
+}
+
+export interface ProblemItem {
+  title: string;
+  difficulty?: string;
+  url?: string;
 }
 
 export interface RoadmapsResponse {
@@ -37,7 +45,21 @@ export interface RoadmapsResponse {
 
 export interface GenerateRoadmapResponse {
   roadmap: CustomRoadmap;
-  isNew: boolean;
 }
 
-export type RoadmapColor = CustomRoadmap['color'];
+export interface EnrollmentsResponse {
+  enrolledRoadmaps: string[];
+}
+
+export interface UserProgress {
+  [roadmapId: string]: string[];
+}
+
+export interface ProgressResponse {
+  progress: UserProgress;
+}
+
+export interface StatsData {
+  signedIn: number;
+  totalXP: number;
+}
