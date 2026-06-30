@@ -10,6 +10,7 @@
     "@expo/metro-runtime": "~56.0.15",
     "@expo/vector-icons": "^15.1.1",
     "@react-navigation/bottom-tabs": "^7.18.3",
+    "@sentry/react-native": "~7.11.0",
     "@shopify/flash-list": "2.0.2",
     "@tanstack/react-query": "^5.101.1",
     "axios": "^1.18.1",
@@ -28,9 +29,11 @@
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
     "expo-system-ui": "^56.0.5",
+    "expo-updates": "~56.0.19",
     "expo-web-browser": "~56.0.5",
     "lucide-react-native": "^1.21.0",
     "moti": "^0.30.0",
+    "patch-package": "^8.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
@@ -54,7 +57,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "postinstall": "patch-package"
   },
   "private": true
 }
