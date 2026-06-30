@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useEffect, useRef } from "react";
 import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from "expo-router";

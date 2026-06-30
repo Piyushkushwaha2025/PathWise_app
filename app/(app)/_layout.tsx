@@ -15,7 +15,6 @@ export default function AppLayout() {
   return (
     <>
       <Tabs
-        // @ts-expect-error - mismatch between expo-router and react-navigation types
         tabBar={(props) => <TabBar {...props} />}
         screenOptions={{ headerShown: false }}
       >

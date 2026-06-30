@@ -80,7 +80,7 @@ export default function ProfileScreen() {
   const { data: catalog = [] } = useRoadmapsCatalog();
   const { data: customRoadmaps = [] } = useRoadmaps();
   const feedbackMutation = useFeedback();
-  const { checkForUpdates } = useUpdateStore();
+  const { checkForUpdates, currentVersion } = useUpdateStore();
 
   const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -567,7 +567,7 @@ export default function ProfileScreen() {
         </MotiView>
 
         {/* App Version */}
-        <Text style={styles.version}>{"PathWise v1.0.2"}</Text>
+        <Text style={styles.version}>{"PathWise v" + currentVersion}</Text>
       </ScrollView>
 
       {/* Settings Modal */}

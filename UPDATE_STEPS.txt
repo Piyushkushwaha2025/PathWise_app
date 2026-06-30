@@ -1,0 +1,68 @@
+========================================
+ PATHWISE - NAYA UPDATE NIKALNE KE STEPS
+========================================
+
+DO ALAG JSON FILE HAIN (confuse mat hona):
+
+  1. app.json          -> app khud ko kaunsa version samajhta hai
+  2. app-version.json  -> internet pe latest version kya hai (GitHub pe)
+
+  >> Dono me version HAMESHA SAME rakhna (dono 1.0.1).
+
+
+----------------------------------------
+ HAR UPDATE PE YE 4 STEP (ORDER ZAROORI)
+----------------------------------------
+
+STEP 1 : app.json me version badlo   (BUILD SE PEHLE)
+         "version": "1.0.1"
+
+STEP 2 : Build karo
+         eas build --profile preview --platform android
+
+STEP 3 : Jo naya APK bana use GitHub/website pe upload karo
+         -> uska download link copy karo
+
+STEP 4 : app-version.json edit karo + GitHub pe PUSH karo
+         {
+           "latestVersion": "1.0.1",
+           "downloadUrl": "naye 1.0.1 APK ka link",
+           "releaseNotes": "kya naya hai"
+         }
+
+
+----------------------------------------
+ RESULT
+----------------------------------------
+
+Purana user (1.0.0) app kholega
+   -> "Update Available" popup aayega
+   -> download dabayega -> naya APK -> 1.0.1
+   -> popup band ho jayega
+
+
+----------------------------------------
+ IMPORTANT (MAT BHOOLNA)
+----------------------------------------
+
+[ ] app.json ka version = app-version.json ka latestVersion  (dono same)
+[ ] app-version.json HAMESHA LAST me update karna
+    (jab naya APK upload ho jaye, link ready ho tab)
+[ ] downloadUrl har baar NAYE APK ka daalna (sirf number nahi)
+[ ] app-version.json GitHub ke 'main' branch pe push karna zaroori
+    warna purane users tak update nahi pahunchega
+
+GitHub JSON URL:
+https://raw.githubusercontent.com/Piyushkushwaha2025/PathWise_app/main/app-version.json
+
+
+----------------------------------------
+ GALTI SE BACHO
+----------------------------------------
+
+X  Sirf app-version.json badla, app.json nahi
+   -> naya APK bhi khud ko 1.0.0 bolega
+   -> popup KABHI band nahi hoga (naye install pe bhi)
+
+X  app-version.json pehle update kar diya, APK upload se pehle
+   -> users ko popup aayega par download link khali/purana hoga
