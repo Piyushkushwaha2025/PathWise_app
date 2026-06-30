@@ -2,16 +2,25 @@
   "expo": {
     "name": "PathWise",
     "slug": "pathwise-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
+    "androidStatusBar": {
+      "translucent": false,
+      "backgroundColor": "#050505"
+    },
+    "androidNavigationBar": {
+      "visible": "sticky-immersive",
+      "backgroundColor": "#050505"
+    },
     "scheme": "pathwise",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.pathwise.app"
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
@@ -41,9 +50,6 @@
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
-    "updates": {
-      "url": "https://u.expo.dev/983f9008-442a-4984-9f18-859c152558c4"
-    },
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -51,6 +57,17 @@
       "expo-router",
       "expo-secure-store",
       "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/favicon.png",
+          "color": "#ffffff",
+          "sounds": [
+            "./assets/sounds/ting.mp3",
+            "./assets/sounds/mario_death.mp3"
+          ]
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -79,9 +96,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "983f9008-442a-4984-9f18-859c152558c4"
+        "projectId": "6ec620f1-e4e6-4862-8223-6418976b86e4"
       }
     },
-    "owner": "its-dangerous"
+    "owner": "its123"
   }
 }
