@@ -27,6 +27,7 @@ import { useRoadmapsCatalog, useRoadmaps } from "../../hooks/useRoadmaps";
 import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore, ThemeType } from "../../store/useThemeStore";
 import { useUpdateStore } from "../../store/useUpdateStore";
+import { validateNameInput, validateFeedback, sanitizeString, MAX_NAME_LENGTH, MAX_FEEDBACK_LENGTH } from "../../lib/validation";
 
 type SubBadge = "FREE" | "PRO" | "ELITE";
 
@@ -160,12 +161,22 @@ export default function ProfileScreen() {
   };
 
   const handleSaveSettings = async () => {
-    if (!firstName.trim()) return;
+    const firstNameValidation = validateNameInput(firstName);
+    if (!firstNameValidation.valid) {
+      Alert.alert("Error", firstNameValidation.message);
+      return;
+    }
+
+    if (lastName && lastName.length > MAX_NAME_LENGTH) {
+      Alert.alert("Error", "Last name is too long");
+      return;
+    }
+
     setIsUpdatingSettings(true);
     try {
-      await user?.update({ 
-        firstName, 
-        lastName,
+      await user?.update({
+        firstName: sanitizeString(firstName),
+        lastName: sanitizeString(lastName),
         unsafeMetadata: {
           ...user.unsafeMetadata,
           phone,
@@ -173,8 +184,10 @@ export default function ProfileScreen() {
       });
       setSettingsVisible(false);
     } catch (e: any) {
-      console.warn("Save Settings Error:", e);
-      Alert.alert("Profile Update", e.errors?.[0]?.message || "Could not save profile info. Please check your inputs.");
+      if (__DEV__) {
+        console.warn("Save Settings Error:", e);
+      }
+      Alert.alert("Profile Update", e.errors?.[0]?.message || "Could not save profile info.");
     } finally {
       setIsUpdatingSettings(false);
     }
@@ -202,18 +215,24 @@ export default function ProfileScreen() {
   };
 
   const handleSubmitFeedback = async () => {
-    if (!feedbackText.trim()) return;
+    const validation = validateFeedback(feedbackText);
+    if (!validation.valid) {
+      Alert.alert("Error", validation.message);
+      return;
+    }
+
     try {
+      const sanitizedFeedback = sanitizeString(feedbackText.trim());
       await feedbackMutation.mutateAsync({
         name: user?.fullName || "User",
-        content: feedbackText,
+        content: sanitizedFeedback,
         rating: 5,
       });
       setFeedbackVisible(false);
       setFeedbackText("");
       Alert.alert("Success", "Thank you for your feedback!");
     } catch (e) {
-      Alert.alert("Error", "Failed to send feedback. Try again later.");
+      Alert.alert("Error", "Failed to send feedback.");
     }
   };
 
@@ -252,7 +271,7 @@ export default function ProfileScreen() {
             onPress={() => {
               setFirstName(user?.firstName || "");
               setLastName(user?.lastName || "");
-              setPhone((user?.publicMetadata?.phone as string) || "");
+              setPhone((user?.unsafeMetadata?.phone as string) || "");
               setSelectedTheme(currentTheme);
               setSettingsVisible(true);
             }}
@@ -361,14 +380,14 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.menuItem}
-              onPress={() => Linking.openURL("https://pathwise-ai.com")}
+              onPress={() => Linking.openURL("https://pathwise-beige.vercel.app/")}
             >
               <Ionicons
                 name="globe-outline"
                 size={20}
                 color={colors.primary}
               />
-              <Text style={styles.menuLabel}>{"Visit Website"}</Text>
+              <Text style={styles.menuLabel}>{"Visit PathWise Web"}</Text>
               <Ionicons
                 name="chevron-forward"
                 size={18}
@@ -440,6 +459,27 @@ export default function ProfileScreen() {
 
             <View style={styles.divider} />
 
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                Linking.openURL("https://github.com/Piyushkushwaha2025/PathWise_app/releases/download/v1.0.2/PathWise.v1.0.2.apk");
+              }}
+            >
+              <Ionicons
+                name="logo-android"
+                size={20}
+                color={colors.primary}
+              />
+              <Text style={styles.menuLabel}>{"Download App (APK)"}</Text>
+              <Ionicons
+                name="open-outline"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             <TouchableOpacity style={styles.menuItem} onPress={handleSignOut}>
               <Ionicons name="log-out-outline" size={20} color={colors.error} />
               <Text style={[styles.menuLabel, { color: colors.error }]}>
@@ -450,8 +490,84 @@ export default function ProfileScreen() {
           </GlassCard>
         </MotiView>
 
+        {/* App Theme */}
+        <MotiView
+          from={{ opacity: 0, translateY: 16 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 250 }}
+        >
+          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>{"App Theme"}</Text>
+          <View style={styles.themeToggleRow}>
+            {(["black", "white", "cream"] as ThemeType[]).map((t) => (
+              <MotiView
+                key={t}
+                animate={{ scale: selectedTheme === t ? 1.05 : 1 }}
+                transition={{ type: "spring", damping: 12, stiffness: 200 }}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.themeBtn,
+                    selectedTheme === t && styles.themeBtnActive,
+                  ]}
+                  onPress={() => handleThemeSelect(t)}
+                >
+                  <Ionicons
+                    name={t === "black" ? "moon" : t === "white" ? "sunny" : "leaf"}
+                    size={20}
+                    color={selectedTheme === t ? colors.primary : colors.textMuted}
+                  />
+                  <Text
+                    style={[
+                      styles.themeBtnText,
+                      selectedTheme === t && { color: colors.primary, fontWeight: "bold" },
+                    ]}
+                  >
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              </MotiView>
+            ))}
+          </View>
+        </MotiView>
+
+        {/* Accent Color */}
+        <MotiView
+          from={{ opacity: 0, translateY: 16 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 300 }}
+        >
+          <Text style={[styles.sectionTitle, { marginTop: 8 }]}>{"Accent Color"}</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 12, justifyContent: "center" }}>
+            {ACCENT_COLORS.map((c) => (
+              <MotiView
+                key={c.hex}
+                animate={{ scale: colors.primary === c.hex ? 1.15 : 1 }}
+                transition={{ type: "spring", damping: 12, stiffness: 200 }}
+              >
+                <TouchableOpacity
+                  onPress={() => handleColorSelect(c.hex)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: c.hex,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 2,
+                    borderColor: colors.primary === c.hex ? colors.text : "transparent",
+                  }}
+                >
+                  {colors.primary === c.hex && (
+                    <Ionicons name="checkmark" size={20} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              </MotiView>
+            ))}
+          </View>
+        </MotiView>
+
         {/* App Version */}
-        <Text style={styles.version}>{"PathWise v1.0.0"}</Text>
+        <Text style={styles.version}>{"PathWise v1.0.2"}</Text>
       </ScrollView>
 
       {/* Settings Modal */}
@@ -491,67 +607,7 @@ export default function ProfileScreen() {
                 keyboardType="phone-pad"
               />
 
-              <Text style={[styles.sectionTitle, { marginTop: 12 }]}>App Theme</Text>
-              <View style={styles.themeToggleRow}>
-                {(["black", "white", "cream"] as ThemeType[]).map((t) => (
-                  <MotiView
-                    key={t}
-                    animate={{ scale: selectedTheme === t ? 1.05 : 1 }}
-                    transition={{ type: "spring", damping: 12, stiffness: 200 }}
-                  >
-                    <TouchableOpacity
-                      style={[
-                        styles.themeBtn,
-                        selectedTheme === t && styles.themeBtnActive,
-                      ]}
-                      onPress={() => handleThemeSelect(t)}
-                    >
-                      <Ionicons
-                        name={t === "black" ? "moon" : t === "white" ? "sunny" : "leaf"}
-                        size={20}
-                        color={selectedTheme === t ? colors.primary : colors.textMuted}
-                      />
-                      <Text
-                        style={[
-                          styles.themeBtnText,
-                          selectedTheme === t && { color: colors.primary, fontWeight: "bold" },
-                        ]}
-                      >
-                        {t.charAt(0).toUpperCase() + t.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  </MotiView>
-                ))}
-              </View>
 
-              <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Accent Color</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 12, justifyContent: "center" }}>
-                {ACCENT_COLORS.map((c) => (
-                  <MotiView
-                    key={c.hex}
-                    animate={{ scale: colors.primary === c.hex ? 1.15 : 1 }}
-                    transition={{ type: "spring", damping: 12, stiffness: 200 }}
-                  >
-                    <TouchableOpacity
-                      onPress={() => handleColorSelect(c.hex)}
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        backgroundColor: c.hex,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        borderWidth: 2,
-                        borderColor: colors.primary === c.hex ? colors.text : "transparent",
-                      }}
-                    >
-                      {colors.primary === c.hex && (
-                        <Ionicons name="checkmark" size={20} color="#fff" />
-                      )}
-                    </TouchableOpacity>
-                  </MotiView>
-                ))}
-              </View>
 
               <GradientButton
                 label="Save Settings"
@@ -622,7 +678,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: {
     padding: Spacing.lg,
-    paddingTop: 20,
+    paddingTop: 40,
     gap: Spacing.lg,
     paddingBottom: 40,
   },
