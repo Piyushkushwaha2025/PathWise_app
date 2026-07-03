@@ -5,6 +5,7 @@ import { Stack } from "expo-router";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import {
   useFonts,
@@ -101,8 +102,10 @@ export default function RootLayout() {
   return (
     <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
       <QueryClientProvider client={queryClient}>
-        <StatusBar style="light" />
-        <RootLayoutInner />
+        <SafeAreaProvider>
+          <StatusBar style="light" />
+          <RootLayoutInner />
+        </SafeAreaProvider>
       </QueryClientProvider>
     </ClerkProvider>
   );

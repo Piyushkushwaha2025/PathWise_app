@@ -34,7 +34,7 @@ export default function SubscriptionScreen() {
         <Text style={styles.tierDesc}>Perfect to get started</Text>
 
         <View style={styles.priceRow}>
-          <Text style={styles.price}>$0</Text>
+          <Text style={styles.price}>₹0</Text>
           <Text style={styles.priceMonth}>/month</Text>
         </View>
 
@@ -70,7 +70,7 @@ export default function SubscriptionScreen() {
         <Text style={styles.tierDesc}>For serious learners</Text>
 
         <View style={styles.priceRow}>
-          <Text style={styles.price}>$9</Text>
+          <Text style={styles.price}>₹59</Text>
           <Text style={styles.priceMonth}>/month</Text>
         </View>
 

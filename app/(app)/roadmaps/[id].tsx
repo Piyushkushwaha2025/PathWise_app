@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Linking,
   LayoutAnimation,
+  Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { MotiView } from "moti";
@@ -65,6 +66,7 @@ export default function RoadmapDetailScreen() {
 
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+  const mdStyles = React.useMemo(() => getMarkdownStyles(colors), [colors]);
 
   if (isLoadingCustom || isLoadingCatalog) {
     return (
@@ -96,6 +98,17 @@ export default function RoadmapDetailScreen() {
       action: "enroll",
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const handleResourcePress = (action: () => void) => {
+    if (!isEnrolled) {
+      Alert.alert(
+        "🔒 Enrollment Required",
+        "Aapko is roadmap ke resources ko access karne ke liye pehle enroll karna hoga. Upar diye gaye 'Enroll to Track Progress' button pe click karein!"
+      );
+      return;
+    }
+    action();
   };
 
   const handleToggleCheck = (title: string) => {
@@ -429,7 +442,7 @@ export default function RoadmapDetailScreen() {
                                           {(articleContent || articleUrl) && (
                                             <TouchableOpacity
                                               style={styles.resourceBtn}
-                                              onPress={() => {
+                                              onPress={() => handleResourcePress(() => {
                                                 if (articleContent)
                                                   setOpenArticle(
                                                     articleContent,
@@ -439,7 +452,7 @@ export default function RoadmapDetailScreen() {
                                                   articleUrl !== "#"
                                                 )
                                                   Linking.openURL(articleUrl);
-                                              }}
+                                              })}
                                             >
                                               <FileText
                                                 size={12}
@@ -456,9 +469,9 @@ export default function RoadmapDetailScreen() {
                                             videoUrl !== "Upcoming" && (
                                               <TouchableOpacity
                                                 style={styles.resourceBtn}
-                                                onPress={() =>
+                                                onPress={() => handleResourcePress(() =>
                                                   Linking.openURL(videoUrl)
-                                                }
+                                                )}
                                               >
                                                 <Play
                                                   size={12}
@@ -475,9 +488,9 @@ export default function RoadmapDetailScreen() {
                                           {hindiVideoUrl && (
                                               <TouchableOpacity
                                                 style={styles.resourceBtn}
-                                                onPress={() =>
+                                                onPress={() => handleResourcePress(() =>
                                                   Linking.openURL(hindiVideoUrl)
-                                                }
+                                                )}
                                               >
                                                 <Play size={12} color="#f87171" />
                                                 <Text style={styles.resourceTextRed}>
@@ -489,9 +502,9 @@ export default function RoadmapDetailScreen() {
                                           {englishVideoUrl && (
                                               <TouchableOpacity
                                                 style={styles.resourceBtn}
-                                                onPress={() =>
+                                                onPress={() => handleResourcePress(() =>
                                                   Linking.openURL(englishVideoUrl)
-                                                }
+                                                )}
                                               >
                                                 <Play size={12} color="#f87171" />
                                                 <Text style={styles.resourceTextRed}>
@@ -505,9 +518,9 @@ export default function RoadmapDetailScreen() {
                                             leetcodeUrl !== "#" && (
                                               <TouchableOpacity
                                                 style={styles.lcBtn}
-                                                onPress={() =>
+                                                onPress={() => handleResourcePress(() =>
                                                   Linking.openURL(leetcodeUrl)
-                                                }
+                                                )}
                                               >
                                                 <Text style={styles.lcText}>
                                                   LC
@@ -517,9 +530,9 @@ export default function RoadmapDetailScreen() {
                                           {gfgUrl && gfgUrl !== "#" && (
                                             <TouchableOpacity
                                               style={styles.gfgBtn}
-                                              onPress={() =>
+                                              onPress={() => handleResourcePress(() =>
                                                 Linking.openURL(gfgUrl)
-                                              }
+                                              )}
                                             >
                                               <Text style={styles.gfgText}>
                                                 GFG
@@ -533,9 +546,9 @@ export default function RoadmapDetailScreen() {
                                             practiceUrl !== "#" && (
                                               <TouchableOpacity
                                                 style={styles.resourceBtn}
-                                                onPress={() =>
+                                                onPress={() => handleResourcePress(() =>
                                                   Linking.openURL(practiceUrl)
-                                                }
+                                                )}
                                               >
                                                 <Code2
                                                   size={12}
@@ -571,36 +584,199 @@ export default function RoadmapDetailScreen() {
       </ScrollView>
 
       {/* Markdown Article Modal */}
-      <Modal visible={!!openArticle} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-              >
-                <FileText size={24} color={colors.primary} />
-                <Text style={styles.modalTitle}>Learning Material</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setOpenArticle(null)}
-                style={styles.closeBtn}
-              >
-                <Ionicons name="close" size={24} color={colors.textDim} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={styles.markdownScroll}
-              contentContainerStyle={styles.markdownInner}
-            >
-              <Markdown style={markdownStyles}>{openArticle || ""}</Markdown>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <ArticleModal 
+        visible={!!openArticle} 
+        content={openArticle || ""} 
+        onClose={() => setOpenArticle(null)} 
+        colors={colors} 
+        styles={styles} 
+        markdownStyles={mdStyles} 
+      />
     </View>
   );
 }
+
+// --- ARTICLE MODAL & PARSER ---
+
+interface CodeBlock {
+  language: string;
+  code: string;
+  originalText: string;
+}
+
+interface Approach {
+  title: string;
+  content: string;
+  codeBlocks: CodeBlock[];
+}
+
+const parseArticleContent = (text: string): Approach[] | null => {
+  if (!text) return null;
+
+  const approachRegex = /(?:^|\n)(?:#*\s*)?((?:Approach|Approch)\s*\d+\s*:[^\n]*)/gi;
+  const matches = [...text.matchAll(approachRegex)];
+  
+  // If there are no approaches, return null so we can render the raw article normally
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const approaches: Approach[] = [];
+  
+  if (matches[0].index !== undefined && matches[0].index > 0) {
+    const intro = text.substring(0, matches[0].index).trim();
+    if (intro) {
+      approaches.push(parseApproach("Intro", intro));
+    }
+  }
+  
+  for (let i = 0; i < matches.length; i++) {
+    const title = matches[i][1].trim();
+    const startIndex = matches[i].index! + matches[i][0].length;
+    const endIndex = i + 1 < matches.length ? matches[i+1].index! : text.length;
+    
+    const content = text.substring(startIndex, endIndex).trim();
+    approaches.push(parseApproach(title, content));
+  }
+  
+  return approaches;
+};
+
+const parseApproach = (title: string, content: string): Approach => {
+  const codeBlockRegex = /```(\w+)\n([\s\S]*?)```/g;
+  const codeBlocks: CodeBlock[] = [];
+  let contentWithoutCode = content;
+  let match;
+  
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    codeBlocks.push({
+      language: match[1].toLowerCase(),
+      code: match[2].trim(),
+      originalText: match[0],
+    });
+    contentWithoutCode = contentWithoutCode.replace(match[0], "");
+  }
+  
+  return {
+    title: title.replace(/^(?:#*\s*)?/, "").trim(),
+    content: contentWithoutCode.trim(),
+    codeBlocks,
+  };
+};
+
+const ArticleModal = ({ visible, content, onClose, colors, styles, markdownStyles }: any) => {
+  const [approaches, setApproaches] = React.useState<Approach[] | null>(null);
+  const [activeApproachIdx, setActiveApproachIdx] = React.useState(0);
+  const [activeLanguage, setActiveLanguage] = React.useState<string>("");
+
+  React.useEffect(() => {
+    if (visible && content) {
+      const parsed = parseArticleContent(content);
+      setApproaches(parsed);
+      setActiveApproachIdx(0);
+      if (parsed && parsed.length > 0 && parsed[0].codeBlocks.length > 0) {
+        setActiveLanguage(parsed[0].codeBlocks[0].language);
+      }
+    }
+  }, [visible, content]);
+
+  const activeApproach = approaches ? approaches[activeApproachIdx] : null;
+
+  if (!visible) return null;
+
+  const renderLanguageTabs = () => {
+    if (!activeApproach || activeApproach.codeBlocks.length === 0) return null;
+    
+    return (
+      <View style={styles.codeTabsContainer}>
+        {activeApproach.codeBlocks.map((cb, idx) => {
+          const isActive = activeLanguage === cb.language;
+          return (
+            <TouchableOpacity 
+              key={idx} 
+              style={[styles.codeTabBtn, isActive && { backgroundColor: colors.primary }]}
+              onPress={() => setActiveLanguage(cb.language)}
+            >
+              <Text style={[styles.codeTabText, isActive && { color: "#fff" }]}>
+                {cb.language.toUpperCase()}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
+
+  const activeCodeBlock = activeApproach?.codeBlocks.find(cb => cb.language === activeLanguage);
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <FileText size={24} color={colors.primary} />
+              <Text style={styles.modalTitle}>Learning Material</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={24} color={colors.textDim} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Approach Switcher */}
+          {approaches !== null && approaches.length > 1 && (
+            <View style={styles.approachTabsWrapper}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.approachTabsContainer}>
+                {approaches.map((appr, idx) => {
+                  const isActive = activeApproachIdx === idx;
+                  return (
+                    <TouchableOpacity 
+                      key={idx}
+                      style={[styles.approachTabBtn, isActive && { backgroundColor: colors.primary + "20", borderColor: colors.primary }]}
+                      onPress={() => {
+                        setActiveApproachIdx(idx);
+                        if (appr.codeBlocks.length > 0) {
+                          setActiveLanguage(appr.codeBlocks[0].language);
+                        }
+                      }}
+                    >
+                      <Text style={[styles.approachTabText, isActive && { color: colors.primary, fontWeight: "600" }]}>
+                        {appr.title}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
+          <ScrollView style={styles.markdownScroll} contentContainerStyle={styles.markdownInner}>
+            {approaches === null ? (
+              <Markdown style={markdownStyles}>{content}</Markdown>
+            ) : (
+              activeApproach && (
+                <>
+                  <Markdown style={markdownStyles}>{activeApproach.content}</Markdown>
+                  
+                  {activeApproach.codeBlocks.length > 0 && (
+                    <View style={styles.codeSection}>
+                      {renderLanguageTabs()}
+                      {activeCodeBlock && (
+                        <Markdown style={markdownStyles}>
+                          {"```" + activeCodeBlock.language + "\n" + activeCodeBlock.code + "\n```"}
+                        </Markdown>
+                      )}
+                    </View>
+                  )}
+                </>
+              )
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 const useStyles = (colors: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
@@ -811,15 +987,19 @@ const useStyles = (colors: any) => StyleSheet.create({
   badgesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 6,
     alignItems: "center",
+    marginTop: 2,
   },
 
   diffBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
+    paddingVertical: 3,
+    borderRadius: 10,
     borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    height: 22,
   },
   diffEasy: {
     backgroundColor: "rgba(16,185,129,0.1)",
@@ -833,43 +1013,51 @@ const useStyles = (colors: any) => StyleSheet.create({
     backgroundColor: "rgba(239,68,68,0.1)",
     borderColor: "rgba(239,68,68,0.2)",
   },
-  diffText: { fontSize: 10, fontWeight: "bold", textTransform: "uppercase" },
+  diffText: { fontSize: 10, fontWeight: "bold", textTransform: "uppercase", lineHeight: 14 },
   diffTextEasy: { color: "#34d399" },
   diffTextMed: { color: "#facc15" },
   diffTextHard: { color: "#f87171" },
   resourceBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
     backgroundColor: colors.surface,
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
+    height: 22,
   },
-  resourceText: { fontSize: 10, fontWeight: "600", color: "#60a5fa" },
-  resourceTextRed: { fontSize: 10, fontWeight: "600", color: "#f87171" },
+  resourceText: { fontSize: 10, fontWeight: "600", color: "#60a5fa", lineHeight: 14 },
+  resourceTextRed: { fontSize: 10, fontWeight: "600", color: "#f87171", lineHeight: 14 },
 
   lcBtn: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 0,
+    borderRadius: 10,
     backgroundColor: "rgba(245,158,11,0.1)",
     borderWidth: 1,
     borderColor: "rgba(245,158,11,0.2)",
+    height: 22,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  lcText: { fontSize: 10, fontWeight: "bold", color: "#f59e0b" },
+  lcText: { fontSize: 10, fontWeight: "bold", color: "#f59e0b", lineHeight: 14 },
 
   gfgBtn: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 0,
+    borderRadius: 10,
     backgroundColor: "rgba(16,185,129,0.1)",
     borderWidth: 1,
     borderColor: "rgba(16,185,129,0.2)",
+    height: 22,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  gfgText: { fontSize: 10, fontWeight: "bold", color: "#10b981" },
+  gfgText: { fontSize: 10, fontWeight: "bold", color: "#10b981", lineHeight: 14 },
 
   modalOverlay: {
     flex: 1,
@@ -899,35 +1087,138 @@ const useStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.background,
     borderRadius: 20,
   },
+  
+  // Approach Switcher Styles
+  approachTabsWrapper: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  approachTabsContainer: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  approachTabBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  approachTabText: {
+    ...Typography.small,
+    color: colors.textDim,
+    fontWeight: "500",
+  },
+
+  // Code Switcher Styles
+  codeSection: {
+    marginTop: Spacing.xl,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  codeTabsContainer: {
+    flexDirection: "row",
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  codeTabBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+  },
+  codeTabText: {
+    ...Typography.small,
+    color: colors.textDim,
+    fontWeight: "bold",
+    fontSize: 10,
+  },
+
   markdownScroll: { flex: 1 },
   markdownInner: { padding: Spacing.xl, paddingBottom: 100 },
 });
 
-const markdownStyles: any = {
+const getMarkdownStyles = (colors: any) => ({
   body: {
-    color: "#9ca3af",
+    color: colors.textDim || "#9ca3af",
     fontSize: 16,
     lineHeight: 24,
   },
-  heading1: { color: "#fff", marginTop: 24, marginBottom: 12 },
-  heading2: { color: "#e5e7eb", marginTop: 20, marginBottom: 10 },
-  heading3: { color: "#d1d5db", marginTop: 16, marginBottom: 8 },
-  link: { color: "#3b82f6" },
+  heading1: { 
+    color: colors.primary,
+    backgroundColor: `${colors.primary}20`,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 24, 
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  heading2: { 
+    color: colors.primary,
+    backgroundColor: `${colors.primary}15`,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginTop: 20, 
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  heading3: { 
+    color: colors.primary,
+    marginTop: 16, 
+    marginBottom: 8,
+  },
+  link: { color: colors.primary },
   code_inline: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-    color: "#f87171",
-    paddingHorizontal: 4,
-    borderRadius: 4,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    color: "#f472b6", // Aesthetic pink for inline code
     fontFamily: "monospace",
+    fontWeight: "600",
+  },
+  strong: {
+    backgroundColor: "transparent",
+    color: "#38bdf8", // Aesthetic sky blue for important/bold words
+    fontWeight: "bold",
+  },
+  em: {
+    backgroundColor: "transparent",
+    color: "#a78bfa", // Purple text for italics
+    fontStyle: "italic",
   },
   code_block: {
-    backgroundColor: "rgba(0,0,0,0.5)",
-    color: "#e5e7eb",
+    backgroundColor: colors.surface, 
+    color: colors.text, 
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     fontFamily: "monospace",
     marginVertical: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    borderColor: colors.border,
+    fontSize: 14,
+    lineHeight: 22,
   },
-};
+  fence: {
+    backgroundColor: colors.surface,
+    color: colors.text,
+    padding: 16,
+    borderRadius: 12,
+    fontFamily: "monospace",
+    marginVertical: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+});

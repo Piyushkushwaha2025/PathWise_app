@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="NONE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="24746a27-06b2-422d-b194-c358cb91da96" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/app.json" beforeDir="false" afterPath="$PROJECT_DIR$/app.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/_layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/dashboard.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/profile.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/profile.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/roadmaps/create.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/roadmaps/create.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/roadmaps/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/roadmaps/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/subscription.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/subscription.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/layout/TabBar.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/layout/TabBar.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/store/useThemeStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/store/useThemeStore.ts" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1,
+  &quot;fromUser&quot;: false
+}</component>
+  <component name="ProjectId" id="3FqxZ9ydE0qC16uLwCi9F7vCbDi" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "git-widget-placeholder": "master",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "D:/AI/LearnPath-AI/PathWise_Versions/v1.0.0",
+    "settings.editor.selected.configurable": "AndroidSdkUpdater"
+  }
+}]]></component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="24746a27-06b2-422d-b194-c358cb91da96" name="Changes" comment="" />
+      <created>1782816453786</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1782816453786</updated>
+    </task>
+    <servers />
+  </component>
+</project>

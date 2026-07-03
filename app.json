@@ -2,7 +2,7 @@
   "expo": {
     "name": "PathWise",
     "slug": "pathwise-app",
-    "version": "1.0.1",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -63,7 +63,7 @@
           "icon": "./assets/favicon.png",
           "color": "#ffffff",
           "sounds": [
-            "./assets/sounds/ting.mp3",
+            "./assets/sounds/mario_coin.mp3",
             "./assets/sounds/mario_death.mp3"
           ]
         }
@@ -99,6 +99,9 @@
         "projectId": "6ec620f1-e4e6-4862-8223-6418976b86e4"
       }
     },
-    "owner": "its123"
+    "owner": "its123",
+    "updates": {
+      "url": "https://u.expo.dev/6ec620f1-e4e6-4862-8223-6418976b86e4"
+    }
   }
 }

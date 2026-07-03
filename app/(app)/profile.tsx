@@ -12,9 +12,13 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import * as Notifications from "expo-notifications";
+import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
+import { useNotificationStore } from "../../store/useNotificationStore";
 import { useUser, useClerk } from "@clerk/clerk-expo";
 import { MotiView } from "moti";
 import { LinearGradient } from "expo-linear-gradient";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { GlassCard } from "../../components/ui/GlassCard";
@@ -51,6 +55,21 @@ function SubscriptionBadge({ tier }: { tier: SubBadge }) {
     </LinearGradient>
   );
 }
+
+const scheduleTestNotification = async () => {
+  const { customRingtoneEnabled, addNotification } = useNotificationStore.getState();
+  
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: "PathWise 🚀",
+      body: "Notifications are working perfectly!",
+      sound: customRingtoneEnabled ? "mario_coin.wav" : true,
+    },
+    trigger: null,
+  });
+  
+  addNotification("Test Notification Fired", "You tested the notification system successfully.");
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -92,8 +111,9 @@ export default function ProfileScreen() {
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>(currentTheme);
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
+  const [isNotificationsVisible, setNotificationsVisible] = useState(false);
 
-  // Calculate total XP (based on topics)
+  // Stats Datae total XP (based on topics)
   const totalCompletedTopics = Object.values(progress).reduce(
     (acc, arr) => acc + arr.length,
     0,
@@ -266,19 +286,7 @@ export default function ProfileScreen() {
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={{ position: "absolute", top: 60, right: 24, zIndex: 10 }}>
-          <TouchableOpacity
-            onPress={() => {
-              setFirstName(user?.firstName || "");
-              setLastName(user?.lastName || "");
-              setPhone((user?.unsafeMetadata?.phone as string) || "");
-              setSelectedTheme(currentTheme);
-              setSettingsVisible(true);
-            }}
-          >
-            <Ionicons name="settings-outline" size={24} color={colors.text} />
-          </TouchableOpacity>
-        </View>
+
         {/* Avatar Section */}
         <MotiView
           from={{ opacity: 0, translateY: -10 }}
@@ -318,6 +326,20 @@ export default function ProfileScreen() {
             {user?.primaryEmailAddress?.emailAddress ?? ""}
           </Text>
           <SubscriptionBadge tier="FREE" />
+
+          <TouchableOpacity
+            style={[styles.editProfileBtn, { backgroundColor: `${colors.primary}1A`, borderColor: colors.primary }]}
+            onPress={() => {
+              setFirstName(user?.firstName || "");
+              setLastName(user?.lastName || "");
+              setPhone((user?.unsafeMetadata?.phone as string) || "");
+              setSelectedTheme(currentTheme);
+              setSettingsVisible(true);
+            }}
+          >
+            <Ionicons name="pencil" size={16} color={colors.primary} />
+            <Text style={[styles.editProfileBtnText, { color: colors.primary }]}>Edit Profile</Text>
+          </TouchableOpacity>
         </MotiView>
 
         {/* Stats Grid */}
@@ -407,6 +429,25 @@ export default function ProfileScreen() {
                 color={colors.primary}
               />
               <Text style={styles.menuLabel}>{"Change Password"}</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setNotificationsVisible(true)}
+            >
+              <Ionicons
+                name="notifications-outline"
+                size={20}
+                color={colors.primary}
+              />
+              <Text style={styles.menuLabel}>{"Notifications Hub"}</Text>
               <Ionicons
                 name="chevron-forward"
                 size={18}
@@ -576,13 +617,19 @@ export default function ProfileScreen() {
           <MotiView
             from={{ translateY: 300 }}
             animate={{ translateY: 0 }}
-            transition={{ type: "spring", damping: 20 }}
+            transition={{ type: "timing", duration: 300 }}
             style={styles.modalContent}
           >
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>Settings</Text>
 
-            <ScrollView contentContainerStyle={{ gap: 12 }} showsVerticalScrollIndicator={false}>
+            <KeyboardAwareScrollView 
+              contentContainerStyle={{ gap: 12, paddingBottom: 40 }} 
+              showsVerticalScrollIndicator={false}
+              enableOnAndroid={true}
+              extraScrollHeight={20}
+              keyboardShouldPersistTaps="handled"
+            >
               <Text style={styles.sectionTitle}>Profile Info</Text>
               <TextInput
                 style={styles.input}
@@ -623,7 +670,7 @@ export default function ProfileScreen() {
               >
                 <Text style={styles.closeBtnText}>Cancel</Text>
               </TouchableOpacity>
-            </ScrollView>
+            </KeyboardAwareScrollView>
           </MotiView>
         </View>
       </Modal>
@@ -634,7 +681,7 @@ export default function ProfileScreen() {
           <MotiView
             from={{ translateY: 300 }}
             animate={{ translateY: 0 }}
-            transition={{ type: "spring", damping: 20 }}
+            transition={{ type: "timing", duration: 300 }}
             style={styles.modalContent}
           >
             <View style={styles.modalHandle} />
@@ -643,8 +690,15 @@ export default function ProfileScreen() {
               How can we improve PathWise for you?
             </Text>
 
-            <TextInput
-              style={styles.feedbackInput}
+            <KeyboardAwareScrollView 
+              contentContainerStyle={{ gap: 12, paddingBottom: 40 }} 
+              showsVerticalScrollIndicator={false}
+              enableOnAndroid={true}
+              extraScrollHeight={20}
+              keyboardShouldPersistTaps="handled"
+            >
+              <TextInput
+                style={styles.feedbackInput}
               placeholder="Tell us what you think..."
               placeholderTextColor={colors.textMuted}
               multiline
@@ -661,15 +715,21 @@ export default function ProfileScreen() {
               style={{ marginTop: 10 }}
             />
 
-            <TouchableOpacity
-              onPress={() => setFeedbackVisible(false)}
-              style={styles.closeBtn}
-            >
-              <Text style={styles.closeBtnText}>Cancel</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setFeedbackVisible(false)}
+                style={styles.closeBtn}
+              >
+                <Text style={styles.closeBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </KeyboardAwareScrollView>
           </MotiView>
         </View>
       </Modal>
+
+      <NotificationsBottomSheet 
+        isVisible={isNotificationsVisible} 
+        onClose={() => setNotificationsVisible(false)} 
+      />
     </View>
   );
 }
@@ -699,6 +759,20 @@ const useStyles = (colors: any) => StyleSheet.create({
     justifyContent: "center",
   },
   avatarInitial: { ...Typography.h1, color: "#fff", fontSize: 36 },
+  editProfileBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  editProfileBtnText: {
+    ...Typography.label,
+    fontWeight: "bold",
+  },
   editBadge: {
     position: "absolute",
     bottom: 0,

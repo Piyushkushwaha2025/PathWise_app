@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Typography, Spacing } from "../../../constants/theme";
@@ -92,7 +93,17 @@ export default function RoadmapsScreen() {
         >
           <TouchableOpacity
             style={[styles.card, isEnrolled && styles.cardEnrolled]}
-            onPress={() => router.push(`/(app)/roadmaps/${roadmap.id}`)}
+            onPress={() => {
+              const isDSA = roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa");
+              if (!isDSA) {
+                Alert.alert(
+                  "Hold up! 🛑",
+                  "Bhai pehle DSA toh complete kar le! Baki roadmaps aaram kar rahe hain jab tak tumhara Logic build nahi hota! 😂"
+                );
+                return;
+              }
+              router.push(`/(app)/roadmaps/${roadmap.id}`);
+            }}
           >
             <View style={styles.cardHeaderRow}>
             <View

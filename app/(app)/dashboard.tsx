@@ -8,7 +8,9 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import {
@@ -20,6 +22,8 @@ import { useEnrollments } from "../../hooks/useEnrollments";
 import { useProgress } from "../../hooks/useProgress";
 import { useRouter } from "expo-router";
 import { MotiView } from "moti";
+import { Ionicons } from "@expo/vector-icons";
+import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
 import {
   BrainCircuit,
   Star,
@@ -40,6 +44,7 @@ const IconMap: Record<string, any> = {
 export default function DashboardScreen() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
+  const [isNotificationsVisible, setNotificationsVisible] = useState(false);
   
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
@@ -94,10 +99,21 @@ export default function DashboardScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.header}>
-        <BrainCircuit size={40} color={colors.primary} />
-        <Text style={styles.title}>Your Dashboard</Text>
+    <KeyboardAwareScrollView 
+      style={styles.container} 
+      contentContainerStyle={styles.content}
+      enableOnAndroid={true}
+      extraScrollHeight={20}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={[styles.header, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <BrainCircuit size={40} color={colors.primary} />
+          <Text style={styles.title}>Your Dashboard</Text>
+        </View>
+        <TouchableOpacity onPress={() => setNotificationsVisible(true)} style={{ padding: 8 }}>
+          <Ionicons name="notifications-outline" size={28} color={colors.text} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -207,7 +223,17 @@ export default function DashboardScreen() {
 
                   <TouchableOpacity
                     style={[styles.viewBtn, { backgroundColor: colorHex }]}
-                    onPress={() => router.push(`/(app)/roadmaps/${roadmap.id}`)}
+                    onPress={() => {
+                      const isDSA = roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa");
+                      if (!isDSA) {
+                        Alert.alert(
+                          "Hold up! 🛑",
+                          "Bhai pehle DSA toh complete kar le! Baki roadmaps aaram kar rahe hain jab tak tumhara Logic build nahi hota! 😂"
+                        );
+                        return;
+                      }
+                      router.push(`/(app)/roadmaps/${roadmap.id}`);
+                    }}
                   >
                     <Text style={styles.viewBtnText}>View Roadmap</Text>
                   </TouchableOpacity>
@@ -313,7 +339,12 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </ScrollView>
+      
+      <NotificationsBottomSheet 
+        isVisible={isNotificationsVisible} 
+        onClose={() => setNotificationsVisible(false)} 
+      />
+    </KeyboardAwareScrollView>
   );
 }
 
