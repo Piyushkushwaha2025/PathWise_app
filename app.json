@@ -2,7 +2,7 @@
   "expo": {
     "name": "PathWise",
     "slug": "pathwise-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -26,9 +26,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",
         "backgroundColor": "#050505"
-      },
-      "package": "com.pathwise.app",
-      "intentFilters": [
+    },
+    "package": "com.pathwise.app",
+    "versionCode": 2,
+    "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
@@ -46,6 +47,10 @@
         }
       ]
     },
+    "notification": {
+      "icon": "./assets/android-icon-monochrome.png",
+      "color": "#050505"
+    },
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro"
@@ -60,11 +65,12 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/favicon.png",
-          "color": "#ffffff",
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#050505",
           "sounds": [
             "./assets/sounds/mario_coin.mp3",
-            "./assets/sounds/mario_death.mp3"
+            "./assets/sounds/mario_death.mp3",
+            "./assets/sounds/ting.mp3"
           ]
         }
       ],
