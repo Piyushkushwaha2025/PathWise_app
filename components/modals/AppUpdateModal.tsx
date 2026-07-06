@@ -1,20 +1,34 @@
 import React from "react";
-import { View, Text, StyleSheet, Modal, TouchableOpacity, Linking, Image } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Linking,
+} from "react-native";
+import { Rocket, ArrowRight, Download } from "lucide-react-native";
 import { useUpdateStore } from "../../store/useUpdateStore";
 import { useThemeStore } from "../../store/useThemeStore";
 import { Typography, Spacing } from "../../constants/theme";
+import { CenterPopModal } from "../ui/CenterPopModal";
 
 export function AppUpdateModal() {
-  const { colors } = useThemeStore();
-  const { updateModalVisible, setUpdateModalVisible, currentVersion, latestVersion, downloadUrl } = useUpdateStore();
+  const colors = useThemeStore((s) => s.colors);
+  const {
+    updateModalVisible,
+    setUpdateModalVisible,
+    currentVersion,
+    latestVersion,
+    downloadUrl,
+    releaseNotes,
+  } = useUpdateStore();
 
   const handleUpgrade = async () => {
+    if (!downloadUrl) return;
     try {
       await Linking.openURL(downloadUrl);
-      // We don't automatically close the modal, as they might want to return to it if download fails,
-      // but typically we'd let them skip to close it.
     } catch (e) {
-      console.error("Failed to open URL", e);
+      console.error("Failed to open download URL", e);
     }
   };
 
@@ -23,108 +37,127 @@ export function AppUpdateModal() {
   };
 
   return (
-    <Modal
-      visible={updateModalVisible}
-      transparent
-      animationType="slide"
-      onRequestClose={handleSkip}
-    >
-      <View style={styles.overlay}>
-        <View style={[styles.container, { backgroundColor: colors.surface }]}>
-          
-          <View style={styles.iconContainer}>
-            <Text style={{ fontSize: 40 }}>🚀</Text>
-          </View>
-
-          <Text style={[styles.title, { color: colors.text }]}>
-            Update Available!
-          </Text>
-          <Text style={[styles.message, { color: colors.textDim }]}>
-            You are currently on version {currentVersion}. A new version ({latestVersion}) of Pathwise AI is ready. We've squashed some bugs and added new features to make your experience even better.
-          </Text>
-
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity 
-              style={[styles.primaryButton, { backgroundColor: colors.primary }]} 
-              onPress={handleUpgrade}
-            >
-              <Text style={styles.primaryButtonText}>Upgrade Now</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.secondaryButton, { borderColor: colors.border }]} 
-              onPress={handleSkip}
-            >
-              <Text style={[styles.secondaryButtonText, { color: colors.textDim }]}>
-                Skip for now
-              </Text>
-            </TouchableOpacity>
-          </View>
-
+    <CenterPopModal isVisible={updateModalVisible} onClose={handleSkip}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        {/* Icon */}
+        <View style={[styles.iconWrapper, { backgroundColor: `${colors.primary}1A` }]}>
+          <Rocket size={32} color={colors.primary} strokeWidth={2} />
         </View>
+
+        <Text style={[styles.title, { color: colors.text }]}>
+          Update Available
+        </Text>
+
+        <View style={styles.versionRow}>
+          <View style={[styles.versionBadge, { backgroundColor: colors.border }]}>
+            <Text style={[styles.versionText, { color: colors.textDim }]}>
+              v{currentVersion}
+            </Text>
+          </View>
+          <ArrowRight size={16} color={colors.textDim} />
+          <View style={[styles.versionBadge, { backgroundColor: colors.primary + "20" }]}>
+            <Text style={[styles.versionText, { color: colors.primary }]}>
+              v{latestVersion}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={[styles.description, { color: colors.textDim }]}>
+          {releaseNotes ||
+            "A new version of PathWise is ready. Update now for the latest features, improvements, and bug fixes."}
+        </Text>
+
+        {/* Buttons */}
+        <TouchableOpacity
+          style={[styles.primaryBtn, { backgroundColor: colors.primary }]}
+          onPress={handleUpgrade}
+          activeOpacity={0.85}
+        >
+          <Download size={18} color="#fff" strokeWidth={2.5} />
+          <Text style={styles.primaryBtnText}>Download Update</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.skipBtn}
+          onPress={handleSkip}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.skipBtnText, { color: colors.textDim }]}>
+            Skip for now
+          </Text>
+        </TouchableOpacity>
       </View>
-    </Modal>
+    </CenterPopModal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
-  },
-  container: {
+  card: {
     width: "100%",
     borderRadius: 24,
+    borderWidth: 1,
     padding: Spacing.xl,
     alignItems: "center",
   },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
-    justifyContent: "center",
+  iconWrapper: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     alignItems: "center",
-    marginBottom: Spacing.lg,
+    justifyContent: "center",
+    marginBottom: Spacing.md,
   },
   title: {
     ...Typography.h2,
-    marginBottom: Spacing.sm,
     textAlign: "center",
+    marginBottom: Spacing.sm,
+    fontSize: 22,
   },
-  message: {
+  versionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: Spacing.md,
+  },
+  versionBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  versionText: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  description: {
     ...Typography.body,
     textAlign: "center",
-    marginBottom: Spacing.xl,
     lineHeight: 22,
+    marginBottom: Spacing.xl,
   },
-  buttonContainer: {
+  primaryBtn: {
     width: "100%",
-    gap: Spacing.md,
-  },
-  primaryButton: {
-    width: "100%",
-    paddingVertical: 16,
-    borderRadius: 16,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 14,
+    borderRadius: 16,
+    marginBottom: Spacing.sm,
   },
-  primaryButtonText: {
+  primaryBtnText: {
     color: "#fff",
-    fontWeight: "bold",
+    fontWeight: "700",
     fontSize: 16,
+    letterSpacing: 0.5,
   },
-  secondaryButton: {
+  skipBtn: {
     width: "100%",
-    paddingVertical: 16,
-    borderRadius: 16,
-    borderWidth: 1,
+    paddingVertical: 12,
     alignItems: "center",
   },
-  secondaryButtonText: {
+  skipBtnText: {
     fontWeight: "600",
-    fontSize: 16,
-  }
+    fontSize: 15,
+  },
 });

@@ -1,23 +1,25 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
+import { SubscriptionSoonModal } from "../../components/modals/SubscriptionSoonModal";
 
 export default function SubscriptionScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+  const [soonModalVisible, setSoonModalVisible] = useState(false);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <Text style={styles.title}>
           Simple, transparent{" "}
@@ -91,12 +93,18 @@ export default function SubscriptionScreen() {
 
         <TouchableOpacity 
           style={styles.buttonSolid}
-          onPress={() => Alert.alert("Coming Soon", "Payment integration (Stripe/Razorpay) will be added soon!")}
+          onPress={() => setSoonModalVisible(true)}
         >
           <Text style={styles.buttonSolidText}>Upgrade to Pro</Text>
         </TouchableOpacity>
       </LinearGradient>
     </ScrollView>
+
+    <SubscriptionSoonModal 
+      isVisible={soonModalVisible} 
+      onClose={() => setSoonModalVisible(false)} 
+    />
+    </>
   );
 }
 

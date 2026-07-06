@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -6,22 +6,30 @@ import {
   TouchableOpacity,
   Switch,
   ScrollView,
+  Modal,
+  Animated,
+  Dimensions,
+  Platform,
 } from "react-native";
-import Modal from "react-native-modal";
 import { Ionicons } from "@expo/vector-icons";
 import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import { useNotificationStore } from "../../store/useNotificationStore";
 import * as Notifications from "expo-notifications";
 
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const ANIMATION_DURATION = 320;
+
 interface Props {
   isVisible: boolean;
   onClose: () => void;
+  type?: "history" | "settings" | "both";
 }
 
-export function NotificationsBottomSheet({ isVisible, onClose }: Props) {
+export function NotificationsBottomSheet({ isVisible, onClose, type = "both" }: Props) {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+
   const {
     remindersEnabled,
     inactivityAlertsEnabled,
@@ -34,38 +42,71 @@ export function NotificationsBottomSheet({ isVisible, onClose }: Props) {
     clearHistory,
   } = useNotificationStore();
 
-  const handleTestNotification = async (type: "coin" | "death") => {
-    const isCoin = type === "coin";
-    const soundFile = isCoin ? "mario_coin.wav" : "mario_death.wav";
-    
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: isCoin ? "PathWise 🚀" : "Streak Broken 💀",
-        body: isCoin ? "Notification working perfectly!" : "You missed a day of learning!",
-        sound: customRingtoneEnabled ? soundFile : true,
-      },
-      trigger: null,
-    });
-    
-    addNotification(
-      isCoin ? "Test Notification Fired" : "Streak Broken Fired", 
-      isCoin ? "You tested the normal notification." : "You tested the streak broken alert."
-    );
-  };
+  const sheetHeight = type === "history" ? SCREEN_HEIGHT * 0.75 : SCREEN_HEIGHT * 0.85;
+
+  // Animated values
+  const translateY = useRef(new Animated.Value(sheetHeight)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const [modalVisible, setModalVisible] = React.useState(false);
+
+  useEffect(() => {
+    if (isVisible) {
+      setModalVisible(true);
+
+      // Sheet — native driver (smooth transforms)
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: ANIMATION_DURATION,
+        useNativeDriver: true,
+      }).start();
+
+      // Backdrop — JS driver (reliable opacity on Android)
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: ANIMATION_DURATION,
+        useNativeDriver: false,
+      }).start();
+    } else {
+      Animated.timing(translateY, {
+        toValue: sheetHeight,
+        duration: ANIMATION_DURATION,
+        useNativeDriver: true,
+      }).start();
+
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: ANIMATION_DURATION,
+        useNativeDriver: false,
+      }).start(({ finished }) => {
+        if (finished) setModalVisible(false);
+      });
+    }
+  }, [isVisible]);
 
   return (
     <Modal
-      isVisible={isVisible}
-      onSwipeComplete={onClose}
-      swipeDirection={["down"]}
-      style={styles.modal}
-      propagateSwipe
+      visible={modalVisible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={onClose}
     >
-      <View style={styles.container}>
+      {/* Dark backdrop */}
+      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+
+      {/* Sheet */}
+      <Animated.View
+        style={[
+          styles.container,
+          { height: sheetHeight, transform: [{ translateY }] },
+        ]}
+      >
+        {/* Drag Handle */}
         <View style={styles.dragHandle} />
-        
+
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Notifications Hub</Text>
+          <Text style={styles.title}>Notifications</Text>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
             <Ionicons name="close" size={24} color={colors.textDim} />
           </TouchableOpacity>
@@ -73,112 +114,106 @@ export function NotificationsBottomSheet({ isVisible, onClose }: Props) {
 
         <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* Settings Section */}
-          <Text style={styles.sectionTitle}>Settings</Text>
-          <View style={styles.settingsGroup}>
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextContent}>
-                <Text style={styles.settingLabel}>Streak Reminders</Text>
-                <Text style={styles.settingDesc}>Daily push notifications to keep you on track</Text>
-              </View>
-              <Switch
-                value={remindersEnabled}
-                onValueChange={setReminders}
-                trackColor={{ false: colors.border, true: colors.primary }}
-              />
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextContent}>
-                <Text style={styles.settingLabel}>Inactivity Alerts</Text>
-                <Text style={styles.settingDesc}>Notify me if I miss learning for 3+ days</Text>
-              </View>
-              <Switch
-                value={inactivityAlertsEnabled}
-                onValueChange={setInactivityAlerts}
-                trackColor={{ false: colors.border, true: colors.primary }}
-              />
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.settingRow}>
-              <View style={styles.settingTextContent}>
-                <Text style={styles.settingLabel}>Custom Ringtone</Text>
-                <Text style={styles.settingDesc}>Play Mario Coin & Death sounds for alerts</Text>
-              </View>
-              <Switch
-                value={customRingtoneEnabled}
-                onValueChange={setCustomRingtone}
-                trackColor={{ false: colors.border, true: colors.primary }}
-              />
-            </View>
-            
-            <View style={styles.divider} />
-            
-            <View style={{ flexDirection: "row", gap: 10, marginTop: Spacing.sm }}>
-              <TouchableOpacity 
-                style={[styles.testBtn, { backgroundColor: `${colors.primary}1A`, borderColor: colors.primary }]}
-                onPress={() => handleTestNotification("coin")}
-              >
-                <Ionicons name="notifications" size={16} color={colors.primary} />
-                <Text style={[styles.testBtnText, { color: colors.primary }]}>Test Mario Coin</Text>
-              </TouchableOpacity>
+          {(type === "settings" || type === "both") && (
+            <>
+              <Text style={styles.sectionTitle}>Settings</Text>
+              <View style={styles.settingsGroup}>
+                <View style={styles.settingRow}>
+                  <View style={styles.settingTextContent}>
+                    <Text style={styles.settingLabel}>Streak Reminders</Text>
+                    <Text style={styles.settingDesc}>Daily push notifications to keep you on track</Text>
+                  </View>
+                  <Switch
+                    value={remindersEnabled}
+                    onValueChange={setReminders}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                  />
+                </View>
+                <View style={styles.divider} />
+                <View style={styles.settingRow}>
+                  <View style={styles.settingTextContent}>
+                    <Text style={styles.settingLabel}>Inactivity Alerts</Text>
+                    <Text style={styles.settingDesc}>Notify me if I miss learning for 3+ days</Text>
+                  </View>
+                  <Switch
+                    value={inactivityAlertsEnabled}
+                    onValueChange={setInactivityAlerts}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                  />
+                </View>
+                <View style={styles.divider} />
+                <View style={styles.settingRow}>
+                  <View style={styles.settingTextContent}>
+                    <Text style={styles.settingLabel}>Custom Ringtone</Text>
+                    <Text style={styles.settingDesc}>Play Mario Coin & Death sounds for alerts</Text>
+                  </View>
+                  <Switch
+                    value={customRingtoneEnabled}
+                    onValueChange={setCustomRingtone}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                  />
+                </View>
 
-              <TouchableOpacity 
-                style={[styles.testBtn, { backgroundColor: `${colors.danger || '#ef4444'}1A`, borderColor: colors.danger || '#ef4444' }]}
-                onPress={() => handleTestNotification("death")}
-              >
-                <Ionicons name="skull" size={16} color={colors.danger || '#ef4444'} />
-                <Text style={[styles.testBtnText, { color: colors.danger || '#ef4444' }]}>Test Mario Death</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+              </View>
+            </>
+          )}
 
           {/* History Section */}
-          <View style={styles.historyHeader}>
-            <Text style={styles.sectionTitle}>History</Text>
-            {history.length > 0 && (
-              <TouchableOpacity onPress={clearHistory}>
-                <Text style={styles.clearText}>Clear</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          {(type === "history" || type === "both") && (
+            <>
+              <View style={styles.historyHeader}>
+                <Text style={styles.sectionTitle}>History</Text>
+                {history.length > 0 && (
+                  <TouchableOpacity onPress={clearHistory}>
+                    <Text style={styles.clearText}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
-          <View style={styles.historyList}>
-            {history.length === 0 ? (
-              <Text style={styles.emptyText}>No recent notifications.</Text>
-            ) : (
-              history.map((item) => (
-                <View key={item.id} style={styles.historyItem}>
-                  <View style={styles.historyIcon}>
-                    <Ionicons name="notifications-outline" size={20} color={colors.primary} />
-                  </View>
-                  <View style={styles.historyContent}>
-                    <Text style={styles.historyTitle}>{item.title}</Text>
-                    <Text style={styles.historyMessage}>{item.message}</Text>
-                    <Text style={styles.historyDate}>
-                      {new Date(item.date).toLocaleDateString()} at {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                </View>
-              ))
-            )}
-          </View>
+              <View style={styles.historyList}>
+                {history.length === 0 ? (
+                  <Text style={styles.emptyText}>No recent notifications.</Text>
+                ) : (
+                  history.map((item) => (
+                    <View key={item.id} style={styles.historyItem}>
+                      <View style={styles.historyIcon}>
+                        <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+                      </View>
+                      <View style={styles.historyContent}>
+                        <Text style={styles.historyTitle}>{item.title}</Text>
+                        <Text style={styles.historyMessage}>{item.message}</Text>
+                        <Text style={styles.historyDate}>
+                          {new Date(item.date).toLocaleDateString()} at{" "}
+                          {new Date(item.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </Text>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            </>
+          )}
         </ScrollView>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }
 
 const useStyles = (colors: any) =>
   StyleSheet.create({
-    modal: {
-      justifyContent: "flex-end",
-      margin: 0,
+    backdrop: {
+      ...StyleSheet.absoluteFill,
+      backgroundColor: "rgba(0, 0, 0, 0.65)",
     },
     container: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
       backgroundColor: colors.surface,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
-      height: "75%",
+      overflow: "hidden",
       paddingTop: 12,
     },
     dragHandle: {
@@ -298,7 +333,7 @@ const useStyles = (colors: any) =>
     },
     historyDate: {
       ...Typography.small,
-      color: colors.textMuted,
+      color: colors.textDim,
       marginTop: 6,
       fontSize: 10,
     },

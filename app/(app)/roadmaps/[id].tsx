@@ -1156,23 +1156,13 @@ const getMarkdownStyles = (colors: any) => ({
   },
   heading1: { 
     color: colors.primary,
-    backgroundColor: `${colors.primary}20`,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
     marginTop: 24, 
     marginBottom: 12,
-    overflow: "hidden",
   },
   heading2: { 
     color: colors.primary,
-    backgroundColor: `${colors.primary}15`,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
     marginTop: 20, 
     marginBottom: 10,
-    overflow: "hidden",
   },
   heading3: { 
     color: colors.primary,

@@ -1,3 +1,4 @@
+import "react-native-gesture-handler";
 import "react-native-reanimated";
 import React, { useEffect } from "react";
 import { View, StyleSheet, LogBox } from "react-native";
@@ -7,6 +8,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -22,6 +25,54 @@ import {
 import { JetBrainsMono_400Regular } from "@expo-google-fonts/jetbrains-mono";
 import { tokenCache } from "../lib/clerk";
 import { Colors } from "../constants/theme";
+import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
+
+// Global notification handler — show banner even when app is open
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+// Setup Android notification channel once at startup
+if (Platform.OS === "android") {
+  // Delete old channels with wrong sound settings
+  Notifications.deleteNotificationChannelAsync("pathwise-default");
+  Notifications.deleteNotificationChannelAsync("pathwise-coin");
+  Notifications.deleteNotificationChannelAsync("pathwise-streak");
+
+  Notifications.setNotificationChannelAsync("pathwise-default-v2", {
+    name: "PathWise Notifications",
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: "ting.mp3",
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: "#3b82f6",
+    showBadge: true,
+  });
+
+  Notifications.setNotificationChannelAsync("pathwise-coin-v2", {
+    name: "PathWise — Achievements",
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: "mario_coin.mp3",
+    vibrationPattern: [0, 100, 100, 100],
+    lightColor: "#f59e0b",
+    showBadge: true,
+  });
+
+  Notifications.setNotificationChannelAsync("pathwise-streak-v2", {
+    name: "PathWise — Streak Alerts",
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: "mario_death.mp3",
+    vibrationPattern: [0, 500, 200, 500],
+    lightColor: "#ef4444",
+    showBadge: true,
+  });
+}
 
 import { useThemeStore, loadTheme, ThemeType } from "../store/useThemeStore";
 import { useUser } from "@clerk/clerk-expo";
@@ -52,6 +103,14 @@ function RootLayoutInner() {
 
   useEffect(() => {
     SplashScreen.hideAsync();
+
+    // Request notification permission on startup
+    (async () => {
+      const { status: existing } = await Notifications.getPermissionsAsync();
+      if (existing !== "granted") {
+        await Notifications.requestPermissionsAsync();
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -103,8 +162,12 @@ export default function RootLayout() {
     <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
-          <StatusBar style="light" />
-          <RootLayoutInner />
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <BottomSheetModalProvider>
+              <StatusBar style="light" />
+              <RootLayoutInner />
+            </BottomSheetModalProvider>
+          </GestureHandlerRootView>
         </SafeAreaProvider>
       </QueryClientProvider>
     </ClerkProvider>

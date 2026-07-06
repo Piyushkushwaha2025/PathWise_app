@@ -13,9 +13,11 @@ import { Typography, Spacing } from "../../../constants/theme";
 import { useThemeStore } from "../../../store/useThemeStore";
 import { useRoadmapsCatalog } from "../../../hooks/useRoadmaps";
 import { useEnrollments } from "../../../hooks/useEnrollments";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { FlashList } from "@shopify/flash-list";
 import { MotiView } from "moti";
+import { LockedRoadmapModal } from "../../../components/modals/LockedRoadmapModal";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function RoadmapsScreen() {
   const router = useRouter();
@@ -25,12 +27,23 @@ export default function RoadmapsScreen() {
     useEnrollments();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [lockedModalVisible, setLockedModalVisible] = useState(false);
   const colors = useThemeStore((s) => s.colors);
-  const styles = useStyles(colors);
+  const insets = useSafeAreaInsets();
+  const styles = useStyles(colors, insets);
   const isLoading = isLoadingCatalog || isLoadingEnrollments;
 
+  useFocusEffect(
+    useCallback(() => {
+      // Clear search when leaving the screen
+      return () => {
+        setSearchQuery("");
+      };
+    }, [])
+  );
+
   const filteredRoadmaps = roadmapsCatalog.filter((roadmap) =>
-    roadmap.title.toLowerCase().includes(searchQuery.toLowerCase())
+    roadmap.title.toLowerCase().startsWith(searchQuery.toLowerCase())
   );
 
   const renderHeader = () => (
@@ -94,12 +107,10 @@ export default function RoadmapsScreen() {
           <TouchableOpacity
             style={[styles.card, isEnrolled && styles.cardEnrolled]}
             onPress={() => {
-              const isDSA = roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa");
-              if (!isDSA) {
-                Alert.alert(
-                  "Hold up! 🛑",
-                  "Bhai pehle DSA toh complete kar le! Baki roadmaps aaram kar rahe hain jab tak tumhara Logic build nahi hota! 😂"
-                );
+              const lowerTitle = roadmap.title.toLowerCase();
+              const isAllowed = lowerTitle.includes("data structure") || lowerTitle.includes("dsa") || lowerTitle.includes("frontend");
+              if (!isAllowed) {
+                setLockedModalVisible(true);
                 return;
               }
               router.push(`/(app)/roadmaps/${roadmap.id}`);
@@ -143,31 +154,38 @@ export default function RoadmapsScreen() {
 
   return (
     <View style={styles.container}>
+      {renderHeader()}
       <FlashList
         data={filteredRoadmaps}
         renderItem={renderItem}
-        extraData={colors}
-        ListHeaderComponent={renderHeader}
+        extraData={[searchQuery, colors]}
         ListEmptyComponent={renderEmpty}
         ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      />
+      <LockedRoadmapModal 
+        isVisible={lockedModalVisible} 
+        onClose={() => setLockedModalVisible(false)} 
       />
     </View>
   );
 }
 
-const useStyles = (colors: any) => StyleSheet.create({
+const useStyles = (colors: any, insets: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
   content: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: 20,
+    paddingTop: 10,
     paddingBottom: 40,
   },
   headerContainer: {
+    paddingTop: 10,
+    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
   header: {

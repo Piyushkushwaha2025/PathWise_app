@@ -24,6 +24,8 @@ import { useRouter } from "expo-router";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
+import { LockedRoadmapModal } from "../../components/modals/LockedRoadmapModal";
+import { AppUpdateModal } from "../../components/modals/AppUpdateModal";
 import {
   BrainCircuit,
   Star,
@@ -45,6 +47,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [isNotificationsVisible, setNotificationsVisible] = useState(false);
+  const [lockedModalVisible, setLockedModalVisible] = useState(false);
   
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
@@ -99,13 +102,17 @@ export default function DashboardScreen() {
   };
 
   return (
-    <KeyboardAwareScrollView 
-      style={styles.container} 
-      contentContainerStyle={styles.content}
-      enableOnAndroid={true}
-      extraScrollHeight={20}
-      keyboardShouldPersistTaps="handled"
-    >
+    <View style={{ flex: 1 }}>
+      <KeyboardAwareScrollView 
+        style={styles.container} 
+        contentContainerStyle={styles.content}
+        enableOnAndroid={true}
+        extraScrollHeight={20}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        overScrollMode="never"
+        bounces={true}
+      >
       <View style={[styles.header, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <BrainCircuit size={40} color={colors.primary} />
@@ -167,77 +174,77 @@ export default function DashboardScreen() {
             return (
               <MotiView 
                 key={roadmap.id} 
-                style={styles.card}
                 from={{ opacity: 0, translateY: 20 }}
                 animate={{ opacity: 1, translateY: 0 }}
                 transition={{ delay: index * 100, type: "timing", duration: 400 }}
+                style={{ marginBottom: 16 }}
               >
-                {progressPercent === 100 && (
-                  <MotiView
-                    style={styles.starBadge}
-                    from={{ rotate: "0deg" }}
-                    animate={{ rotate: "360deg" }}
-                    transition={{ loop: true, type: "timing", duration: 6000 }}
-                  >
-                    <Star size={24} color="#facc15" fill="#facc15" />
-                  </MotiView>
-                )}
-
-                <View
-                  style={[
-                    styles.iconBox,
-                    {
-                      backgroundColor: `${colorHex}33`,
-                      borderColor: `${colorHex}4d`,
-                    },
-                  ]}
+                <TouchableOpacity
+                  style={[styles.card, { marginBottom: 0 }]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    const lowerTitle = roadmap.title.toLowerCase();
+                    const isAllowed = lowerTitle.includes("data structure") || lowerTitle.includes("dsa") || lowerTitle.includes("frontend");
+                    if (!isAllowed) {
+                      setLockedModalVisible(true);
+                      return;
+                    }
+                    router.push(`/(app)/roadmaps/${roadmap.id}`);
+                  }}
                 >
-                  <Icon size={32} color={colorHex} />
-                </View>
+                  {progressPercent === 100 && (
+                    <MotiView
+                      style={styles.starBadge}
+                      from={{ rotate: "0deg" }}
+                      animate={{ rotate: "360deg" }}
+                      transition={{ loop: true, type: "timing", duration: 6000 }}
+                    >
+                      <Star size={24} color="#facc15" fill="#facc15" />
+                    </MotiView>
+                  )}
 
-                <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle}>{roadmap.title}</Text>
-                  <Text style={styles.cardSubtitle}>
-                    {roadmap.modules?.length || 0} Modules • By{" "}
-                    {roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa") 
-                      ? "Strivers" 
-                      : roadmap.author === "roadmap.sh" 
-                        ? "Pathwise" 
-                        : roadmap.author || "Pathwise"}
-                  </Text>
-
-                  <View style={styles.progressContainer}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <View
                       style={[
-                        styles.progressBar,
+                        styles.iconBox,
                         {
-                          width: `${progressPercent}%`,
-                          backgroundColor: colorHex,
+                          backgroundColor: `${colorHex}33`,
+                          borderColor: `${colorHex}4d`,
+                          marginBottom: 0,
                         },
                       ]}
-                    />
+                    >
+                      <Icon size={32} color={colorHex} />
+                    </View>
                   </View>
-                  <Text style={styles.progressText}>
-                    {progressPercent}% Complete
-                  </Text>
 
-                  <TouchableOpacity
-                    style={[styles.viewBtn, { backgroundColor: colorHex }]}
-                    onPress={() => {
-                      const isDSA = roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa");
-                      if (!isDSA) {
-                        Alert.alert(
-                          "Hold up! 🛑",
-                          "Bhai pehle DSA toh complete kar le! Baki roadmaps aaram kar rahe hain jab tak tumhara Logic build nahi hota! 😂"
-                        );
-                        return;
-                      }
-                      router.push(`/(app)/roadmaps/${roadmap.id}`);
-                    }}
-                  >
-                    <Text style={styles.viewBtnText}>View Roadmap</Text>
-                  </TouchableOpacity>
-                </View>
+                  <View style={styles.cardContent}>
+                    <Text style={styles.cardTitle}>{roadmap.title}</Text>
+                    <Text style={styles.cardSubtitle}>
+                      {roadmap.modules?.length || 0} Modules • By{" "}
+                      {roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa") 
+                        ? "Strivers" 
+                        : roadmap.author === "roadmap.sh" 
+                          ? "Pathwise" 
+                          : roadmap.author || "Pathwise"}
+                    </Text>
+
+                    <View style={styles.progressContainer}>
+                      <View
+                        style={[
+                          styles.progressBar,
+                          {
+                            width: `${progressPercent}%`,
+                            backgroundColor: colorHex,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.progressText, { marginBottom: 0 }]}>
+                      {progressPercent}% Complete
+                    </Text>
+                  </View>
+                </TouchableOpacity>
               </MotiView>
             );
           })
@@ -260,37 +267,46 @@ export default function DashboardScreen() {
               return (
                 <MotiView
                   key={roadmap.id}
-                  style={[styles.card, { borderColor: `${colorHex}4d` }]}
                   from={{ opacity: 0, translateY: 20 }}
                   animate={{ opacity: 1, translateY: 0 }}
                   transition={{ delay: index * 100, type: "timing", duration: 400 }}
+                  style={{ marginBottom: 16 }}
                 >
-                  <View
-                    style={[
-                      styles.iconBox,
-                      {
-                        backgroundColor: `${colorHex}33`,
-                        borderColor: `${colorHex}4d`,
-                      },
-                    ]}
-                  >
-                    <Sparkles size={32} color={colorHex} />
-                  </View>
-                  <View style={styles.cardContent}>
-                    <Text style={styles.cardTitle}>{roadmap.title}</Text>
-                    <Text style={styles.cardSubtitle}>
-                      {roadmap.modules?.length || 0} AI Modules • For "
-                      {roadmap.topic}"
-                    </Text>
-                    <TouchableOpacity
-                      style={[styles.viewBtn, { backgroundColor: colorHex }]}
-                      onPress={() =>
-                        router.push(`/(app)/roadmaps/${roadmap.id}`)
+                  <TouchableOpacity
+                    style={[styles.card, { borderColor: `${colorHex}4d`, marginBottom: 0 }]}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      const lowerTitle = roadmap.title.toLowerCase();
+                      const isAllowed = lowerTitle.includes("data structure") || lowerTitle.includes("dsa") || lowerTitle.includes("frontend");
+                      if (!isAllowed) {
+                        setLockedModalVisible(true);
+                        return;
                       }
-                    >
-                      <Text style={styles.viewBtnText}>View Roadmap</Text>
-                    </TouchableOpacity>
-                  </View>
+                      router.push(`/(app)/roadmaps/${roadmap.id}`);
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <View
+                        style={[
+                          styles.iconBox,
+                          {
+                            backgroundColor: `${colorHex}33`,
+                            borderColor: `${colorHex}4d`,
+                            marginBottom: 0,
+                          },
+                        ]}
+                      >
+                        <Sparkles size={32} color={colorHex} />
+                      </View>
+                    </View>
+                    <View style={styles.cardContent}>
+                      <Text style={styles.cardTitle}>{roadmap.title}</Text>
+                      <Text style={[styles.cardSubtitle, { marginBottom: 0 }]}>
+                        {roadmap.modules?.length || 0} AI Modules • For "
+                        {roadmap.topic}"
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
                 </MotiView>
               );
             })}
@@ -339,12 +355,21 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      </KeyboardAwareScrollView>
+      
+      <LockedRoadmapModal 
+        isVisible={lockedModalVisible} 
+        onClose={() => setLockedModalVisible(false)} 
+      />
       
       <NotificationsBottomSheet 
         isVisible={isNotificationsVisible} 
         onClose={() => setNotificationsVisible(false)} 
+        type="history"
       />
-    </KeyboardAwareScrollView>
+
+      <AppUpdateModal />
+    </View>
   );
 }
 
@@ -449,6 +474,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     borderColor: colors.border,
   },
   exploreBtnText: { color: colors.text, fontWeight: "600" },
+
   generateContainer: {
     backgroundColor: colors.surface,
     padding: 32,

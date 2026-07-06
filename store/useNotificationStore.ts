@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import * as Notifications from "expo-notifications";
 
 interface NotificationHistoryItem {
   id: string;
@@ -34,7 +35,22 @@ export const useNotificationStore = create<NotificationState>()((set) => ({
   setReminders: (enabled) => set({ remindersEnabled: enabled }),
   setInactivityAlerts: (enabled) => set({ inactivityAlertsEnabled: enabled }),
   setCustomRingtone: (enabled) => set({ customRingtoneEnabled: enabled }),
-  addNotification: (title, message) =>
+  addNotification: async (title, message) => {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body: message,
+          sound: "ting.mp3",
+        },
+        trigger: {
+          channelId: "pathwise-default-v2",
+        } as any,
+      });
+    } catch (error) {
+      console.log("Failed to schedule local notification:", error);
+    }
+
     set((state) => ({
       history: [
         {
@@ -45,6 +61,7 @@ export const useNotificationStore = create<NotificationState>()((set) => ({
         },
         ...state.history,
       ].slice(0, 50),
-    })),
+    }));
+  },
   clearHistory: () => set({ history: [] }),
 }));

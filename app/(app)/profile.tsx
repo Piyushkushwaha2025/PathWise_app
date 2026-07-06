@@ -1,25 +1,26 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Alert,
-  Modal,
   TextInput,
   Linking,
 } from "react-native";
+import { ScrollView } from "react-native-gesture-handler";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
+import { UpToDateModal } from "../../components/modals/UpToDateModal";
+import { ChangePasswordModal } from "../../components/modals/ChangePasswordModal";
 import { useNotificationStore } from "../../store/useNotificationStore";
 import { useUser, useClerk } from "@clerk/clerk-expo";
 import { MotiView } from "moti";
 import { LinearGradient } from "expo-linear-gradient";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
+import { SmoothSheet } from "../../components/ui/SmoothSheet";
 import * as ImagePicker from "expo-image-picker";
 import { GlassCard } from "../../components/ui/GlassCard";
 import { GradientButton } from "../../components/ui/GradientButton";
@@ -27,6 +28,7 @@ import { useEnrollments } from "../../hooks/useEnrollments";
 import { useProgress } from "../../hooks/useProgress";
 import { useStats } from "../../hooks/useStats";
 import { useFeedback } from "../../hooks/useFeedback";
+import { useDownloadCount } from "../../hooks/useDownloadCount";
 import { useRoadmapsCatalog, useRoadmaps } from "../../hooks/useRoadmaps";
 import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore, ThemeType } from "../../store/useThemeStore";
@@ -56,21 +58,6 @@ function SubscriptionBadge({ tier }: { tier: SubBadge }) {
   );
 }
 
-const scheduleTestNotification = async () => {
-  const { customRingtoneEnabled, addNotification } = useNotificationStore.getState();
-  
-  await Notifications.scheduleNotificationAsync({
-    content: {
-      title: "PathWise 🚀",
-      body: "Notifications are working perfectly!",
-      sound: customRingtoneEnabled ? "mario_coin.wav" : true,
-    },
-    trigger: null,
-  });
-  
-  addNotification("Test Notification Fired", "You tested the notification system successfully.");
-};
-
 export default function ProfileScreen() {
   const router = useRouter();
   const { user } = useUser();
@@ -99,6 +86,7 @@ export default function ProfileScreen() {
   const { data: catalog = [] } = useRoadmapsCatalog();
   const { data: customRoadmaps = [] } = useRoadmaps();
   const feedbackMutation = useFeedback();
+  const downloadCount = useDownloadCount();
   const { checkForUpdates, currentVersion } = useUpdateStore();
 
   const [feedbackVisible, setFeedbackVisible] = useState(false);
@@ -112,6 +100,8 @@ export default function ProfileScreen() {
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const [isNotificationsVisible, setNotificationsVisible] = useState(false);
+  const [isUpToDateModalVisible, setUpToDateModalVisible] = useState(false);
+  const [isChangePasswordVisible, setChangePasswordVisible] = useState(false);
 
   // Stats Datae total XP (based on topics)
   const totalCompletedTopics = Object.values(progress).reduce(
@@ -126,6 +116,9 @@ export default function ProfileScreen() {
   // Calculate Fully Completed Roadmaps
   const allRoadmaps = [...catalog, ...customRoadmaps];
   let completedRoadmapsCount = 0;
+
+  // Determine Subscription Tier from Clerk User Metadata
+  const userTier = (user?.publicMetadata?.subscriptionTier as SubBadge) || (user?.unsafeMetadata?.subscriptionTier as SubBadge) || "FREE";
 
   enrolledIds.forEach((id) => {
     const roadmap = allRoadmaps.find((r) => r.id === id || r._id === id);
@@ -285,7 +278,7 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {/* Avatar Section */}
         <MotiView
@@ -325,21 +318,7 @@ export default function ProfileScreen() {
           <Text style={styles.email}>
             {user?.primaryEmailAddress?.emailAddress ?? ""}
           </Text>
-          <SubscriptionBadge tier="FREE" />
-
-          <TouchableOpacity
-            style={[styles.editProfileBtn, { backgroundColor: `${colors.primary}1A`, borderColor: colors.primary }]}
-            onPress={() => {
-              setFirstName(user?.firstName || "");
-              setLastName(user?.lastName || "");
-              setPhone((user?.unsafeMetadata?.phone as string) || "");
-              setSelectedTheme(currentTheme);
-              setSettingsVisible(true);
-            }}
-          >
-            <Ionicons name="pencil" size={16} color={colors.primary} />
-            <Text style={[styles.editProfileBtnText, { color: colors.primary }]}>Edit Profile</Text>
-          </TouchableOpacity>
+          <SubscriptionBadge tier={userTier} />
         </MotiView>
 
         {/* Stats Grid */}
@@ -381,6 +360,50 @@ export default function ProfileScreen() {
           <GlassCard style={styles.menuCard}>
             <TouchableOpacity
               style={styles.menuItem}
+              onPress={() => {
+                setFirstName(user?.firstName || "");
+                setLastName(user?.lastName || "");
+                setPhone((user?.unsafeMetadata?.phone as string) || "");
+                setSelectedTheme(currentTheme);
+                setSettingsVisible(true);
+              }}
+            >
+              <Ionicons
+                name="person-outline"
+                size={20}
+                color={colors.primary}
+              />
+              <Text style={styles.menuLabel}>{"Edit Profile"}</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setChangePasswordVisible(true)}
+            >
+              <Ionicons
+                name="lock-closed-outline"
+                size={20}
+                color={colors.primary}
+              />
+              <Text style={styles.menuLabel}>{"Change Password"}</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => router.push("/(app)/subscription")}
             >
               <Ionicons
@@ -391,44 +414,6 @@ export default function ProfileScreen() {
               <Text style={styles.menuLabel}>
                 {"Manage Subscription (Explorer)"}
               </Text>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => Linking.openURL("https://pathwise-beige.vercel.app/")}
-            >
-              <Ionicons
-                name="globe-outline"
-                size={20}
-                color={colors.primary}
-              />
-              <Text style={styles.menuLabel}>{"Visit PathWise Web"}</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => Alert.alert("Change Password", "A secure password reset link will be sent to your email.")}
-            >
-              <Ionicons
-                name="lock-closed-outline"
-                size={20}
-                color={colors.primary}
-              />
-              <Text style={styles.menuLabel}>{"Change Password"}</Text>
               <Ionicons
                 name="chevron-forward"
                 size={18}
@@ -459,29 +444,10 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.menuItem}
-              onPress={() => setFeedbackVisible(true)}
-            >
-              <Ionicons
-                name="chatbubble-outline"
-                size={20}
-                color={colors.primary}
-              />
-              <Text style={styles.menuLabel}>{"Send Feedback"}</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.menuItem}
               onPress={async () => {
                 const hasUpdate = await checkForUpdates(true);
                 if (!hasUpdate) {
-                  Alert.alert("Up to date!", "You are on the latest version.");
+                  setUpToDateModalVisible(true);
                 }
               }}
             >
@@ -502,8 +468,27 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.menuItem}
+              onPress={() => setFeedbackVisible(true)}
+            >
+              <Ionicons
+                name="chatbubble-outline"
+                size={20}
+                color={colors.primary}
+              />
+              <Text style={styles.menuLabel}>{"Send Feedback"}</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => {
-                Linking.openURL("https://github.com/Piyushkushwaha2025/PathWise_app/releases/download/v1.0.2/PathWise.v1.0.2.apk");
+                Linking.openURL("https://github.com/Piyushkushwaha2025/PathWise_app/releases/latest");
               }}
             >
               <Ionicons
@@ -512,8 +497,36 @@ export default function ProfileScreen() {
                 color={colors.primary}
               />
               <Text style={styles.menuLabel}>{"Download App (APK)"}</Text>
+              
+              {downloadCount !== null && (
+                <View style={{ backgroundColor: `${colors.primary}20`, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginRight: 8 }}>
+                  <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '700' }}>
+                    {downloadCount} DLs
+                  </Text>
+                </View>
+              )}
+
               <Ionicons
                 name="open-outline"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => Linking.openURL("https://pathwise-beige.vercel.app/")}
+            >
+              <Ionicons
+                name="globe-outline"
+                size={20}
+                color={colors.primary}
+              />
+              <Text style={styles.menuLabel}>{"Visit PathWise Web"}</Text>
+              <Ionicons
+                name="chevron-forward"
                 size={18}
                 color={colors.textMuted}
               />
@@ -611,124 +624,114 @@ export default function ProfileScreen() {
         <Text style={styles.version}>{"PathWise v" + currentVersion}</Text>
       </ScrollView>
 
-      {/* Settings Modal */}
-      <Modal visible={settingsVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <MotiView
-            from={{ translateY: 300 }}
-            animate={{ translateY: 0 }}
-            transition={{ type: "timing", duration: 300 }}
-            style={styles.modalContent}
+      {/* Edit Profile Sheet */}
+      <SmoothSheet
+        isVisible={settingsVisible}
+        onClose={() => setSettingsVisible(false)}
+        heightFraction={0.78}
+        avoidKeyboard
+      >
+        <ScrollView
+          contentContainerStyle={{ gap: 12, padding: Spacing.lg, paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.modalTitle}>Edit Profile</Text>
+          <Text style={styles.sectionTitle}>Profile Info</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="First Name"
+            placeholderTextColor={colors.textMuted}
+            value={firstName}
+            onChangeText={setFirstName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Last Name (Optional)"
+            placeholderTextColor={colors.textMuted}
+            value={lastName}
+            onChangeText={setLastName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Phone Number (Optional)"
+            placeholderTextColor={colors.textMuted}
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+          />
+          <GradientButton
+            label="Save Changes"
+            onPress={handleSaveSettings}
+            loading={isUpdatingSettings}
+            icon="checkmark"
+            style={{ marginTop: 10 }}
+          />
+          <TouchableOpacity
+            onPress={() => setSettingsVisible(false)}
+            style={styles.closeBtn}
           >
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Settings</Text>
+            <Text style={styles.closeBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SmoothSheet>
 
-            <KeyboardAwareScrollView 
-              contentContainerStyle={{ gap: 12, paddingBottom: 40 }} 
-              showsVerticalScrollIndicator={false}
-              enableOnAndroid={true}
-              extraScrollHeight={20}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={styles.sectionTitle}>Profile Info</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="First Name"
-                placeholderTextColor={colors.textMuted}
-                value={firstName}
-                onChangeText={setFirstName}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Last Name (Optional)"
-                placeholderTextColor={colors.textMuted}
-                value={lastName}
-                onChangeText={setLastName}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Phone Number (Optional)"
-                placeholderTextColor={colors.textMuted}
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-              />
-
-
-
-              <GradientButton
-                label="Save Settings"
-                onPress={handleSaveSettings}
-                loading={isUpdatingSettings}
-                icon="checkmark"
-                style={{ marginTop: 10 }}
-              />
-
-              <TouchableOpacity
-                onPress={() => setSettingsVisible(false)}
-                style={styles.closeBtn}
-              >
-                <Text style={styles.closeBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            </KeyboardAwareScrollView>
-          </MotiView>
-        </View>
-      </Modal>
-
-      {/* Feedback Modal */}
-      <Modal visible={feedbackVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <MotiView
-            from={{ translateY: 300 }}
-            animate={{ translateY: 0 }}
-            transition={{ type: "timing", duration: 300 }}
-            style={styles.modalContent}
+      {/* Feedback Sheet */}
+      <SmoothSheet
+        isVisible={feedbackVisible}
+        onClose={() => setFeedbackVisible(false)}
+        heightFraction={0.6}
+        avoidKeyboard
+      >
+        <ScrollView
+          contentContainerStyle={{ gap: 12, padding: Spacing.lg, paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.modalTitle}>Send Feedback</Text>
+          <Text style={styles.modalSubtitle}>
+            How can we improve PathWise for you?
+          </Text>
+          <TextInput
+            style={styles.feedbackInput}
+            placeholder="Tell us what you think..."
+            placeholderTextColor={colors.textMuted}
+            multiline
+            numberOfLines={4}
+            value={feedbackText}
+            onChangeText={setFeedbackText}
+          />
+          <GradientButton
+            label="Submit Feedback"
+            onPress={handleSubmitFeedback}
+            loading={feedbackMutation.isPending}
+            icon="send"
+            style={{ marginTop: 10 }}
+          />
+          <TouchableOpacity
+            onPress={() => setFeedbackVisible(false)}
+            style={styles.closeBtn}
           >
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Send Feedback</Text>
-            <Text style={styles.modalSubtitle}>
-              How can we improve PathWise for you?
-            </Text>
+            <Text style={styles.closeBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SmoothSheet>
 
-            <KeyboardAwareScrollView 
-              contentContainerStyle={{ gap: 12, paddingBottom: 40 }} 
-              showsVerticalScrollIndicator={false}
-              enableOnAndroid={true}
-              extraScrollHeight={20}
-              keyboardShouldPersistTaps="handled"
-            >
-              <TextInput
-                style={styles.feedbackInput}
-              placeholder="Tell us what you think..."
-              placeholderTextColor={colors.textMuted}
-              multiline
-              numberOfLines={4}
-              value={feedbackText}
-              onChangeText={setFeedbackText}
-            />
+      {/* Notifications Sheet */}
+      <NotificationsBottomSheet
+        isVisible={isNotificationsVisible}
+        onClose={() => setNotificationsVisible(false)}
+        type="settings"
+      />
 
-            <GradientButton
-              label="Submit Feedback"
-              onPress={handleSubmitFeedback}
-              loading={feedbackMutation.isPending}
-              icon="send"
-              style={{ marginTop: 10 }}
-            />
+      <UpToDateModal 
+        isVisible={isUpToDateModalVisible}
+        onClose={() => setUpToDateModalVisible(false)}
+      />
 
-              <TouchableOpacity
-                onPress={() => setFeedbackVisible(false)}
-                style={styles.closeBtn}
-              >
-                <Text style={styles.closeBtnText}>Cancel</Text>
-              </TouchableOpacity>
-            </KeyboardAwareScrollView>
-          </MotiView>
-        </View>
-      </Modal>
-
-      <NotificationsBottomSheet 
-        isVisible={isNotificationsVisible} 
-        onClose={() => setNotificationsVisible(false)} 
+      <ChangePasswordModal
+        isVisible={isChangePasswordVisible}
+        onClose={() => setChangePasswordVisible(false)}
       />
     </View>
   );
