@@ -52,6 +52,9 @@ export function NotificationsBottomSheet({ isVisible, onClose, type = "both" }: 
   useEffect(() => {
     if (isVisible) {
       setModalVisible(true);
+      if (type === "history" || type === "both") {
+        useNotificationStore.getState().markAllAsRead();
+      }
 
       // Sheet — native driver (smooth transforms)
       Animated.timing(translateY, {
@@ -174,10 +177,21 @@ export function NotificationsBottomSheet({ isVisible, onClose, type = "both" }: 
                 {history.length === 0 ? (
                   <Text style={styles.emptyText}>No recent notifications.</Text>
                 ) : (
-                  history.map((item) => (
-                    <View key={item.id} style={styles.historyItem}>
-                      <View style={styles.historyIcon}>
-                        <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+                  history.map((item) => {
+                    let iconName: any = "notifications-outline";
+                    let iconColor = colors.primary;
+                    if (item.type === "success") {
+                      iconName = "checkmark-circle";
+                      iconColor = "#10b981"; // green
+                    } else if (item.type === "alert") {
+                      iconName = "warning";
+                      iconColor = "#ef4444"; // red
+                    }
+
+                    return (
+                    <View key={item.id} style={[styles.historyItem, !item.isRead && { backgroundColor: `${colors.primary}15` }]}>
+                      <View style={[styles.historyIcon, { backgroundColor: `${iconColor}22` }]}>
+                        <Ionicons name={iconName} size={20} color={iconColor} />
                       </View>
                       <View style={styles.historyContent}>
                         <Text style={styles.historyTitle}>{item.title}</Text>
@@ -188,7 +202,8 @@ export function NotificationsBottomSheet({ isVisible, onClose, type = "both" }: 
                         </Text>
                       </View>
                     </View>
-                  ))
+                    );
+                  })
                 )}
               </View>
             </>

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@clerk/clerk-expo";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createApiClient } from "../lib/apiClient";
 import type {
   CustomRoadmap,
@@ -9,11 +10,11 @@ import type {
 
 export function useRoadmaps() {
   const { getToken } = useAuth();
-  const api = createApiClient(getToken);
 
   return useQuery<CustomRoadmap[]>({
     queryKey: ["roadmaps"],
     queryFn: async () => {
+      const api = createApiClient(getToken);
       const res = await api.get<RoadmapsResponse>("/roadmaps/custom");
       return res.data.roadmaps ?? [];
     },
@@ -21,20 +22,75 @@ export function useRoadmaps() {
   });
 }
 
-// Hook to fetch the master catalog from the website
+// Fetches the list of all roadmaps (id, title, color, isPro) from live API
 export function useRoadmapsCatalog() {
-  // We don't necessarily need authentication for the catalog if it's public,
-  // but we can use the same api client for consistency.
   const { getToken } = useAuth();
-  const api = createApiClient(getToken);
 
   return useQuery<CustomRoadmap[]>({
     queryKey: ["roadmapsCatalog"],
     queryFn: async () => {
-      const res = await api.get<RoadmapsResponse>("/roadmaps/catalog");
+      const api = createApiClient(getToken);
+      const res = await api.get<any>("/roadmaps/catalog");
+      if (Array.isArray(res.data)) return res.data;
       return res.data.roadmaps ?? [];
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 30 * 60 * 1000, // 30 min — catalog doesn't change often
+  });
+}
+
+// Fetches ONE full roadmap with all modules+topics from live API
+export function useRoadmapDetail(id: string) {
+  const { getToken } = useAuth();
+
+  return useQuery<any>({
+    queryKey: ["roadmapDetail", id],
+    queryFn: async () => {
+      const cacheKey = `roadmap_detail_${id}`;
+      
+      try {
+        const cachedStr = await AsyncStorage.getItem(cacheKey);
+        if (cachedStr) {
+          let cachedData = JSON.parse(cachedStr);
+          if (cachedData.roadmap) {
+            cachedData = cachedData.roadmap;
+          }
+          
+          // Background fetch to update the cache silently for next time
+          const api = createApiClient(getToken);
+          const ID_MAP: Record<string, string> = {
+            "fullstack": "full-stack",
+            "open-claw": "openclaw",
+            "postgresql": "postgresql-dba",
+            "ruby-on-rails": "rails",
+          };
+          const fetchId = ID_MAP[id] || id;
+          api.get<any>(`/roadmaps/${fetchId}`).then((res) => {
+             const dataToCache = res.data.roadmap ? res.data.roadmap : res.data;
+             AsyncStorage.setItem(cacheKey, JSON.stringify(dataToCache)).catch(()=>{});
+          }).catch(()=>{});
+
+          return cachedData;
+        }
+      } catch (e) {
+        // ignore cache errors
+      }
+
+      // If no cache exists, fetch from network
+      const api = createApiClient(getToken);
+      const ID_MAP: Record<string, string> = {
+        "fullstack": "full-stack",
+        "open-claw": "openclaw",
+        "postgresql": "postgresql-dba",
+        "ruby-on-rails": "rails",
+      };
+      const fetchId = ID_MAP[id] || id;
+      const res = await api.get<any>(`/roadmaps/${fetchId}`);
+      const dataToCache = res.data.roadmap ? res.data.roadmap : res.data;
+      AsyncStorage.setItem(cacheKey, JSON.stringify(dataToCache)).catch(()=>{});
+      return dataToCache;
+    },
+    enabled: !!id,
+    staleTime: 10 * 60 * 1000,
   });
 }
 

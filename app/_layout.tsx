@@ -1,7 +1,7 @@
 import "react-native-gesture-handler";
 import "react-native-reanimated";
 import React, { useEffect } from "react";
-import { View, StyleSheet, LogBox } from "react-native";
+import { View, StyleSheet, LogBox, Image, Animated, useColorScheme } from "react-native";
 import { Stack } from "expo-router";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -95,15 +95,14 @@ const queryClient = new QueryClient({
 
 const CLERK_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 
-function RootLayoutInner() {
+function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
   const { isLoaded } = useAuth();
   const { user } = useUser();
   const colors = useThemeStore((state) => state.colors);
   const initTheme = useThemeStore((state) => state.initTheme);
+  const theme = useThemeStore((state) => state.theme);
 
   useEffect(() => {
-    SplashScreen.hideAsync();
-
     // Request notification permission on startup
     (async () => {
       const { status: existing } = await Notifications.getPermissionsAsync();
@@ -122,17 +121,32 @@ function RootLayoutInner() {
     }
   }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
 
+  useEffect(() => {
+    if (isLoaded && fontsLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+      return;
+    }
+    // Safety timeout: If Clerk or fonts hang for more than 3 seconds, force hide splash
+    const timer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [isLoaded, fontsLoaded]);
+
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(app)" />
-    </Stack>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(app)" />
+        <Stack.Screen name="roadmap/[id]" />
+      </Stack>
+    </View>
   );
 }
 
@@ -148,15 +162,7 @@ export default function RootLayout() {
     JetBrainsMono_400Regular,
   });
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-    const timer = setTimeout(() => {
-      SplashScreen.hideAsync();
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [fontsLoaded, fontError]);
+  // Removed duplicate SplashScreen.hideAsync() so RootLayoutInner can control it
 
   return (
     <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
@@ -165,7 +171,7 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <BottomSheetModalProvider>
               <StatusBar style="light" />
-              <RootLayoutInner />
+              <RootLayoutInner fontsLoaded={fontsLoaded || !!fontError} />
             </BottomSheetModalProvider>
           </GestureHandlerRootView>
         </SafeAreaProvider>

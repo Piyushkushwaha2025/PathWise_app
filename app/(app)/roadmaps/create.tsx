@@ -48,7 +48,7 @@ export default function CreateRoadmapScreen() {
         roadmapId: result.roadmap._id,
         action: "enroll",
       });
-      router.replace(`/(app)/roadmaps/${result.roadmap._id}`);
+      router.replace(`/roadmap/${result.roadmap._id}`);
     } catch {
       setError(
         "Failed to generate roadmap. Make sure your internet and server are running.",

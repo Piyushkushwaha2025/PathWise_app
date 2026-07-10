@@ -15,6 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useUser } from "@clerk/clerk-expo";
 import { Typography } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
+import { useRouter } from "expo-router";
 
 const TABS = [
   {
@@ -53,6 +54,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { user } = useUser();
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+  const router = useRouter();
 
   return (
     <View style={styles.container}>
@@ -79,8 +81,13 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               target: route.key,
               canPreventDefault: true,
             });
+
             if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
+              if (route.name === "roadmaps") {
+                router.navigate("/(app)/roadmaps/");
+              } else {
+                navigation.navigate(route.name);
+              }
             }
           };
 

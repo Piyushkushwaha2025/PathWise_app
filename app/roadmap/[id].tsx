@@ -11,22 +11,24 @@ import {
   LayoutAnimation,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { GlassCard } from "../../../components/ui/GlassCard";
-import { GradientButton } from "../../../components/ui/GradientButton";
-import { ProgressBar } from "../../../components/ui/ProgressBar";
-import { useRoadmaps, useRoadmapsCatalog } from "../../../hooks/useRoadmaps";
-import { useProgress, useSaveProgress } from "../../../hooks/useProgress";
+import { GlassCard } from "../../components/ui/GlassCard";
+import { GradientButton } from "../../components/ui/GradientButton";
+import { ProgressBar } from "../../components/ui/ProgressBar";
+import { useRoadmaps, useRoadmapsCatalog, useRoadmapDetail } from "../../hooks/useRoadmaps";
+import { useProgress, useSaveProgress } from "../../hooks/useProgress";
 import {
   useEnrollments,
   useToggleEnrollment,
-} from "../../../hooks/useEnrollments";
-import { Typography, Spacing } from "../../../constants/theme";
-import { useThemeStore } from "../../../store/useThemeStore";
+} from "../../hooks/useEnrollments";
+import { Typography, Spacing } from "../../constants/theme";
+import { useThemeStore } from "../../store/useThemeStore";
+import { useNotificationStore } from "../../store/useNotificationStore";
 import Markdown from "react-native-markdown-display";
 import {
   ChevronRight,
@@ -42,33 +44,42 @@ import {
 export default function RoadmapDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const addNotification = useNotificationStore((s) => s.addNotification);
 
   const { data: customRoadmaps = [], isLoading: isLoadingCustom } =
     useRoadmaps();
-  const { data: catalogRoadmaps = [], isLoading: isLoadingCatalog } =
-    useRoadmapsCatalog();
+  const { data: liveRoadmap, isLoading: isLoadingDetail } =
+    useRoadmapDetail(id ?? "");
   const { data: progress = {} } = useProgress();
   const { data: enrolledIds = [] } = useEnrollments();
   const saveProgressMutation = useSaveProgress();
   const toggleEnrollment = useToggleEnrollment();
 
-  const allRoadmaps = [...customRoadmaps, ...catalogRoadmaps];
-  const roadmap = allRoadmaps.find((r) => r._id === id || r.id === id);
-  const completedTopics = progress[id ?? ""] ?? [];
+  const { data: catalogRoadmaps = [] } = useRoadmapsCatalog();
+
+  // Use live API data for catalog roadmaps, fallback to custom roadmaps
+  const customRoadmap = customRoadmaps.find((r: any) => r._id === id || r.id === id);
+  const catalogFallback = catalogRoadmaps.find((r: any) => r.id === id);
+  const roadmap = liveRoadmap ?? customRoadmap ?? catalogFallback;
+  const isDSA = roadmap?.title?.toLowerCase().includes("dsa") || roadmap?.title?.toLowerCase().includes("data structure") || roadmap?.title?.toLowerCase().includes("data-structure");
+  const actualRoadmapId = (roadmap?._id || roadmap?.id || id) as string;
+  const completedTopics = progress[actualRoadmapId] ?? [];
   const completedSet = new Set(completedTopics);
-  const isEnrolled = enrolledIds.includes(roadmap?._id || roadmap?.id || "");
+  const isEnrolled = enrolledIds.includes(actualRoadmapId);
 
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     new Set(),
   );
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
+  const [expandedSubgroups, setExpandedSubgroups] = useState<Set<string>>(new Set());
   const [openArticle, setOpenArticle] = useState<string | null>(null);
+  const [showEnrollPrompt, setShowEnrollPrompt] = useState(false);
 
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const mdStyles = React.useMemo(() => getMarkdownStyles(colors), [colors]);
 
-  if (isLoadingCustom || isLoadingCatalog) {
+  if (isLoadingCustom || isLoadingDetail) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={colors.primary} size="large" />
@@ -94,29 +105,21 @@ export default function RoadmapDetailScreen() {
   const handleEnroll = async () => {
     if (isEnrolled) return;
     await toggleEnrollment.mutateAsync({
-      roadmapId: (roadmap._id || roadmap.id) as string,
+      roadmapId: actualRoadmapId,
       action: "enroll",
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    addNotification("Enrolled! 🚀", `You have successfully enrolled in ${roadmap?.title ?? "this roadmap"}.`, "success");
   };
 
   const handleResourcePress = (action: () => void) => {
-    if (!isEnrolled) {
-      Alert.alert(
-        "🔒 Enrollment Required",
-        "Aapko is roadmap ke resources ko access karne ke liye pehle enroll karna hoga. Upar diye gaye 'Enroll to Track Progress' button pe click karein!"
-      );
-      return;
-    }
     action();
   };
 
   const handleToggleCheck = (title: string) => {
     if (!isEnrolled) {
-      toggleEnrollment.mutate({
-        roadmapId: (roadmap._id || roadmap.id) as string,
-        action: "enroll",
-      });
+      setShowEnrollPrompt(true);
+      return;
     }
 
     const newSet = new Set(completedTopics);
@@ -125,10 +128,17 @@ export default function RoadmapDetailScreen() {
     } else {
       newSet.add(title);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      addNotification("Topic Completed! ✅", `Great job completing "${title}". Keep the momentum going!`, "success");
+      
+      if (newSet.size === totalOverall && totalOverall > 0) {
+        setTimeout(() => {
+          addNotification("Roadmap Completed! 🏆", `Incredible work! You have finished the entire ${roadmap?.title ?? "roadmap"}!`, "success");
+        }, 1000);
+      }
     }
 
     saveProgressMutation.mutate({
-      roadmapId: (roadmap._id || roadmap.id) as string,
+      roadmapId: actualRoadmapId,
       completedTopics: Array.from(newSet),
     });
   };
@@ -149,12 +159,45 @@ export default function RoadmapDetailScreen() {
     setExpandedTopics(newSet);
   };
 
+  const toggleSubgroup = (key: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const newSet = new Set(expandedSubgroups);
+    if (newSet.has(key)) newSet.delete(key);
+    else newSet.add(key);
+    setExpandedSubgroups(newSet);
+  };
+
+  // Groups topics by prefix (e.g. "Hosting Options - Shared" → group "Hosting Options")
+  const groupTopicsByPrefix = (topics: any[]) => {
+    const groupMap: Record<string, { title: string; isGroup: true; items: any[] }> = {};
+    const result: any[] = [];
+    topics.forEach((topic) => {
+      const dashIdx = topic.title.indexOf(" - ");
+      if (dashIdx > 0) {
+        const prefix = topic.title.substring(0, dashIdx);
+        const suffix = topic.title.substring(dashIdx + 3);
+        if (!groupMap[prefix]) {
+          const group = { title: prefix, isGroup: true as const, items: [] as any[] };
+          groupMap[prefix] = group;
+          result.push(group);
+        }
+        groupMap[prefix].items.push({ ...topic, shortTitle: suffix });
+      } else {
+        result.push(topic);
+      }
+    });
+    // Ungroup if only 1 item in a group (no point grouping a single item)
+    return result.map((item) =>
+      item.isGroup && item.items.length === 1 ? item.items[0] : item
+    );
+  };
+
   // Calculate overall progress
   let totalOverall = 0;
   let doneOverall = 0;
   roadmap.modules?.forEach((m: any) => {
     m.topics?.forEach((t: any) => {
-      const items = t.objectives || t.problems || (t.hindiVideo || t.englishVideo || t.practiceUrl ? [t] : [t]);
+      const items = (t.objectives?.length > 0 ? t.objectives : null) || (t.problems?.length > 0 ? t.problems : null) || [t];
       items.forEach((obj: any) => {
         totalOverall++;
         const title = typeof obj === "object" ? obj.title : obj;
@@ -165,7 +208,7 @@ export default function RoadmapDetailScreen() {
   const overallProgressPct = totalOverall > 0 ? doneOverall / totalOverall : 0;
 
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root}>
       {/* Top Header matching Web HUD */}
       <View style={styles.hudHeader}>
         <TouchableOpacity onPress={() => router.back()} style={styles.hudBack}>
@@ -179,7 +222,6 @@ export default function RoadmapDetailScreen() {
             <Text style={styles.hudTitle} numberOfLines={1}>
               {roadmap.title}
             </Text>
-            <Text style={styles.hudSubtitle}>360° IMMERSIVE SANDBOX</Text>
           </View>
         </View>
       </View>
@@ -215,14 +257,30 @@ export default function RoadmapDetailScreen() {
 
           {/* Modules List */}
           <View style={styles.modulesContainer}>
-            {roadmap.modules?.map((module: any, mIdx: number) => {
+            {(!roadmap.modules || roadmap.modules.length === 0) ? (
+              <View style={[styles.centered, { marginTop: 40, padding: 20 }]}>
+                <Text style={[styles.errorText, { textAlign: "center", fontSize: 16 }]}>
+                  Roadmap curriculum is currently unavailable.
+                </Text>
+                {roadmap.isPro ? (
+                  <Text style={{ color: colors.textDim, marginTop: 8, textAlign: "center" }}>
+                    This is a Premium roadmap on PathWise and cannot be accessed automatically.
+                  </Text>
+                ) : (
+                  <Text style={{ color: colors.textDim, marginTop: 8, textAlign: "center" }}>
+                    The backend failed to load the curriculum data for this roadmap.
+                  </Text>
+                )}
+              </View>
+            ) : (
+              roadmap.modules?.map((module: any, mIdx: number) => {
               const moduleId = module.id || `m-${mIdx}`;
               const isModuleExpanded = expandedModules.has(moduleId);
 
               let modTotal = 0;
               let modDone = 0;
               module.topics?.forEach((t: any) => {
-                const items = t.objectives || t.problems || [];
+                const items = (t.objectives?.length > 0 ? t.objectives : null) || (t.problems?.length > 0 ? t.problems : null) || [t];
                 items.forEach((obj: any) => {
                   modTotal++;
                   const title = typeof obj === "object" ? obj.title : obj;
@@ -285,300 +343,189 @@ export default function RoadmapDetailScreen() {
                   {/* Topics List */}
                   {isModuleExpanded && (
                     <View style={styles.topicsContainer}>
-                      {module.topics?.map((topic: any, tIdx: number) => {
-                        const topicId = topic.title || `t-${tIdx}`;
-                        const isTopicExpanded = expandedTopics.has(topicId);
+                      {(() => {
+                        const processedTopics = !isDSA
+                          ? groupTopicsByPrefix(module.topics || [])
+                          : (module.topics || []);
 
-                        let topTotal = 0;
-                        let topDone = 0;
-                        const items = topic.objectives || topic.problems || [topic];
-                        items.forEach((obj: any) => {
-                          topTotal++;
-                          const title =
-                            typeof obj === "object" ? obj.title : obj;
-                          if (completedSet.has(title)) topDone++;
-                        });
-                        const topProgress =
-                          topTotal > 0 ? topDone / topTotal : 0;
-                        const topIsCompleted =
-                          topProgress === 1 && topTotal > 0;
+                        const renderTopicItem = (topic: any, topicKey: string) => {
+                          const topicId = topic.title || topicKey;
+                          const isTopicExpanded = expandedTopics.has(topicId);
+                          const displayTitle = topic.shortTitle || topic.title;
 
-                        return (
-                          <View key={topicId} style={styles.topicBlock}>
-                            <TouchableOpacity
-                              style={styles.topicHeader}
-                              onPress={() => toggleTopic(topicId)}
-                            >
-                              <View style={styles.topicHeaderLeft}>
-                                {isTopicExpanded ? (
-                                  <ChevronDown size={16} color={colors.text} />
-                                ) : (
-                                  <ChevronRight size={16} color={colors.textDim} />
-                                )}
-                                <Text
-                                  style={[
-                                    styles.topicTitle,
-                                    topIsCompleted && { color: "#4ade80" },
-                                  ]}
-                                >
-                                  {topic.title}
-                                </Text>
-                              </View>
-                              <View style={styles.topProgressWrap}>
-                                <View style={styles.topProgressTrack}>
-                                  <View
-                                    style={[
-                                      styles.topProgressFill,
-                                      {
-                                        width: `${Math.round(topProgress * 100)}%`,
-                                        backgroundColor: colors.primary,
-                                      },
-                                    ]}
-                                  />
+                          let topTotal = 0;
+                          let topDone = 0;
+                          const items = (topic.objectives?.length > 0 ? topic.objectives : null) || (topic.problems?.length > 0 ? topic.problems : null) || [topic];
+                          items.forEach((obj: any) => {
+                            topTotal++;
+                            const title = typeof obj === "object" ? obj.title : obj;
+                            if (completedSet.has(title)) topDone++;
+                          });
+                          const topProgress = topTotal > 0 ? topDone / topTotal : 0;
+                          const topIsCompleted = topProgress === 1 && topTotal > 0;
+
+                          return (
+                            <View key={topicKey} style={styles.topicBlock}>
+                              <TouchableOpacity
+                                style={styles.topicHeader}
+                                onPress={() => toggleTopic(topicId)}
+                              >
+                                <View style={styles.topicHeaderLeft}>
+                                  {isTopicExpanded ? (
+                                    <ChevronDown size={16} color={colors.text} />
+                                  ) : (
+                                    <ChevronRight size={16} color={colors.textDim} />
+                                  )}
+                                  <Text style={[styles.topicTitle, topIsCompleted && { color: "#4ade80" }]}>
+                                    {displayTitle}
+                                  </Text>
                                 </View>
-                                <Text
-                                  style={[
-                                    styles.topProgressText,
-                                    topIsCompleted && { color: colors.primary },
-                                  ]}
-                                >
-                                  {topDone} / {topTotal}
-                                </Text>
-                              </View>
-                            </TouchableOpacity>
+                                <View style={styles.topProgressWrap}>
+                                  <View style={styles.topProgressTrack}>
+                                    <View style={[styles.topProgressFill, { width: `${Math.round(topProgress * 100)}%`, backgroundColor: colors.primary }]} />
+                                  </View>
+                                  <Text style={[styles.topProgressText, topIsCompleted && { color: colors.primary }]}>
+                                    {topDone} / {topTotal}
+                                  </Text>
+                                </View>
+                              </TouchableOpacity>
 
-                            {/* Problems Grid List */}
-                            {isTopicExpanded && (
-                              <View style={styles.problemsContainer}>
-                                {items.map((obj: any, oIdx: number) => {
-                                  const isComplex = typeof obj === "object";
-                                  const title = isComplex ? obj.title : obj;
-                                  const difficulty =
-                                    isComplex && obj.difficulty
-                                      ? obj.difficulty
-                                      : "Medium";
-                                  const articleContent =
-                                    isComplex && obj.articleContent
-                                      ? obj.articleContent
-                                      : null;
-                                  const articleUrl =
-                                    isComplex && obj.articleUrl
-                                      ? obj.articleUrl
-                                      : null;
-                                  const videoUrl =
-                                    isComplex && obj.videoUrl
-                                      ? obj.videoUrl
-                                      : null;
-                                  const hindiVideoUrl =
-                                    isComplex && obj.hindiVideo?.url
-                                      ? obj.hindiVideo.url
-                                      : null;
-                                  const englishVideoUrl =
-                                    isComplex && obj.englishVideo?.url
-                                      ? obj.englishVideo.url
-                                      : null;
-                                  const leetcodeUrl =
-                                    isComplex && obj.leetcodeUrl
-                                      ? obj.leetcodeUrl
-                                      : null;
-                                  const gfgUrl =
-                                    isComplex && obj.gfgUrl ? obj.gfgUrl : null;
-                                  const practiceUrl =
-                                    isComplex && obj.practiceUrl
-                                      ? obj.practiceUrl
-                                      : null;
+                              {isTopicExpanded && (
+                                <View style={styles.problemsContainer}>
+                                  {items.map((obj: any, oIdx: number) => {
+                                    const isComplex = typeof obj === "object";
+                                    const title = isComplex ? obj.title : obj;
+                                    const difficulty = isComplex && obj.difficulty ? obj.difficulty : "Medium";
+                                    const articleContent = isComplex && obj.articleContent ? obj.articleContent : null;
+                                    const articleUrl = isComplex && obj.articleUrl ? obj.articleUrl : null;
+                                    const videoUrl = isComplex && obj.videoUrl ? obj.videoUrl : null;
+                                    const hindiVideoUrl = isComplex && obj.hindiVideo?.url ? obj.hindiVideo.url : null;
+                                    const englishVideoUrl = isComplex && obj.englishVideo?.url ? obj.englishVideo.url : null;
+                                    const leetcodeUrl = isComplex && obj.leetcodeUrl ? obj.leetcodeUrl : null;
+                                    const gfgUrl = isComplex && obj.gfgUrl ? obj.gfgUrl : null;
+                                    const practiceUrl = isComplex && obj.practiceUrl ? obj.practiceUrl : null;
+                                    const isDone = completedSet.has(title);
 
-                                  const isDone = completedSet.has(title);
-
-                                  return (
-                                    <View key={oIdx} style={styles.problemRow}>
-                                      <TouchableOpacity
-                                        style={styles.checkBtn}
-                                        onPress={() => handleToggleCheck(title)}
-                                      >
-                                        <CheckCircle2
-                                          size={24}
-                                          color={isDone ? "#10b981" : colors.textDim}
-                                        />
-                                      </TouchableOpacity>
-
-                                      <View style={styles.problemInfo}>
-                                        <Text
-                                          style={[
-                                            styles.problemTitle,
-                                            isDone && { color: colors.textDim },
-                                          ]}
-                                        >
-                                          {title}
-                                        </Text>
-
-                                        <View style={styles.badgesRow}>
-                                          {/* Difficulty Badge */}
-                                          <View
-                                            style={[
-                                              styles.diffBadge,
-                                              difficulty === "Easy"
-                                                ? styles.diffEasy
-                                                : difficulty === "Hard"
-                                                  ? styles.diffHard
-                                                  : styles.diffMed,
-                                            ]}
-                                          >
-                                            <Text
-                                              style={[
-                                                styles.diffText,
-                                                difficulty === "Easy"
-                                                  ? styles.diffTextEasy
-                                                  : difficulty === "Hard"
-                                                    ? styles.diffTextHard
-                                                    : styles.diffTextMed,
-                                              ]}
-                                            >
-                                              {difficulty}
-                                            </Text>
+                                    return (
+                                      <View key={oIdx} style={styles.problemRow}>
+                                        <TouchableOpacity style={styles.checkBtn} onPress={() => handleToggleCheck(title)}>
+                                          <CheckCircle2 size={24} color={isDone ? "#10b981" : colors.textDim} />
+                                        </TouchableOpacity>
+                                        <View style={styles.problemInfo}>
+                                          <Text style={[styles.problemTitle, isDone && { color: colors.textDim }]}>{title}</Text>
+                                          <View style={styles.badgesRow}>
+                                            {isDSA && (
+                                              <View style={[styles.diffBadge, difficulty === "Easy" ? styles.diffEasy : difficulty === "Hard" ? styles.diffHard : styles.diffMed]}>
+                                                <Text style={[styles.diffText, difficulty === "Easy" ? styles.diffTextEasy : difficulty === "Hard" ? styles.diffTextHard : styles.diffTextMed]}>{difficulty}</Text>
+                                              </View>
+                                            )}
+                                            {(articleContent || articleUrl) && (
+                                              <TouchableOpacity style={styles.resourceBtn} onPress={() => handleResourcePress(() => { if (articleContent) setOpenArticle(articleContent); else if (articleUrl && articleUrl !== "#") Linking.openURL(articleUrl); })}>
+                                                <FileText size={12} color={colors.primary} />
+                                                <Text style={[styles.resourceText, { color: colors.primary }]}>Article</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {videoUrl && videoUrl !== "#" && videoUrl !== "Upcoming" && (
+                                              <TouchableOpacity style={styles.resourceBtn} onPress={() => handleResourcePress(() => Linking.openURL(videoUrl))}>
+                                                <Play size={12} color="#f87171" />
+                                                <Text style={styles.resourceTextRed}>Video</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {hindiVideoUrl && (
+                                              <TouchableOpacity style={styles.resourceBtn} onPress={() => handleResourcePress(() => Linking.openURL(hindiVideoUrl))}>
+                                                <Play size={12} color="#f87171" />
+                                                <Text style={styles.resourceTextRed}>Hindi</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {englishVideoUrl && (
+                                              <TouchableOpacity style={styles.resourceBtn} onPress={() => handleResourcePress(() => Linking.openURL(englishVideoUrl))}>
+                                                <Play size={12} color="#f87171" />
+                                                <Text style={styles.resourceTextRed}>English</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {leetcodeUrl && leetcodeUrl !== "#" && (
+                                              <TouchableOpacity style={styles.lcBtn} onPress={() => handleResourcePress(() => Linking.openURL(leetcodeUrl))}>
+                                                <Code2 size={12} color="#f59e0b" />
+                                                <Text style={styles.resourceTextYellow}>LeetCode</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {gfgUrl && gfgUrl !== "#" && (
+                                              <TouchableOpacity style={styles.lcBtn} onPress={() => handleResourcePress(() => Linking.openURL(gfgUrl))}>
+                                                <Code2 size={12} color="#34d399" />
+                                                <Text style={[styles.resourceText, { color: "#34d399" }]}>GFG</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {practiceUrl && practiceUrl !== "#" && (
+                                              <TouchableOpacity style={styles.lcBtn} onPress={() => handleResourcePress(() => Linking.openURL(practiceUrl))}>
+                                                <Code2 size={12} color="#34d399" />
+                                                <Text style={[styles.resourceText, { color: "#34d399" }]}>Practice</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {topic.videoUrl && topic.videoUrl !== "" && (
+                                              <TouchableOpacity style={styles.resourceBtn} onPress={() => Linking.openURL(topic.videoUrl)}>
+                                                <Play size={12} color="#f87171" />
+                                                <Text style={styles.resourceTextRed}>{topic.videoTitle || "Video"}</Text>
+                                              </TouchableOpacity>
+                                            )}
+                                            {topic.customResources?.map((res: any, rIdx: number) => {
+                                              const isVid = res.label?.toLowerCase().includes("yt") || res.label?.toLowerCase().includes("video");
+                                              return (
+                                                <TouchableOpacity key={`res-${rIdx}`} style={styles.resourceBtn} onPress={() => { if (res.link && res.link !== "#") Linking.openURL(res.link); }}>
+                                                  {isVid ? <Play size={12} color="#f87171" /> : <FileText size={12} color={colors.primary} />}
+                                                  <Text style={[styles.resourceText, isVid ? { color: "#f87171" } : { color: colors.primary }]}>{res.label || "Resource"}</Text>
+                                                </TouchableOpacity>
+                                              );
+                                            })}
                                           </View>
-
-                                          {/* Resources */}
-                                          {(articleContent || articleUrl) && (
-                                            <TouchableOpacity
-                                              style={styles.resourceBtn}
-                                              onPress={() => handleResourcePress(() => {
-                                                if (articleContent)
-                                                  setOpenArticle(
-                                                    articleContent,
-                                                  );
-                                                else if (
-                                                  articleUrl &&
-                                                  articleUrl !== "#"
-                                                )
-                                                  Linking.openURL(articleUrl);
-                                              })}
-                                            >
-                                              <FileText
-                                                size={12}
-                                                color={colors.primary}
-                                              />
-                                              <Text style={[styles.resourceText, { color: colors.primary }]}>
-                                                Article
-                                              </Text>
-                                            </TouchableOpacity>
-                                          )}
-
-                                          {videoUrl &&
-                                            videoUrl !== "#" &&
-                                            videoUrl !== "Upcoming" && (
-                                              <TouchableOpacity
-                                                style={styles.resourceBtn}
-                                                onPress={() => handleResourcePress(() =>
-                                                  Linking.openURL(videoUrl)
-                                                )}
-                                              >
-                                                <Play
-                                                  size={12}
-                                                  color="#f87171"
-                                                />
-                                                <Text
-                                                  style={styles.resourceTextRed}
-                                                >
-                                                  Video
-                                                </Text>
-                                              </TouchableOpacity>
-                                            )}
-
-                                          {hindiVideoUrl && (
-                                              <TouchableOpacity
-                                                style={styles.resourceBtn}
-                                                onPress={() => handleResourcePress(() =>
-                                                  Linking.openURL(hindiVideoUrl)
-                                                )}
-                                              >
-                                                <Play size={12} color="#f87171" />
-                                                <Text style={styles.resourceTextRed}>
-                                                  Hindi
-                                                </Text>
-                                              </TouchableOpacity>
-                                          )}
-
-                                          {englishVideoUrl && (
-                                              <TouchableOpacity
-                                                style={styles.resourceBtn}
-                                                onPress={() => handleResourcePress(() =>
-                                                  Linking.openURL(englishVideoUrl)
-                                                )}
-                                              >
-                                                <Play size={12} color="#f87171" />
-                                                <Text style={styles.resourceTextRed}>
-                                                  English
-                                                </Text>
-                                              </TouchableOpacity>
-                                          )}
-
-                                          {/* Practice Links */}
-                                          {leetcodeUrl &&
-                                            leetcodeUrl !== "#" && (
-                                              <TouchableOpacity
-                                                style={styles.lcBtn}
-                                                onPress={() => handleResourcePress(() =>
-                                                  Linking.openURL(leetcodeUrl)
-                                                )}
-                                              >
-                                                <Text style={styles.lcText}>
-                                                  LC
-                                                </Text>
-                                              </TouchableOpacity>
-                                            )}
-                                          {gfgUrl && gfgUrl !== "#" && (
-                                            <TouchableOpacity
-                                              style={styles.gfgBtn}
-                                              onPress={() => handleResourcePress(() =>
-                                                Linking.openURL(gfgUrl)
-                                              )}
-                                            >
-                                              <Text style={styles.gfgText}>
-                                                GFG
-                                              </Text>
-                                            </TouchableOpacity>
-                                          )}
-                                          {(!leetcodeUrl ||
-                                            leetcodeUrl === "#") &&
-                                            (!gfgUrl || gfgUrl === "#") &&
-                                            practiceUrl &&
-                                            practiceUrl !== "#" && (
-                                              <TouchableOpacity
-                                                style={styles.resourceBtn}
-                                                onPress={() => handleResourcePress(() =>
-                                                  Linking.openURL(practiceUrl)
-                                                )}
-                                              >
-                                                <Code2
-                                                  size={12}
-                                                  color="#34d399"
-                                                />
-                                                <Text
-                                                  style={[
-                                                    styles.resourceText,
-                                                    { color: "#34d399" },
-                                                  ]}
-                                                >
-                                                  Practice
-                                                </Text>
-                                              </TouchableOpacity>
-                                            )}
                                         </View>
                                       </View>
-                                    </View>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </View>
+                              )}
+                            </View>
+                          );
+                        };
+
+                        return processedTopics.map((item: any, tIdx: number) => {
+                          if (!isDSA && (item as any).isGroup) {
+                            const groupKey = `${moduleId}-sg-${item.title}`;
+                            const isGrpExpanded = expandedSubgroups.has(groupKey);
+                            let grpTotal = 0, grpDone = 0;
+                            item.items.forEach((t: any) => {
+                              const its = (t.objectives?.length > 0 ? t.objectives : null) || (t.problems?.length > 0 ? t.problems : null) || [t];
+                              its.forEach((o: any) => { grpTotal++; const ttl = typeof o === "object" ? o.title : o; if (completedSet.has(ttl)) grpDone++; });
+                            });
+                            const grpDone100 = grpDone === grpTotal && grpTotal > 0;
+
+                            return (
+                              <View key={groupKey} style={styles.subgroupBlock}>
+                                <TouchableOpacity style={styles.subgroupHeader} onPress={() => toggleSubgroup(groupKey)}>
+                                  <View style={styles.topicHeaderLeft}>
+                                    {isGrpExpanded ? <ChevronDown size={15} color={colors.text} /> : <ChevronRight size={15} color={colors.textDim} />}
+                                    <Text style={[styles.subgroupTitle, grpDone100 && { color: "#4ade80" }]}>{item.title}</Text>
+                                  </View>
+                                  <Text style={[styles.subgroupCount, grpDone100 && { color: "#4ade80" }]}>{grpDone}/{grpTotal}</Text>
+                                </TouchableOpacity>
+                                {isGrpExpanded && (
+                                  <View style={styles.subgroupTopics}>
+                                    {item.items.map((topic: any, stIdx: number) =>
+                                      renderTopicItem(topic, `${groupKey}-st-${stIdx}`)
+                                    )}
+                                  </View>
+                                )}
                               </View>
-                            )}
-                          </View>
-                        );
-                      })}
+                            );
+                          }
+                          return renderTopicItem(item, `${moduleId}-t-${tIdx}`);
+                        });
+                      })()}
                     </View>
                   )}
                 </View>
               );
-            })}
+            })
+            )}
           </View>
         </View>
       </ScrollView>
@@ -592,7 +539,43 @@ export default function RoadmapDetailScreen() {
         styles={styles} 
         markdownStyles={mdStyles} 
       />
-    </View>
+      {/* Enroll Prompt Modal */}
+      <Modal visible={showEnrollPrompt} transparent animationType="fade">
+        <View style={styles.enrollPromptOverlay}>
+          <MotiView 
+            from={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+            style={styles.enrollPromptBox}
+          >
+            <View style={styles.enrollPromptIcon}>
+              <Rocket size={32} color={colors.primary} />
+            </View>
+            <Text style={styles.enrollPromptTitle}>Track Your Progress</Text>
+            <Text style={styles.enrollPromptDesc}>
+              Enroll in this roadmap to unlock progress tracking, save completed topics, and earn achievements!
+            </Text>
+            
+            <TouchableOpacity 
+              style={styles.enrollPromptBtn} 
+              onPress={() => {
+                setShowEnrollPrompt(false);
+                handleEnroll();
+              }}
+            >
+              <Text style={styles.enrollPromptBtnText}>Enroll Now</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.enrollPromptCancel} 
+              onPress={() => setShowEnrollPrompt(false)}
+            >
+              <Text style={styles.enrollPromptCancelText}>Maybe Later</Text>
+            </TouchableOpacity>
+          </MotiView>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
@@ -933,6 +916,32 @@ const useStyles = (colors: any) => StyleSheet.create({
     textAlign: "right",
   },
 
+  subgroupBlock: { marginBottom: 8, paddingLeft: 8 },
+  subgroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  subgroupTitle: {
+    ...Typography.body,
+    color: colors.text,
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  subgroupCount: {
+    ...Typography.small,
+    color: colors.textDim,
+    fontFamily: "monospace",
+  },
+  subgroupTopics: {
+    paddingLeft: 12,
+    marginTop: 4,
+  },
+
   topicsContainer: { paddingLeft: 24, paddingBottom: 12 },
   topicBlock: { marginBottom: 4 },
   topicHeader: {
@@ -1032,6 +1041,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   resourceText: { fontSize: 10, fontWeight: "600", color: "#60a5fa", lineHeight: 14 },
   resourceTextRed: { fontSize: 10, fontWeight: "600", color: "#f87171", lineHeight: 14 },
+  resourceTextYellow: { fontSize: 10, fontWeight: "600", color: "#f59e0b", lineHeight: 14 },
 
   lcBtn: {
     paddingHorizontal: 8,
@@ -1071,6 +1081,72 @@ const useStyles = (colors: any) => StyleSheet.create({
     borderTopRightRadius: 24,
     padding: 0,
     overflow: "hidden",
+  },
+  enrollPromptOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  enrollPromptBox: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: 32,
+    width: "100%",
+    maxWidth: 400,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  enrollPromptIcon: {
+    width: 64, 
+    height: 64, 
+    borderRadius: 32, 
+    backgroundColor: "rgba(16, 185, 129, 0.1)", 
+    alignItems: "center", 
+    justifyContent: "center"
+  },
+  enrollPromptTitle: {
+    ...Typography.h3,
+    color: colors.text,
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  enrollPromptDesc: {
+    ...Typography.body,
+    color: colors.textDim,
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  enrollPromptBtn: {
+    backgroundColor: colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+  },
+  enrollPromptBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  enrollPromptCancel: {
+    marginTop: 20,
+    padding: 8,
+  },
+  enrollPromptCancelText: {
+    color: colors.textDim,
+    fontWeight: "600",
+    fontSize: 14,
   },
   modalHeader: {
     flexDirection: "row",

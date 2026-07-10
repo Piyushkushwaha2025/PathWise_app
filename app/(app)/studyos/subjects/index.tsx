@@ -45,7 +45,7 @@ export default function SubjectsScreen() {
         renderItem={({ item }) => (
           <GlassCard 
             style={styles.card} 
-            onPress={() => router.push(`/(app)/studyos/subjects/${item.id}`)}
+            onPress={() => router.push(`/(app)/studyos/subjects/${item.id}` as any)}
           >
             <View style={styles.cardHeader}>
               <BookOpen size={24} color={Colors.primary} />

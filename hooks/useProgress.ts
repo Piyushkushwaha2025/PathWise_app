@@ -5,15 +5,20 @@ import type { UserProgress, ProgressResponse } from "../types";
 
 export function useProgress() {
   const { getToken } = useAuth();
-  const api = createApiClient(getToken);
 
   return useQuery<UserProgress>({
     queryKey: ["progress"],
     queryFn: async () => {
-      const res = await api.get<ProgressResponse>("/progress");
-      return res.data.progress ?? {};
+      const api = createApiClient(getToken);
+      try {
+        const res = await api.get<any>("/progress");
+        return res.data?.progress ?? res.data ?? {};
+      } catch (e) {
+        return {};
+      }
     },
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -38,15 +43,10 @@ export function useSaveProgress() {
     onMutate: async ({ roadmapId, completedTopics }) => {
       await queryClient.cancelQueries({ queryKey: ["progress"] });
       const previousProgress = queryClient.getQueryData<UserProgress>(["progress"]);
-      
       queryClient.setQueryData<UserProgress>(["progress"], (old) => {
         if (!old) return { [roadmapId]: completedTopics };
-        return {
-          ...old,
-          [roadmapId]: completedTopics,
-        };
+        return { ...old, [roadmapId]: completedTopics };
       });
-      
       return { previousProgress };
     },
     onError: (err, variables, context) => {

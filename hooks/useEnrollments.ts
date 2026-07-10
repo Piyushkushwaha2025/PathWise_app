@@ -12,12 +12,12 @@ export function useEnrollments() {
   return useQuery<string[]>({
     queryKey: ["enrollments"],
     queryFn: async () => {
-      const res = await api.get<EnrollmentsResponse>("/enrollments");
-      const ids = res.data.enrolledRoadmaps ?? [];
+      const res = await api.get<any>("/enrollments");
+      const ids = res.data?.enrolledRoadmaps ?? (Array.isArray(res.data) ? res.data : []);
       setEnrolledRoadmapIds(ids);
       return ids;
     },
-    staleTime: 2 * 60 * 1000,
+    staleTime: 10 * 60 * 1000, // 10 min
   });
 }
 

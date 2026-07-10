@@ -99,22 +99,10 @@ export default function RoadmapsScreen() {
       const isEnrolled = enrolledIds.includes(roadmap.id);
 
       return (
-        <MotiView
-          from={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: "timing", duration: 300 }}
-        >
           <TouchableOpacity
             style={[styles.card, isEnrolled && styles.cardEnrolled]}
-            onPress={() => {
-              const lowerTitle = roadmap.title.toLowerCase();
-              const isAllowed = lowerTitle.includes("data structure") || lowerTitle.includes("dsa") || lowerTitle.includes("frontend");
-              if (!isAllowed) {
-                setLockedModalVisible(true);
-                return;
-              }
-              router.push(`/(app)/roadmaps/${roadmap.id}`);
-            }}
+            // @ts-ignore - Expo router types might lag behind the file move
+            onPress={() => router.push(`/roadmap/${roadmap.id}`)}
           >
             <View style={styles.cardHeaderRow}>
             <View
@@ -138,15 +126,12 @@ export default function RoadmapsScreen() {
           </View>
           <Text style={styles.cardTitle}>{roadmap.title}</Text>
           <Text style={styles.cardSubtitle}>
-            {roadmap.modules?.length || 0} Modules • By{" "}
+            By{" "}
             {roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa") 
               ? "Strivers" 
-              : roadmap.author === "roadmap.sh" 
-                ? "Pathwise" 
-                : roadmap.author || "Pathwise"}
+              : "PathWise"}
           </Text>
         </TouchableOpacity>
-        </MotiView>
       );
     },
     [enrolledIds, router, colors, styles]
@@ -164,6 +149,8 @@ export default function RoadmapsScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        // @ts-ignore
+        estimatedItemSize={200}
       />
       <LockedRoadmapModal 
         isVisible={lockedModalVisible} 

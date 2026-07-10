@@ -38,8 +38,6 @@ export default function AppLayout() {
         >
         <Tabs.Screen name="dashboard" options={{ title: "Dashboard" }} />
         <Tabs.Screen name="roadmaps" options={{ title: "Roadmaps" }} />
-        <Tabs.Screen name="roadmaps/create" options={{ href: null }} />
-        <Tabs.Screen name="roadmaps/[id]" options={{ href: null }} />
         <Tabs.Screen name="studyos" options={{ title: "StudyOS" }} />
         <Tabs.Screen name="subscription" options={{ title: "Subscription" }} />
         <Tabs.Screen name="profile" options={{ title: "Profile" }} />

@@ -103,44 +103,53 @@ export default function ProfileScreen() {
   const [isUpToDateModalVisible, setUpToDateModalVisible] = useState(false);
   const [isChangePasswordVisible, setChangePasswordVisible] = useState(false);
 
-  // Stats Datae total XP (based on topics)
-  const totalCompletedTopics = Object.values(progress).reduce(
-    (acc, arr) => acc + arr.length,
-    0,
-  );
-  const totalXp = totalCompletedTopics * 50;
+  // Stats Data
+  const { totalCompletedTopics, totalXp } = React.useMemo(() => {
+    const totalTopics = Object.values(progress).reduce(
+      (acc, arr) => acc + arr.length,
+      0,
+    );
+    return {
+      totalCompletedTopics: totalTopics,
+      totalXp: totalTopics * 50
+    };
+  }, [progress]);
+
   const currentStreak = statsData?.signedIn
     ? Math.floor(statsData.signedIn / 10) + 1
     : 1;
 
   // Calculate Fully Completed Roadmaps
-  const allRoadmaps = [...catalog, ...customRoadmaps];
-  let completedRoadmapsCount = 0;
-
+  const allRoadmaps = React.useMemo(() => [...catalog, ...customRoadmaps], [catalog, customRoadmaps]);
+  
   // Determine Subscription Tier from Clerk User Metadata
   const userTier = (user?.publicMetadata?.subscriptionTier as SubBadge) || (user?.unsafeMetadata?.subscriptionTier as SubBadge) || "FREE";
 
-  enrolledIds.forEach((id) => {
-    const roadmap = allRoadmaps.find((r) => r.id === id || r._id === id);
-    if (!roadmap) return;
-    const saved = progress[id] || [];
-    const completedSet = new Set(saved);
-    let total = 0;
-    let done = 0;
-    roadmap.modules?.forEach((m: any) => {
-      m.topics?.forEach((t: any) => {
-        const items = t.objectives || t.problems || [];
-        items.forEach((obj: any) => {
-          total++;
-          const title = typeof obj === "object" ? obj.title : obj;
-          if (completedSet.has(title)) done++;
+  const completedRoadmapsCount = React.useMemo(() => {
+    let count = 0;
+    enrolledIds.forEach((id) => {
+      const roadmap = allRoadmaps.find((r) => r.id === id || r._id === id);
+      if (!roadmap) return;
+      const saved = progress[id] || [];
+      const completedSet = new Set(saved);
+      let total = 0;
+      let done = 0;
+      roadmap.modules?.forEach((m: any) => {
+        m.topics?.forEach((t: any) => {
+          const items = t.objectives || t.problems || [];
+          items.forEach((obj: any) => {
+            total++;
+            const title = typeof obj === "object" ? obj.title : obj;
+            if (completedSet.has(title)) done++;
+          });
         });
       });
+      if (total > 0 && done >= total) {
+        count++;
+      }
     });
-    if (total > 0 && done >= total) {
-      completedRoadmapsCount++;
-    }
-  });
+    return count;
+  }, [enrolledIds, allRoadmaps, progress]);
 
   const handleSignOut = async () => {
     try {
@@ -432,7 +441,7 @@ export default function ProfileScreen() {
                 size={20}
                 color={colors.primary}
               />
-              <Text style={styles.menuLabel}>{"Notifications Hub"}</Text>
+              <Text style={styles.menuLabel}>{"Notification Settings"}</Text>
               <Ionicons
                 name="chevron-forward"
                 size={18}

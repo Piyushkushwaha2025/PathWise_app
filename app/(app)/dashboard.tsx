@@ -17,6 +17,7 @@ import {
   useRoadmaps,
   useRoadmapsCatalog,
   useGenerateRoadmap,
+  useRoadmapDetail,
 } from "../../hooks/useRoadmaps";
 import { useEnrollments } from "../../hooks/useEnrollments";
 import { useProgress } from "../../hooks/useProgress";
@@ -76,26 +77,7 @@ export default function DashboardScreen() {
     } catch (e) {}
   };
 
-  const getProgressPercent = (roadmapId: string, roadmap: any) => {
-    const completedTopics = progressData?.[roadmapId] || [];
-    const completedSet = new Set(completedTopics);
-
-    let total = 0;
-    let done = 0;
-
-    roadmap.modules?.forEach((m: any) => {
-      m.topics?.forEach((t: any) => {
-        const items = t.objectives || t.problems || [];
-        items.forEach((obj: any) => {
-          const title = typeof obj === "object" ? obj.title : obj;
-          total++;
-          if (completedSet.has(title)) done++;
-        });
-      });
-    });
-
-    return total > 0 ? Math.round((done / total) * 100) : 0;
-  };
+  // getProgressPercent removed, now handled by EnrolledRoadmapCard
 
   const getColorHex = (colorName: string) => {
     return colors.primary;
@@ -166,195 +148,21 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          enrolledRoadmaps.map((roadmap, index) => {
-            const progressPercent = getProgressPercent(roadmap.id as string, roadmap);
-            const Icon = IconMap[roadmap.image as string] || LayoutGrid;
-            const colorHex = getColorHex(roadmap.color);
-
-            return (
-              <MotiView 
-                key={roadmap.id} 
-                from={{ opacity: 0, translateY: 20 }}
-                animate={{ opacity: 1, translateY: 0 }}
-                transition={{ delay: index * 100, type: "timing", duration: 400 }}
-                style={{ marginBottom: 16 }}
-              >
-                <TouchableOpacity
-                  style={[styles.card, { marginBottom: 0 }]}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    const lowerTitle = roadmap.title.toLowerCase();
-                    const isAllowed = lowerTitle.includes("data structure") || lowerTitle.includes("dsa") || lowerTitle.includes("frontend");
-                    if (!isAllowed) {
-                      setLockedModalVisible(true);
-                      return;
-                    }
-                    router.push(`/(app)/roadmaps/${roadmap.id}`);
-                  }}
-                >
-                  {progressPercent === 100 && (
-                    <MotiView
-                      style={styles.starBadge}
-                      from={{ rotate: "0deg" }}
-                      animate={{ rotate: "360deg" }}
-                      transition={{ loop: true, type: "timing", duration: 6000 }}
-                    >
-                      <Star size={24} color="#facc15" fill="#facc15" />
-                    </MotiView>
-                  )}
-
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <View
-                      style={[
-                        styles.iconBox,
-                        {
-                          backgroundColor: `${colorHex}33`,
-                          borderColor: `${colorHex}4d`,
-                          marginBottom: 0,
-                        },
-                      ]}
-                    >
-                      <Icon size={32} color={colorHex} />
-                    </View>
-                  </View>
-
-                  <View style={styles.cardContent}>
-                    <Text style={styles.cardTitle}>{roadmap.title}</Text>
-                    <Text style={styles.cardSubtitle}>
-                      {roadmap.modules?.length || 0} Modules • By{" "}
-                      {roadmap.title.toLowerCase().includes("data structure") || roadmap.title.toLowerCase().includes("dsa") 
-                        ? "Strivers" 
-                        : roadmap.author === "roadmap.sh" 
-                          ? "Pathwise" 
-                          : roadmap.author || "Pathwise"}
-                    </Text>
-
-                    <View style={styles.progressContainer}>
-                      <View
-                        style={[
-                          styles.progressBar,
-                          {
-                            width: `${progressPercent}%`,
-                            backgroundColor: colorHex,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[styles.progressText, { marginBottom: 0 }]}>
-                      {progressPercent}% Complete
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </MotiView>
-            );
-          })
+          enrolledRoadmaps.map((roadmap, index) => (
+            <EnrolledRoadmapCard
+              key={roadmap.id}
+              roadmapMeta={roadmap}
+              index={index}
+              progressData={progressData}
+              colors={colors}
+              styles={styles}
+              onPress={() => router.push(`/roadmap/${roadmap.id}`)}
+            />
+          ))
         )}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Your Custom AI Roadmaps</Text>
 
-        {isLoadingCustom ? (
-          <ActivityIndicator
-            size="small"
-            color={colors.primary}
-            style={{ marginVertical: 20 }}
-          />
-        ) : customRoadmaps.length > 0 ? (
-          <View style={styles.customGrid}>
-            {customRoadmaps.map((roadmap: any, index: number) => {
-              const colorHex = getColorHex(roadmap.color);
-              return (
-                <MotiView
-                  key={roadmap.id}
-                  from={{ opacity: 0, translateY: 20 }}
-                  animate={{ opacity: 1, translateY: 0 }}
-                  transition={{ delay: index * 100, type: "timing", duration: 400 }}
-                  style={{ marginBottom: 16 }}
-                >
-                  <TouchableOpacity
-                    style={[styles.card, { borderColor: `${colorHex}4d`, marginBottom: 0 }]}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      const lowerTitle = roadmap.title.toLowerCase();
-                      const isAllowed = lowerTitle.includes("data structure") || lowerTitle.includes("dsa") || lowerTitle.includes("frontend");
-                      if (!isAllowed) {
-                        setLockedModalVisible(true);
-                        return;
-                      }
-                      router.push(`/(app)/roadmaps/${roadmap.id}`);
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                      <View
-                        style={[
-                          styles.iconBox,
-                          {
-                            backgroundColor: `${colorHex}33`,
-                            borderColor: `${colorHex}4d`,
-                            marginBottom: 0,
-                          },
-                        ]}
-                      >
-                        <Sparkles size={32} color={colorHex} />
-                      </View>
-                    </View>
-                    <View style={styles.cardContent}>
-                      <Text style={styles.cardTitle}>{roadmap.title}</Text>
-                      <Text style={[styles.cardSubtitle, { marginBottom: 0 }]}>
-                        {roadmap.modules?.length || 0} AI Modules • For "
-                        {roadmap.topic}"
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                </MotiView>
-              );
-            })}
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.generateContainer}>
-        <View style={styles.generateIconWrapper}>
-          <BrainCircuit size={40} color={colors.primary} />
-        </View>
-        <Text style={styles.generateTitle}>Generate a Custom Roadmap</Text>
-        <Text style={styles.generateDesc}>
-          What do you want to learn? Enter any topic and our AI will deep
-          research and map out the exact curriculum you need.
-        </Text>
-
-        <View style={styles.generateInputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. Advanced Rust Concurrency"
-            placeholderTextColor="#6b7280"
-            value={topic}
-            onChangeText={setTopic}
-            editable={!generateRoadmap.isPending}
-          />
-          <TouchableOpacity
-            style={[
-              styles.generateBtn,
-              { backgroundColor: colors.primary },
-              (!topic.trim() || generateRoadmap.isPending) && { opacity: 0.5 },
-            ]}
-            onPress={handleGenerate}
-            disabled={!topic.trim() || generateRoadmap.isPending}
-          >
-            {generateRoadmap.isPending ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-              >
-                <Text style={styles.generateBtnText}>Generate</Text>
-                <ArrowRight size={16} color="#fff" />
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
       </KeyboardAwareScrollView>
       
       <LockedRoadmapModal 
@@ -370,6 +178,104 @@ export default function DashboardScreen() {
 
       <AppUpdateModal />
     </View>
+  );
+}
+
+function EnrolledRoadmapCard({ roadmapMeta, index, progressData, colors, styles, onPress }: any) {
+  const { data: fullRoadmap } = useRoadmapDetail(roadmapMeta.id as string);
+  const roadmap = fullRoadmap || roadmapMeta;
+
+  const progressPercent = React.useMemo(() => {
+    const completedTopics = progressData?.[roadmap.id] || [];
+    const completedSet = new Set(completedTopics);
+
+    let total = 0;
+    let done = 0;
+
+    roadmap.modules?.forEach((m: any) => {
+      m.topics?.forEach((t: any) => {
+        const items = t.objectives || t.problems || [];
+        items.forEach((obj: any) => {
+          const title = typeof obj === "object" ? obj.title : obj;
+          total++;
+          if (completedSet.has(title)) done++;
+        });
+      });
+    });
+
+    return total > 0 ? Math.round((done / total) * 100) : 0;
+  }, [roadmap, progressData]);
+
+  const Icon = IconMap[roadmapMeta.image as string] || LayoutGrid;
+  const colorHex = colors.primary;
+
+  return (
+    <MotiView 
+      key={roadmapMeta.id} 
+      from={{ opacity: 0, translateY: 15 }}
+      animate={{ opacity: 1, translateY: 0 }}
+      transition={{ delay: Math.min(index * 50, 300), type: "timing", duration: 300 }}
+      style={{ marginBottom: 16 }}
+    >
+      <TouchableOpacity
+        style={[styles.card, { marginBottom: 0 }]}
+        activeOpacity={0.7}
+        onPress={onPress}
+      >
+        {progressPercent === 100 && (
+          <MotiView
+            style={styles.starBadge}
+            from={{ rotate: "0deg" }}
+            animate={{ rotate: "360deg" }}
+            transition={{ loop: true, type: "timing", duration: 6000 }}
+          >
+            <Star size={24} color="#facc15" fill="#facc15" />
+          </MotiView>
+        )}
+
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <View
+            style={[
+              styles.iconBox,
+              {
+                backgroundColor: `${colorHex}33`,
+                borderColor: `${colorHex}4d`,
+                marginBottom: 0,
+              },
+            ]}
+          >
+            <Icon size={32} color={colorHex} />
+          </View>
+        </View>
+
+        <View style={styles.cardContent}>
+          <Text style={styles.cardTitle}>{roadmapMeta.title}</Text>
+          <Text style={styles.cardSubtitle}>
+            {roadmap.modules?.length || 0} Modules • By{" "}
+            {roadmapMeta.title.toLowerCase().includes("data structure") || roadmapMeta.title.toLowerCase().includes("dsa") 
+              ? "Strivers" 
+              : roadmapMeta.author === "roadmap.sh" 
+                ? "Pathwise" 
+                : roadmapMeta.author || "Pathwise"}
+          </Text>
+
+          <View style={styles.progressContainer}>
+            <View
+              style={[
+                styles.progressBar,
+                {
+                  width: `${progressPercent}%`,
+                  backgroundColor: colorHex,
+                },
+              ]}
+            />
+          </View>
+          <Text style={[styles.progressText, { marginBottom: 0 }]}>
+            {progressPercent}% Complete
+          </Text>
+        </View>
+      </TouchableOpacity>
+    </MotiView>
   );
 }
 

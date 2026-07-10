@@ -99,7 +99,7 @@ export default function WebViewLoginScreen() {
       if (data.type === 'LMS_DATA_READY') {
         setIsProcessing(true);
         setLoadingMsg('Finalizing setup...');
-        await setSession(data.sesskey, data.userId);
+        await setSession(data.sesskey, parseInt(data.userId, 10));
         router.replace('/(app)/studyos/dashboard');
       } else if (data.type === 'LMS_PARTIAL_READY') {
         setManualSession({ sesskey: data.sesskey, userId: data.userId });
@@ -113,7 +113,7 @@ export default function WebViewLoginScreen() {
     if (manualSession) {
       setIsProcessing(true);
       setLoadingMsg('Finalizing setup...');
-      await setSession(manualSession.sesskey, manualSession.userId);
+      await setSession(manualSession.sesskey, parseInt(manualSession.userId, 10) || 0);
       router.replace('/(app)/studyos/dashboard');
     } else {
       alert("Still trying to read the portal data. Please click around the LMS menu so we can capture your session.");
@@ -210,13 +210,13 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   webviewLoader: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill as any,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Colors.background,
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill as any,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Colors.background,
