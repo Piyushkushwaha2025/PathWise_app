@@ -26,6 +26,7 @@
         "backgroundColor": "#050505"
       },
       "package": "com.pathwise.app",
+      "versionCode": 3,
       "intentFilters": [
         {
           "action": "VIEW",
