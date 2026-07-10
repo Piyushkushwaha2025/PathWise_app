@@ -2,10 +2,10 @@
   "expo": {
     "name": "PathWise",
     "slug": "pathwise-app",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "androidStatusBar": {
       "translucent": false,
       "backgroundColor": "#050505"
@@ -23,13 +23,10 @@
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png",
         "backgroundColor": "#050505"
-    },
-    "package": "com.pathwise.app",
-    "versionCode": 2,
-    "intentFilters": [
+      },
+      "package": "com.pathwise.app",
+      "intentFilters": [
         {
           "action": "VIEW",
           "autoVerify": true,
@@ -48,11 +45,11 @@
       ]
     },
     "notification": {
-      "icon": "./assets/android-icon-monochrome.png",
+      "icon": "./assets/splash-symbol.png",
       "color": "#050505"
     },
     "web": {
-      "favicon": "./assets/favicon.png",
+      "favicon": "./assets/icon.png",
       "bundler": "metro"
     },
     "runtimeVersion": {
@@ -65,7 +62,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/android-icon-monochrome.png",
+          "icon": "./assets/splash-symbol.png",
           "color": "#050505",
           "sounds": [
             "./assets/sounds/mario_coin.mp3",
@@ -77,10 +74,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-symbol.png",
-          "imageWidth": 200,
+          "image": "./assets/splash-Light.png",
+          "imageWidth": 120,
           "resizeMode": "contain",
-          "backgroundColor": "#050505",
+          "backgroundColor": "#ffffff",
           "dark": {
             "image": "./assets/splash-symbol.png",
             "backgroundColor": "#050505"
