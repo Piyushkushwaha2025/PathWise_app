@@ -1,5 +1,5 @@
 {
-  "latestVersion": "1.0.0",
-  "downloadUrl": "https://github.com/Piyushkushwaha2025/PathWise_app/releases/download/v1.0.0/PathWise.v.1.0.0.apk",
-  "releaseNotes": "Initial release of PathWise! 🚀"
+  "latestVersion": "1.0.2",
+  "downloadUrl": "https://github.com/Piyushkushwaha2025/PathWise_app/releases/download/v1.0.2/PathWise.v1.0.2.apk",
+  "releaseNotes": "Moved Roadmap UI to root, integrated smooth Moti animations, and fixed Reanimated native build issues."
 }
