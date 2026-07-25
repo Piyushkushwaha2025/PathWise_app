@@ -18,9 +18,12 @@ import { FlashList } from "@shopify/flash-list";
 import { MotiView } from "moti";
 import { LockedRoadmapModal } from "../../../components/modals/LockedRoadmapModal";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useStudySessionStore } from "../../../store/studySessionStore";
+import TimetableScreen from "../studyos/timetable";
 
 export default function RoadmapsScreen() {
   const router = useRouter();
+  const { isStudyOSMode } = useStudySessionStore();
   const { data: roadmapsCatalog = [], isLoading: isLoadingCatalog } =
     useRoadmapsCatalog();
   const { data: enrolledIds = [], isLoading: isLoadingEnrollments } =
@@ -41,6 +44,12 @@ export default function RoadmapsScreen() {
       };
     }, [])
   );
+
+  if (isStudyOSMode) {
+    return <TimetableScreen />;
+  }
+
+
 
   const filteredRoadmaps = roadmapsCatalog.filter((roadmap) =>
     roadmap.title.toLowerCase().startsWith(searchQuery.toLowerCase())

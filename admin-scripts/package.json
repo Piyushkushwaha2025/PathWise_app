@@ -1,0 +1,16 @@
+{
+  "name": "studyos-admin-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for parsing PDFs and pushing embeddings to Pinecone Vector DB",
+  "main": "ingest.js",
+  "type": "module",
+  "scripts": {
+    "start": "node ingest.js"
+  },
+  "dependencies": {
+    "@google/genai": "^0.1.1",
+    "@pinecone-database/pinecone": "^4.0.0",
+    "dotenv": "^16.4.5",
+    "pdf-parse": "^1.1.1"
+  }
+}

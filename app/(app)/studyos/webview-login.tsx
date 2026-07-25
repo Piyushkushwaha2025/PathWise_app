@@ -1,133 +1,154 @@
-import React, { useState, useRef } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
+import { useThemeStore } from '../../../store/useThemeStore';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, BackHandler } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useRouter } from 'expo-router';
-import { Colors, Typography, Spacing } from '../../../constants/theme';
-import { fetchMoodleSessionCookie } from '../../../lib/cuAuth';
-import { extractMoodleUserDetails } from '../../../lib/moodleSession';
-import { useCuSessionStore } from '../../../store/cuSessionStore';
-
-const CU_LOGIN_URL = 'https://student.culko.in/Login.aspx';
+import { Typography, Spacing } from '../../../constants/theme';
+import * as SecureStore from 'expo-secure-store';
+import { useStudySessionStore } from '../../../store/studySessionStore';
+import { UNIVERSITIES } from '../../../constants/universities';
+import { useLocalSearchParams } from 'expo-router';
 
 export default function WebViewLoginScreen() {
+  const { uniId } = useLocalSearchParams<{ uniId: string }>();
+  const activeUni = UNIVERSITIES[uniId || 'cu'];
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
-  const { setSession } = useCuSessionStore();
+  const { setSession } = useStudySessionStore();
   
   const [loadingMsg, setLoadingMsg] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Script to inject when we land on StudentHome.aspx to auto-trigger the LMS SSO
-  const triggerLmsSsoScript = `
-    (function() {
-      if (document.forms.length > 0) {
-        var theForm = document.forms[0];
-        if (!theForm.__EVENTTARGET) {
-            var input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = '__EVENTTARGET';
-            input.id = '__EVENTTARGET';
-            theForm.appendChild(input);
-        }
-        theForm.__EVENTTARGET.value = 'ctl00$lbtnLMSSSO';
-        theForm.submit();
-      }
-    })();
-    true;
-  `;
-
   const [isOnLms, setIsOnLms] = useState(false);
-  const [manualSession, setManualSession] = useState<{sesskey: string, userId: string} | null>(null);
+  const [autoCreds, setAutoCreds] = useState<{u?: string, p?: string} | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await SecureStore.getItemAsync('culko_u');
+        const p = await SecureStore.getItemAsync('culko_p');
+        if (u && p) setAutoCreds({u, p});
+        // Clear old cookies so stale session doesn't auto-redirect
+        await SecureStore.deleteItemAsync('culko_cookies');
+      } catch(e){}
+    })();
+  }, []);
+
+  const handleCancel = () => {
+    router.replace({ pathname: '/(app)/studyos/connect', params: { reset: 'true' } } as any);
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleCancel();
+      return true;
+    };
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandler.remove();
+  }, []);
 
   const handleNavigationStateChange = async (navState: WebViewNavigation) => {
     const { url } = navState;
+    const urlLower = url.toLowerCase();
 
-    // Trigger SSO when landing on StudentHome
-    if (url.toLowerCase().includes('studenthome.aspx') && !isProcessing) {
-      setLoadingMsg('Authenticating securely...');
-      webViewRef.current?.injectJavaScript(triggerLmsSsoScript);
+    // Auto-detect login success:
+    // 1. Matches studentHomeMatch OR
+    // 2. We are on student.culko.in but NOT on the login/logout page
+    const isSuccessPath = urlLower.includes(activeUni.studentHomeMatch.toLowerCase());
+    const isCulkoLoggedIn = urlLower.includes('student.culko.in') && 
+                            !urlLower.includes('login') && 
+                            !urlLower.includes('logout');
+
+    // Show "Finish" button only if we are past the login screen
+    if (activeUni.id === 'cu') {
+      setIsOnLms(isCulkoLoggedIn);
+    } else {
+      if (urlLower.includes(activeUni.lmsDomain.toLowerCase())) {
+        if (!isOnLms) setIsOnLms(true);
+      } else {
+        if (isOnLms) setIsOnLms(false);
+      }
     }
 
-    if (url.toLowerCase().includes('lms.culko.in')) {
-      if (!isOnLms) setIsOnLms(true);
-      
-      if (!isProcessing) {
-        const checkScript = `
-          (function() {
-            var checkInterval = setInterval(function() {
-              try {
-                var html = document.documentElement.innerHTML;
-                
-                // Aggressive sesskey extraction
-                var sesskeyMatch = html.match(/sesskey=([a-zA-Z0-9]+)/) || html.match(/"sesskey":"([a-zA-Z0-9]+)"/) || html.match(/name="sesskey" value="([a-zA-Z0-9]+)"/);
-                var sesskey = sesskeyMatch ? sesskeyMatch[1] : (window.M && window.M.cfg ? window.M.cfg.sesskey : null);
-                
-                // Aggressive userId extraction
-                var userIdMatch = html.match(/\\/user\\/profile\\.php\\?id=([0-9]+)/) || html.match(/\\/user\\/preferences\\.php\\?userid=([0-9]+)/) || html.match(/"userid":([0-9]+)/) || html.match(/data-userid="([0-9]+)"/);
-                var userId = userIdMatch ? userIdMatch[1] : (window.M && window.M.cfg ? window.M.cfg.userid : null);
+    // Only detect login success when page has fully loaded
+    if (navState.loading) return;
 
-                if (sesskey && userId) {
-                  clearInterval(checkInterval);
-                  window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                    type: 'LMS_DATA_READY', 
-                    sesskey: sesskey, 
-                    userId: userId 
-                  }));
-                } else if (sesskey) {
-                  // Found sesskey but no userid? We will pass it so manual button works
-                   window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                    type: 'LMS_PARTIAL_READY', 
-                    sesskey: sesskey, 
-                    userId: '0' 
-                  }));
-                }
-              } catch (e) {}
-            }, 1000);
-          })();
-          true;
-        `;
-        webViewRef.current?.injectJavaScript(checkScript);
-      }
-    } else {
-      if (isOnLms) setIsOnLms(false);
+    if ((isSuccessPath || isCulkoLoggedIn) && !isProcessing) {
+      setIsProcessing(true);
+      setLoadingMsg('Login successful. Preparing to sync data...');
+      
+      // Delay slightly for smooth UX, then redirect to sync screen
+      setTimeout(() => {
+        router.replace('/(app)/studyos/sync');
+      }, 1000);
+    }
+    
+    // Auto Login Injection
+    if (!navState.loading && (urlLower.includes('login') || urlLower.includes('ums'))) {
+      const uEnc = autoCreds?.u ? encodeURIComponent(autoCreds.u) : '';
+      const pEnc = autoCreds?.p ? encodeURIComponent(autoCreds.p) : '';
+      
+      const autoFillScript = `
+        try {
+          var userInp = document.querySelector('input[type="text"]') || document.querySelector('input[name*="user" i]') || document.querySelector('input[name*="uid" i]');
+          var passInp = document.querySelector('input[type="password"]');
+          var btn = document.querySelector('input[type="submit"]') || document.querySelector('button[type="submit"]') || document.getElementById('btnLogin');
+          
+          var hasCreds = "${uEnc}" !== "";
+
+          if (userInp && passInp && btn && !window.__autoLogStarted) {
+             window.__autoLogStarted = true;
+             
+             if (hasCreds) {
+               userInp.value = decodeURIComponent("${uEnc}");
+               passInp.value = decodeURIComponent("${pEnc}");
+             }
+             
+             // Always add click listener so we can save/update credentials
+             btn.addEventListener('click', function() {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                   type: 'SAVE_CREDS',
+                   u: userInp.value,
+                   p: passInp.value
+                }));
+             });
+          }
+        } catch(e) {}
+        true;
+      `;
+      setTimeout(() => {
+        webViewRef.current?.injectJavaScript(autoFillScript);
+      }, 1000);
     }
   };
 
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'LMS_DATA_READY') {
-        setIsProcessing(true);
-        setLoadingMsg('Finalizing setup...');
-        await setSession(data.sesskey, parseInt(data.userId, 10));
-        router.replace('/(app)/studyos/dashboard');
-      } else if (data.type === 'LMS_PARTIAL_READY') {
-        setManualSession({ sesskey: data.sesskey, userId: data.userId });
+      if (data.type === 'SAVE_CREDS' && data.u && data.p) {
+         await SecureStore.setItemAsync('culko_u', data.u);
+         await SecureStore.setItemAsync('culko_p', data.p);
+         setAutoCreds({ u: data.u, p: data.p });
       }
-    } catch (e) {
-      console.log('Message parse error', e);
-    }
+    } catch (e) {}
   };
 
   const forceProceed = async () => {
-    if (manualSession) {
-      setIsProcessing(true);
-      setLoadingMsg('Finalizing setup...');
-      await setSession(manualSession.sesskey, parseInt(manualSession.userId, 10) || 0);
-      router.replace('/(app)/studyos/dashboard');
-    } else {
-      alert("Still trying to read the portal data. Please click around the LMS menu so we can capture your session.");
-    }
+    setIsProcessing(true);
+    setLoadingMsg('Bypassing... preparing to sync');
+    router.replace('/(app)/studyos/sync');
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
+        <TouchableOpacity onPress={handleCancel} style={styles.closeBtn}>
           <Text style={styles.closeText}>Cancel</Text>
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle}>CU Portal</Text>
+        <Text style={styles.headerTitle}>{activeUni.shortName} Portal</Text>
         
         {isOnLms ? (
           <TouchableOpacity onPress={forceProceed} style={styles.proceedBtn}>
@@ -141,21 +162,22 @@ export default function WebViewLoginScreen() {
       {/* Always render WebView so injectJavaScript continues running */}
       <WebView
         ref={webViewRef}
-        source={{ uri: CU_LOGIN_URL }}
+        source={{ uri: activeUni.loginUrl }}
         style={[styles.webview, isProcessing && styles.hiddenWebview]}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleMessage}
         startInLoadingState={true}
+        sharedCookiesEnabled={true}
         renderLoading={() => (
           <View style={styles.webviewLoader}>
-            <ActivityIndicator size="large" color={Colors.primary} />
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
         )}
       />
 
       {isProcessing && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>{loadingMsg}</Text>
         </View>
       )}
@@ -163,10 +185,10 @@ export default function WebViewLoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -174,29 +196,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: Spacing.md,
     paddingTop: 40,
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   headerTitle: {
     ...Typography.h3,
-    color: Colors.text,
+    color: colors.text,
   },
   closeBtn: {
     padding: Spacing.sm,
   },
   closeText: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: 16,
     fontWeight: '500',
   },
   proceedBtn: {
     padding: Spacing.sm,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: 8,
   },
   proceedText: {
-    color: Colors.background,
+    color: colors.background,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -213,19 +235,19 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFill as any,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFill as any,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     padding: Spacing.xl,
     zIndex: 10,
   },
   loadingText: {
     ...Typography.h3,
-    color: Colors.text,
+    color: colors.text,
     marginTop: Spacing.lg,
     textAlign: 'center',
   },

@@ -1,136 +1,647 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useSubjects } from '../../../../hooks/useSubjects';
-import { useMarks } from '../../../../hooks/useMarks';
-import { Colors, Typography, Spacing } from '../../../../constants/theme';
-import { GlassCard } from '../../../../components/ui/GlassCard';
-import { MoodleCourse } from '../../../../lib/moodleApi';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import Svg, { Polygon, Line, Text as SvgText, Circle } from 'react-native-svg';
+import { WebView, WebViewNavigation } from 'react-native-webview';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Typography, Spacing, Radius } from '../../../../constants/theme';
+import { useThemeStore } from '../../../../store/useThemeStore';
+import { useStudyOSStore } from '../../../../store/studyosStore';
+import { useStudySessionStore } from '../../../../store/studySessionStore';
+import * as SecureStore from 'expo-secure-store';
 
-function SubjectMarksCard({ course }: { course: MoodleCourse }) {
-  const { data: marks, isLoading } = useMarks(course.id);
-  const [expanded, setExpanded] = React.useState(false);
-
-  // Calculate overall score % based on available marks
-  let totalObtained = 0;
-  let totalMax = 0;
-  
-  if (marks) {
-    marks.forEach(m => {
-      if (m.grade !== '-' && !isNaN(parseFloat(m.grade))) {
-        totalObtained += parseFloat(m.grade);
-        totalMax += m.grademax;
-      }
-    });
-  }
-  
-  const overallPercentage = totalMax > 0 ? ((totalObtained / totalMax) * 100).toFixed(1) : 'N/A';
-
-  return (
-    <GlassCard style={styles.card} onPress={() => setExpanded(!expanded)}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.subjectName}>{course.fullname}</Text>
-        <Text style={styles.overallScore}>{overallPercentage}%</Text>
-      </View>
-
-      {expanded && (
-        <View style={styles.expandedContent}>
-          {isLoading ? (
-            <ActivityIndicator size="small" color={Colors.primary} />
-          ) : marks && marks.length > 0 ? (
-            marks.map((mark, index) => {
-              const isAbsent = mark.grade === '-';
-              const obtained = isAbsent ? 0 : parseFloat(mark.grade);
-              const percentage = isAbsent ? 0 : (obtained / mark.grademax) * 100;
-              
-              let dotColor = Colors.error;
-              if (percentage >= 70) dotColor = Colors.success;
-              else if (percentage >= 50) dotColor = '#f59e0b'; // orange
-
-              return (
-                <View key={index} style={styles.markRow}>
-                  <View style={styles.markLeft}>
-                    <View style={[styles.dot, { backgroundColor: dotColor }]} />
-                    <Text style={styles.markItemName}>{mark.itemname}</Text>
-                  </View>
-                  {isAbsent ? (
-                    <View style={styles.absentBadge}>
-                      <Text style={styles.absentText}>Absent</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.markScore}>{mark.grade} / {mark.grademax}</Text>
-                  )}
-                </View>
-              );
-            })
-          ) : (
-            <Text style={styles.emptyText}>No marks available yet.</Text>
-          )}
-        </View>
-      )}
-    </GlassCard>
-  );
-}
+const { width } = Dimensions.get('window');
+const RADAR_SIZE = width - Spacing.xl * 2;
+const CENTER = RADAR_SIZE / 2;
+const RADIUS = (RADAR_SIZE / 2) - 30;
 
 export default function MarksScreen() {
-  const { data: subjects, isLoading, error } = useSubjects();
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
+  const { marks, semesterOptionsCache, resultCache, setScrapedData } = useStudyOSStore();
+  const { clearSession } = useStudySessionStore();
   const router = useRouter();
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
-  if (isLoading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading subjects...</Text>
-      </View>
-    );
-  }
+  // Results State
+  const webViewRef = useRef<WebView>(null);
+  const [semesterOptions, setSemesterOptions] = useState<{text: string, value: string}[]>(semesterOptionsCache || []);
+  const [selectedSemester, setSelectedSemester] = useState<string>('');
+  const [resultData, setResultData] = useState<{sgpa: string, subjects: any[]} | null>(null);
+  const [isLoading, setIsLoading] = useState(semesterOptionsCache?.length ? false : true);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      // Reset to Internal Marks whenever the user leaves and comes back to this tab
+      return () => {
+        setSelectedSemester('');
+        setResultData(null);
+      };
+    }, [])
+  );
+
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isSessionModalVisible, setIsSessionModalVisible] = useState(false);
+  const cookieScript = useRef<string>('');
+  const injectAndScrapeRef = useRef<() => void>(() => {});
+
+  // Load saved cookies once on mount
+  useEffect(() => {
+    SecureStore.getItemAsync('culko_cookies').then((cookies) => {
+      if (cookies) {
+        const parts = cookies.split(';').map((c: string) => c.trim()).filter(Boolean);
+        const lines = parts.map((c: string) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
+        cookieScript.current = lines + '\ntrue;';
+      }
+    });
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    setIsLoading(true);
+    setResultData(null);
+    webViewRef.current?.reload();
+  }, []);
+
+  const chartData = marks?.length > 0 ? marks.map(m => {
+    let score = 50;
+    if (m.mstMarks) {
+      const parts = m.mstMarks.split('/');
+      if (parts.length === 2) {
+        score = (parseFloat(parts[0]) / parseFloat(parts[1])) * 100;
+      }
+    }
+    return { subject: m.subjectName.substring(0, 10), score: isNaN(score) ? 0 : score };
+  }) : [{ subject: 'No Data', score: 0 }];
+
+  const extractScript = `
+    try {
+      if (window.location.href.toLowerCase().includes('login.aspx') || window.location.href.toLowerCase().includes('login')) {
+         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESULT_DATA', error: 'SESSION_EXPIRED' }));
+      } else {
+        var resultType = document.querySelector('select[name*="ddlResultType"]');
+        if (resultType && resultType.value !== "Session") {
+           resultType.value = "Session";
+           if (typeof __doPostBack === 'function') {
+              __doPostBack(resultType.name, '');
+           }
+           // Return early, the page will reload
+           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESULT_DATA', options: [], pendingPostback: true }));
+        } else {
+         var ddl = document.querySelector('select[name*="ddlSession"]') || document.querySelector('select[name*="Session"]');
+         var options = [];
+         if (ddl) {
+           for (var i = 0; i < ddl.options.length; i++) {
+             options.push({ text: ddl.options[i].text, value: ddl.options[i].value });
+           }
+         }
+         
+         var sgpa = '';
+         var bodyText = document.body.innerText;
+         var match = bodyText.match(/SGPA\s*[:\-]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
+         if (match) {
+            sgpa = match[1];
+         } else {
+            var sgpaInput = document.querySelector('input[name*="SGPA" i], input[id*="SGPA" i]');
+            if (sgpaInput && sgpaInput.value) {
+               sgpa = sgpaInput.value;
+            } else {
+               var spans = document.querySelectorAll('span, td, div');
+               for(var k=0; k<spans.length; k++) {
+                  var text = spans[k].innerText;
+                  if(text && text.includes('SGPA')) {
+                     var m = text.match(/SGPA\s*[:\-]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
+                     if (m) {
+                        sgpa = m[1];
+                        break;
+                     }
+                  }
+               }
+            }
+         }
+         
+         var sgpaDebug = '';
+         if (!sgpa) {
+            var els = Array.from(document.querySelectorAll('*')).filter(el => el.innerText && el.innerText.includes('SGPA') && el.children.length === 0);
+            if (els.length > 0) {
+               sgpaDebug = els[els.length - 1].parentElement ? els[els.length - 1].parentElement.innerHTML : els[els.length - 1].innerHTML;
+            }
+         }
+      
+      var subjects = [];
+      var trs = document.querySelectorAll('table tr');
+      var debugRows = [];
+      for (var i = 0; i < trs.length; i++) {
+         var tds = Array.from(trs[i].children).filter(function(el) {
+            return el.tagName.toUpperCase() === 'TD' || el.tagName.toUpperCase() === 'TH';
+         });
+         var textArr = tds.map(t => t.innerText.trim());
+         if (textArr.length > 0) {
+            debugRows.push(textArr.join(' | '));
+         }
+         
+         var codeIndex = textArr.findIndex(t => /^[0-9A-Z]{2,7}-[0-9]{3}/.test(t));
+         if (codeIndex !== -1 && textArr.length >= codeIndex + 3) {
+            var code = textArr[codeIndex];
+            var name = textArr[codeIndex + 1];
+            
+            var grade = '';
+            var credit = '0';
+            
+            for (var j = textArr.length - 1; j > codeIndex + 1; j--) {
+               var val = textArr[j].toUpperCase();
+               if (/^(O|A\\+|A|B\\+|B|C|D|E|F|P|AB|I|DT|UMC\\*?)$/.test(val)) {
+                  grade = textArr[j]; // Keep original case
+                  var beforeGrade = textArr[j - 1];
+                  if (!isNaN(parseFloat(beforeGrade))) {
+                     credit = beforeGrade;
+                  } else if (j - 2 > codeIndex && !isNaN(parseFloat(textArr[j - 2]))) {
+                     credit = textArr[j - 2];
+                  }
+                  break;
+               }
+            }
+            
+            var internal = '';
+            var external = '';
+            if (codeIndex + 2 < textArr.length && textArr[codeIndex + 2] !== credit && textArr[codeIndex + 2] !== grade) {
+               internal = textArr[codeIndex + 2];
+            }
+            if (codeIndex + 3 < textArr.length && textArr[codeIndex + 3] !== credit && textArr[codeIndex + 3] !== grade) {
+               external = textArr[codeIndex + 3];
+            }
+            
+            if (grade) {
+               subjects.push({ code: code, name: name, credit: credit, grade: grade, internal: internal, external: external });
+            }
+         }
+      }
+      
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'RESULT_DATA',
+          options: options,
+          sgpa: sgpa,
+          subjects: subjects,
+          selected: ddl ? ddl.value : '',
+          debugSgpa: sgpaDebug,
+          debugRows: debugRows
+        }));
+        } // CLOSE ELSE BLOCK FOR RESULT TYPE
+      } // CLOSE ELSE BLOCK FOR LOGIN
+    } catch(e) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'RESULT_DATA',
+        error: e.toString()
+      }));
+    }
+    true;
+  `;
+
+  injectAndScrapeRef.current = () => {
+    if (cookieScript.current) {
+      webViewRef.current?.injectJavaScript(cookieScript.current);
+      setTimeout(() => webViewRef.current?.injectJavaScript(extractScript), 500);
+    } else {
+      webViewRef.current?.injectJavaScript(extractScript);
+    }
+  };
+
+  const handleMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'RESULT_DATA') {
+        if (data.pendingPostback) {
+           return; // wait for reload
+        }
+        if (data.error === 'SESSION_EXPIRED') {
+           Alert.alert(
+             'Session Expired',
+             'Your college portal session has expired. Logout and re-login to view marks.',
+             [
+               { text: 'Later', style: 'cancel' },
+               {
+                 text: 'Logout & Re-login',
+                 style: 'destructive',
+                 onPress: async () => { await clearSession(); router.replace('/(app)' as any); }
+               }
+             ]
+           );
+           setIsLoading(false);
+           setRefreshing(false);
+           return;
+        }
+        if (data.error) {
+           console.log("RESULT PAGE SCRIPT ERROR:", data.error);
+        }
+        if (data.debugSgpa) {
+           console.log("RESULT PAGE SGPA DEBUG HTML:", data.debugSgpa);
+        }
+        if (data.debugRows) {
+           console.log("RESULT PAGE DEBUG ROWS:", data.debugRows);
+        }
+        if (data.options && data.options.length > 0) {
+          setSemesterOptions(data.options);
+          setScrapedData({ semesterOptionsCache: data.options });
+        }
+        if (data.selected) {
+           setSelectedSemester(data.selected);
+        }
+        if (data.subjects && data.subjects.length > 0) {
+           const currentSelected = data.selected || selectedSemester;
+           setResultData({ sgpa: data.sgpa, subjects: data.subjects });
+           if (currentSelected) {
+               setScrapedData({ 
+                 resultCache: { 
+                   ...(resultCache || {}), 
+                   [currentSelected]: { sgpa: data.sgpa, subjects: data.subjects } 
+                 } 
+               });
+           }
+        } else {
+           setResultData(null);
+        }
+        setIsLoading(false);
+        setRefreshing(false);
+      }
+    } catch (e) {}
+  };
+
+  const handleNavigationStateChange = (navState: WebViewNavigation) => {
+    console.log("MARKS WEBVIEW NAV:", navState.url, navState.loading);
+    if (!navState.loading) {
+      if (navState.url.includes('Login') || navState.url.includes('login')) {
+        // Session expired
+        setIsLoading(false);
+        setRefreshing(false);
+        setIsSessionModalVisible(true);
+        return;
+      }
+      setTimeout(() => injectAndScrapeRef.current(), 2000);
+    }
+  };
+
+  const selectSemester = (value: string) => {
+    if (value === 'RECONNECT') {
+       setIsModalVisible(false);
+       clearSession();
+       router.replace('/(app)' as any);
+       return;
+    }
+
+    setIsModalVisible(false);
+    setSelectedSemester(value);
+    
+    // Instant cache hit
+    if (resultCache && resultCache[value]) {
+       setResultData(resultCache[value]);
+       setIsLoading(false);
+    } else {
+       setIsLoading(true);
+       setResultData(null);
+    }
+
+    webViewRef.current?.injectJavaScript(`
+      try {
+        var ddl = document.querySelector('select[name*="ddlSession"]') || document.querySelector('select[name*="Session"]');
+        if (ddl) {
+          ddl.value = '${value}';
+          // Trigger the form submit button instead of just changing the dropdown!
+          var btn = document.querySelector('input[type="submit"][name*="btnShowResult"], input[type="submit"][value*="Show Result"]');
+          if (btn) {
+             btn.click();
+          } else {
+             if (typeof __doPostBack === 'function') {
+                __doPostBack(ddl.name, '');
+             }
+          }
+        }
+      } catch(e) {}
+      true;
+    `);
+  };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Marks & Grades</Text>
-        <TouchableOpacity onPress={() => router.push('/(app)/studyos/marks/cgpa')}>
-          <Text style={styles.cgpaText}>CGPA Target</Text>
-        </TouchableOpacity>
-      </View>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+          />
+        }
+      >
+        <View style={styles.headerRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Ionicons name="logo-octocat" size={24} color={colors.text} />
+            <View>
+              <Text style={styles.headerTitle}>Performance Radar</Text>
+              <Text style={styles.headerSubtitle}>Tap points for details</Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.semesterBtn} onPress={() => setIsModalVisible(true)}>
+            <Ionicons name="trophy-outline" size={14} color={colors.primary} />
+            <Text style={styles.semesterBtnText}>
+              {selectedSemester ? (semesterOptions.find(opt => opt.value === selectedSemester)?.text || 'Final Results') : 'View Final Results'}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
 
-      <FlatList
-        data={subjects}
-        keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => <SubjectMarksCard course={item} />}
-      />
+        <View style={styles.radarContainer}>
+          <RadarChart data={chartData} />
+        </View>
+
+        {isLoading && (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <Text style={{ color: colors.textMuted, marginTop: 10 }}>Fetching University Result...</Text>
+          </View>
+        )}
+
+        {resultData && resultData.subjects.length > 0 && !isLoading && (
+          <View style={[styles.listContainer, { marginBottom: 24 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md }}>
+              <Text style={styles.listTitle}>Final Results</Text>
+              <View style={styles.sgpaBadge}>
+                <Text style={styles.sgpaText}>SGPA: {resultData.sgpa || 'N/A'}</Text>
+              </View>
+            </View>
+
+            {resultData.subjects.map((sub, i) => (
+              <View key={`res-${i}`} style={styles.resultCard}>
+                <View style={{ flex: 1, paddingRight: 10 }}>
+                  <Text style={styles.resultSubName}>{sub.name}</Text>
+                  <Text style={styles.resultSubCode}>{sub.code} • {sub.credit} Credits</Text>
+                  {(sub.internal || sub.external) && (
+                    <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
+                      Int: {sub.internal || '-'} • Ext: {sub.external || '-'}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.gradeBadge}>
+                  <Text style={styles.gradeText}>{sub.grade}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <View style={styles.listContainer}>
+          <Text style={styles.listTitle}>Internal Marks</Text>
+            {marks && marks.length > 0 ? marks.map((item, index) => {
+              const isExpanded = expandedIndex === index;
+              return (
+                <View key={index.toString()} style={styles.accordionCard}>
+                  <TouchableOpacity 
+                    style={styles.accordionHeader} 
+                    onPress={() => setExpandedIndex(isExpanded ? null : index)}
+                  >
+                    <Text style={styles.accordionTitle}>{item.subjectName}</Text>
+                    <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textDim} />
+                  </TouchableOpacity>
+                  
+                  {isExpanded && (
+                    <View style={styles.accordionContent}>
+                      <View style={styles.markRow}>
+                        <Text style={styles.markLabel}>MST</Text>
+                        <Text style={styles.markValue}>{item.mstMarks}</Text>
+                      </View>
+                      <View style={styles.markRow}>
+                        <Text style={styles.markLabel}>Practical</Text>
+                        <Text style={styles.markValue}>{item.practicalMarks}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              );
+            }) : (
+              <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 40, padding: 20 }}>
+                <Ionicons name="document-text-outline" size={64} color="#3b82f640" />
+                <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 16 }}>No Marks Uploaded Yet</Text>
+                <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 8, fontSize: 13, lineHeight: 20 }}>
+                  There are no internal marks uploaded for the current session yet. You can check back later, or select a past semester from the top right to view your final results.
+                </Text>
+              </View>
+            )}
+          </View>
+      </ScrollView>
+
+      <Modal visible={isModalVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Semester</Text>
+              <TouchableOpacity onPress={() => setIsModalVisible(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              {semesterOptions.map((opt, i) => {
+                const isSel = selectedSemester === opt.value;
+                const isMay = opt.text.toLowerCase().includes('may') || opt.text.toLowerCase().includes('odd');
+                const isDec = opt.text.toLowerCase().includes('dec') || opt.text.toLowerCase().includes('even') || opt.text.toLowerCase().includes('nov');
+                const accentColor = isMay ? '#f59e0b' : isDec ? '#3b82f6' : colors.primary;
+                return (
+                  <TouchableOpacity
+                    key={i.toString()}
+                    style={[
+                      styles.modalOption,
+                      isSel && { backgroundColor: accentColor + '22', borderRadius: 12, borderBottomWidth: 0, borderWidth: 1, borderColor: accentColor + '60' }
+                    ]}
+                    onPress={() => selectSemester(opt.value)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <View style={[styles.sessionDot, { backgroundColor: accentColor + '30', borderColor: accentColor }]}>
+                        <Ionicons
+                          name={isMay ? 'sunny-outline' : isDec ? 'snow-outline' : 'school-outline'}
+                          size={16}
+                          color={accentColor}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.modalOptionText, isSel && { color: accentColor, fontFamily: 'Inter_700Bold' }]}>
+                          {opt.text}
+                        </Text>
+                        {(isMay || isDec) && (
+                          <Text style={{ color: isMay ? '#f59e0b80' : '#3b82f680', fontSize: 11, marginTop: 2 }}>
+                            {isMay ? 'Summer Examination' : 'Winter Examination'}
+                          </Text>
+                        )}
+                      </View>
+                      {isSel && <Ionicons name="checkmark-circle" size={18} color={accentColor} />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+              {semesterOptions.length === 0 && (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                   <ActivityIndicator size="small" color="#3b82f6" />
+                   <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 10 }}>Loading sessions from server...</Text>
+                   <Text style={{ color: '#666', textAlign: 'center', marginTop: 5, fontSize: 11 }}>This may take a few seconds.</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isSessionModalVisible} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View
+            style={{ backgroundColor: colors.surface, padding: 24, borderRadius: 24, width: '100%', borderWidth: 1, borderColor: colors.border }}
+          >
+            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#ef444420', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+              <Ionicons name="key-outline" size={28} color="#ef4444" />
+            </View>
+            <Text style={{ color: colors.text, fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', marginBottom: 8 }}>Connection Lost</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_400Regular', lineHeight: 22, marginBottom: 24 }}>
+              For your security, your connection to the college portal has timed out. Please reconnect to continue viewing your marks.
+            </Text>
+            
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity 
+                style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: colors.surfaceHigh, alignItems: 'center' }}
+                onPress={() => setIsSessionModalVisible(false)}
+              >
+                <Text style={{ color: colors.text, fontFamily: 'Inter_600SemiBold' }}>Not Now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' }}
+                onPress={async () => {
+                   setIsSessionModalVisible(false);
+                   await clearSession();
+                   router.replace('/(app)' as any);
+                }}
+              >
+                <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold' }}>Reconnect</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <View style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: -1000 }}>
+         <WebView
+           ref={webViewRef}
+           source={{ uri: 'https://student.culko.in/result.aspx' }}
+           onNavigationStateChange={handleNavigationStateChange}
+           onMessage={handleMessage}
+           onError={(e) => console.log('WEBVIEW ERROR:', e.nativeEvent.description)}
+           onHttpError={(e) => console.log('WEBVIEW HTTP ERROR:', e.nativeEvent.statusCode)}
+           javaScriptEnabled={true}
+           domStorageEnabled={true}
+           sharedCookiesEnabled={true}
+         />
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { ...Typography.body, color: Colors.textDim, marginTop: Spacing.md },
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: Spacing.md, paddingTop: 40, backgroundColor: Colors.surface,
+function RadarChart({ data }: { data: { subject: string, score: number }[] }) {
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
+  const size = 160;
+  const points = data.map((d, i) => {
+    const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
+    const r = (d.score / 100) * RADIUS;
+    return `${CENTER + r * Math.cos(angle)},${CENTER + r * Math.sin(angle)}`;
+  }).join(' ');
+
+  return (
+    <View style={styles.chartContainer}>
+      <Svg width={RADAR_SIZE} height={RADAR_SIZE}>
+        {[0.2, 0.4, 0.6, 0.8, 1].map((scale, i) => (
+          <Polygon
+            key={i}
+            points={data.map((_, i) => {
+              const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
+              const x = CENTER + RADIUS * scale * Math.cos(angle);
+              const y = CENTER + RADIUS * scale * Math.sin(angle);
+              return `${x},${y}`;
+            }).join(' ')}
+            stroke={colors.border}
+            strokeWidth="1"
+            fill="none"
+          />
+        ))}
+        {data.map((_, i) => {
+          const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
+          const x = CENTER + RADIUS * Math.cos(angle);
+          const y = CENTER + RADIUS * Math.sin(angle);
+          return <Line key={`line-${i}`} x1={CENTER} y1={CENTER} x2={x} y2={y} stroke={colors.border} strokeWidth="1" />;
+        })}
+        <Polygon points={points} fill="#3b82f640" stroke="#3b82f6" strokeWidth="2" />
+        {data.map((d, i) => {
+          const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
+          const x = CENTER + (RADIUS + 20) * Math.cos(angle);
+          const y = CENTER + (RADIUS + 20) * Math.sin(angle);
+          return (
+            <SvgText key={`label-${i}`} x={x} y={y} fill="#d1d5db" fontSize="11" textAnchor="middle" alignmentBaseline="middle">
+              {d.subject}
+            </SvgText>
+          );
+        })}
+      </Svg>
+    </View>
+  );
+}
+
+const useStyles = (colors: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: Spacing.lg, paddingTop: 50, paddingBottom: 100 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl },
+  headerTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
+  headerSubtitle: { color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_400Regular' },
+  semesterBtn: {
+    backgroundColor: colors.primary + '15',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
   },
-  headerTitle: { ...Typography.h3, color: Colors.text },
-  backBtn: { padding: Spacing.sm },
-  backText: { color: Colors.primary, fontSize: 16 },
-  cgpaText: { color: Colors.primary, fontSize: 14, fontWeight: 'bold' },
-  listContent: { padding: Spacing.md },
-  card: { marginBottom: Spacing.md, padding: Spacing.md },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  subjectName: { ...Typography.h3, color: Colors.text, flex: 1 },
-  overallScore: { ...Typography.h2, color: Colors.primary, fontWeight: 'bold', marginLeft: Spacing.md },
-  expandedContent: { marginTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: Spacing.md },
-  markRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm },
-  markLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  dot: { width: 8, height: 8, borderRadius: 4, marginRight: Spacing.sm },
-  markItemName: { ...Typography.body, color: Colors.text, fontSize: 14 },
-  markScore: { ...Typography.body, color: Colors.textDim, fontWeight: 'bold' },
-  absentBadge: { backgroundColor: '#ef444420', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  absentText: { color: Colors.error, fontSize: 12, fontWeight: 'bold' },
-  emptyText: { ...Typography.body, color: Colors.textDim, fontStyle: 'italic', textAlign: 'center' },
+  semesterBtnText: { color: colors.primary, fontSize: 12, fontFamily: 'Inter_700Bold' },
+  
+  radarContainer: { alignItems: 'center', marginBottom: 0, marginTop: -10 },
+  chartContainer: { alignItems: 'center', justifyContent: 'center' },
+  
+  listContainer: { marginTop: Spacing.sm },
+  listTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginBottom: Spacing.md },
+  
+  accordionCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: colors.border },
+  accordionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  accordionTitle: { color: colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', flex: 1, paddingRight: 16 },
+  accordionContent: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: Spacing.md, marginTop: Spacing.xs },
+  markRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
+  markLabel: { color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' },
+  markValue: { color: colors.text, fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+
+  sgpaBadge: { backgroundColor: '#3b82f620', paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, borderWidth: 1, borderColor: '#3b82f640' },
+  sgpaText: { color: '#3b82f6', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' },
+  resultCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center' },
+  resultSubName: { color: colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 4 },
+  resultSubCode: { color: colors.textMuted, fontSize: 12 },
+  gradeBadge: { backgroundColor: '#22c55e20', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#22c55e' },
+  gradeText: { color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.xl, maxHeight: '60%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
+  modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
+  modalOption: { paddingVertical: Spacing.md, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.border },
+  modalOptionText: { color: '#d1d5db', fontSize: 15, fontFamily: 'Inter_500Medium' },
+  modalOptionTextSelected: { color: colors.primary, fontFamily: 'Inter_700Bold' },
+  sessionDot: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
 });

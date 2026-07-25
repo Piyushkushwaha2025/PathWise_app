@@ -10,6 +10,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { ForceUpdateGate } from "../components/ForceUpdate";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -76,6 +79,7 @@ if (Platform.OS === "android") {
 
 import { useThemeStore, loadTheme, ThemeType } from "../store/useThemeStore";
 import { useUser } from "@clerk/clerk-expo";
+import { registerBackgroundSync } from "../tasks/backgroundSync";
 
 if (LogBox) {
   LogBox.ignoreLogs([
@@ -103,14 +107,67 @@ function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
   const theme = useThemeStore((state) => state.theme);
 
   useEffect(() => {
-    // Request notification permission on startup
+    // Request notification permission and register token
     (async () => {
       const { status: existing } = await Notifications.getPermissionsAsync();
+      let finalStatus = existing;
       if (existing !== "granted") {
-        await Notifications.requestPermissionsAsync();
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      // If granted and user logged in, get token and save to DB
+      if (finalStatus === "granted" && user?.id && Platform.OS !== 'web') {
+        try {
+          // projectId is required in Expo SDK 50+
+          // The Project ID from app.json (EAS Project ID)
+          const projectId = "6ec620f1-e4e6-4862-8223-6418976b86e4";
+          
+          const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+          const API_URL = process.env.EXPO_PUBLIC_API_URL;
+          
+          if (API_URL && tokenData?.data) {
+             fetch(`${API_URL}/api/user/push-token`, {
+                method: 'POST',
+                headers: {
+                   'Content-Type': 'application/json',
+                   'x-clerk-user-id': user.id
+                },
+                body: JSON.stringify({ expoPushToken: tokenData.data })
+             }).catch(e => console.error("Error saving token:", e));
+          }
+        } catch (error: any) {
+          // It's normal for push tokens to fail on emulators or without Google Play Services
+          console.warn("⚠️ Push token generation skipped (likely on emulator):", error?.message);
+        }
+      }
+      
+      // Register our headless background sync task
+      await registerBackgroundSync();
+      
+      // SERVERLESS: Check for new assignments
+      try {
+         const ASSIGNMENTS_JSON_URL = "https://raw.githubusercontent.com/Piyushkushwaha2025/PathWise_app/master/assignments.json";
+         const res = await fetch(`${ASSIGNMENTS_JSON_URL}?t=${Date.now()}`);
+         if (res.ok) {
+            const assignments = await res.json();
+            const storedCountStr = await AsyncStorage.getItem("pathwise_assignments_count");
+            const storedCount = storedCountStr ? parseInt(storedCountStr, 10) : 0;
+            
+            if (assignments.length > storedCount) {
+               // New assignment found!
+               import('react-native').then(({ Alert }) => {
+                  Alert.alert("New Assignment Available! 📚", "Check the StudyOS Assignments tab for details.");
+               });
+               // Update stored count
+               await AsyncStorage.setItem("pathwise_assignments_count", assignments.length.toString());
+            }
+         }
+      } catch (e) {
+         console.warn("Failed to check new assignments", e);
       }
     })();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (user?.unsafeMetadata?.theme || user?.unsafeMetadata?.primaryColor) {
@@ -171,7 +228,11 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <BottomSheetModalProvider>
               <StatusBar style="light" />
-              <RootLayoutInner fontsLoaded={fontsLoaded || !!fontError} />
+              <ErrorBoundary>
+                <ForceUpdateGate>
+                  <RootLayoutInner fontsLoaded={fontsLoaded || !!fontError} />
+                </ForceUpdateGate>
+              </ErrorBoundary>
             </BottomSheetModalProvider>
           </GestureHandlerRootView>
         </SafeAreaProvider>

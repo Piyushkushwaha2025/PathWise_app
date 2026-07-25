@@ -1,12 +1,15 @@
+import { useThemeStore } from '../../../../store/useThemeStore';
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuiz } from '../../../../hooks/useQuiz';
 import { useStudyOSStore } from '../../../../store/studyosStore';
-import { Colors, Typography, Spacing, Radius } from '../../../../constants/theme';
+import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { GlassCard } from '../../../../components/ui/GlassCard';
 
 export default function QuizScreen() {
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
   const { topicId, subject } = useLocalSearchParams();
   const router = useRouter();
   
@@ -33,7 +36,7 @@ export default function QuizScreen() {
   if (isPending || !quizData) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} style={{ marginBottom: Spacing.xl }} />
+        <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: Spacing.xl }} />
         <Text style={styles.loadingText}>Generating AI Quiz for {topicId}...</Text>
       </View>
     );
@@ -93,19 +96,19 @@ export default function QuizScreen() {
 
         <View style={styles.optionsContainer}>
           {currentQ.options.map((opt: string, idx: number) => {
-            let bg = Colors.surface;
-            let border = Colors.border;
+            let bg = colors.surface;
+            let border = colors.border;
 
             if (showExplanation) {
               if (idx === currentQ.correctIndex) {
                 bg = '#10b98120';
-                border = Colors.success;
+                border = colors.success;
               } else if (idx === selectedOption) {
                 bg = '#ef444420';
-                border = Colors.error;
+                border = colors.error;
               }
             } else if (selectedOption === idx) {
-              border = Colors.primary;
+              border = colors.primary;
             }
 
             return (
@@ -140,30 +143,30 @@ export default function QuizScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+const useStyles = (colors: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
-  loadingText: { ...Typography.h3, color: Colors.text, textAlign: 'center' },
+  loadingText: { ...Typography.h3, color: colors.text, textAlign: 'center' },
   header: { padding: Spacing.xl, paddingTop: 60, alignItems: 'center' },
-  progressText: { ...Typography.body, color: Colors.textDim, fontWeight: 'bold' },
+  progressText: { ...Typography.body, color: colors.textDim, fontWeight: 'bold' },
   content: { padding: Spacing.md, paddingBottom: 100 },
   questionCard: { padding: Spacing.xl, marginBottom: Spacing.xl },
-  questionText: { ...Typography.h2, color: Colors.text, lineHeight: 32 },
+  questionText: { ...Typography.h2, color: colors.text, lineHeight: 32 },
   optionsContainer: { gap: Spacing.md },
   optionCard: {
     padding: Spacing.lg,
     borderRadius: Radius.md,
     borderWidth: 2,
   },
-  optionText: { ...Typography.body, color: Colors.text, fontSize: 16 },
+  optionText: { ...Typography.body, color: colors.text, fontSize: 16 },
   explanationBox: { marginTop: Spacing.xl, padding: Spacing.lg, backgroundColor: '#ffffff08', borderRadius: Radius.md },
-  explanationTitle: { ...Typography.h3, color: Colors.primary, marginBottom: Spacing.xs },
-  explanationText: { ...Typography.body, color: Colors.text, lineHeight: 24 },
-  nextBtn: { backgroundColor: Colors.primary, padding: Spacing.md, borderRadius: Radius.full, alignItems: 'center', marginTop: Spacing.xl },
-  nextBtnText: { ...Typography.h3, color: '#FFF' },
-  title: { ...Typography.h1, color: Colors.text, marginBottom: Spacing.md },
-  scoreText: { ...Typography.h2, color: Colors.primary, marginBottom: Spacing.xs },
-  xpText: { ...Typography.h3, color: Colors.success, marginBottom: Spacing.xxl },
-  btn: { backgroundColor: Colors.surface, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border },
-  btnText: { ...Typography.body, color: Colors.text, fontWeight: 'bold' },
+  explanationTitle: { ...Typography.h3, color: colors.primary, marginBottom: Spacing.xs },
+  explanationText: { ...Typography.body, color: colors.text, lineHeight: 24 },
+  nextBtn: { backgroundColor: colors.primary, padding: Spacing.md, borderRadius: Radius.full, alignItems: 'center', marginTop: Spacing.xl },
+  nextBtnText: { ...Typography.h3, color: colors.text },
+  title: { ...Typography.h1, color: colors.text, marginBottom: Spacing.md },
+  scoreText: { ...Typography.h2, color: colors.primary, marginBottom: Spacing.xs },
+  xpText: { ...Typography.h3, color: colors.success, marginBottom: Spacing.xxl },
+  btn: { backgroundColor: colors.surface, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderRadius: Radius.full, borderWidth: 1, borderColor: colors.border },
+  btnText: { ...Typography.body, color: colors.text, fontWeight: 'bold' },
 });

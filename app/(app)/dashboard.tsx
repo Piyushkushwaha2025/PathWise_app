@@ -22,6 +22,8 @@ import {
 import { useEnrollments } from "../../hooks/useEnrollments";
 import { useProgress } from "../../hooks/useProgress";
 import { useRouter } from "expo-router";
+import { useStudySessionStore } from "../../store/studySessionStore";
+import StudyOSDashboard from "./studyos/dashboard";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
@@ -50,6 +52,8 @@ export default function DashboardScreen() {
   const [isNotificationsVisible, setNotificationsVisible] = useState(false);
   const [lockedModalVisible, setLockedModalVisible] = useState(false);
   
+  const { isStudyOSMode } = useStudySessionStore();
+
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
 
@@ -61,6 +65,10 @@ export default function DashboardScreen() {
     useEnrollments();
   const { data: progressData, isLoading: isLoadingProgress } = useProgress();
   const generateRoadmap = useGenerateRoadmap();
+
+  if (isStudyOSMode) {
+    return <StudyOSDashboard />;
+  }
 
   const isLoading =
     isLoadingCatalog || isLoadingEnrollments || isLoadingProgress;

@@ -1,144 +1,252 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useTimetable } from '../../../../hooks/useTimetable';
-import { Colors, Typography, Spacing } from '../../../../constants/theme';
-import { GlassCard } from '../../../../components/ui/GlassCard';
+import React, { useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { Spacing, Radius } from '../../../../constants/theme';
+import { useThemeStore } from '../../../../store/useThemeStore';
+import { useStudyOSStore } from '../../../../store/studyosStore';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+const getCurrentDay = () => {
+  const dayIndex = new Date().getDay();
+  const daysMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const today = daysMap[dayIndex];
+  return DAYS.includes(today) ? today : 'Monday'; // Fallback to Monday on Sunday
+};
+
+const getFormattedDate = () => {
+  return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+};
+
+const parseStartTime = (timeStr: string) => {
+  try {
+    const startTimeStr = timeStr.split('-')[0].trim();
+    let [hours, minutes] = startTimeStr.split(':').map(Number);
+    // College classes are typically between 8 AM and 6 PM.
+    // If hours is between 1 and 7, it's PM (13 to 19).
+    if (hours >= 1 && hours <= 7) {
+      hours += 12;
+    }
+    return hours * 60 + (minutes || 0);
+  } catch (e) {
+    return 0;
+  }
+};
+
 export default function TimetableScreen() {
-  const { data: timetable, isLoading, error } = useTimetable();
-  const router = useRouter();
-  
-  // Default to Monday (or current day in real app)
-  const [selectedDay, setSelectedDay] = useState('Monday');
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
+  const { timetable } = useStudyOSStore();
+  const [selectedDay, setSelectedDay] = useState(getCurrentDay());
 
-  if (isLoading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Fetching your timetable...</Text>
-      </View>
-    );
-  }
+  useFocusEffect(
+    useCallback(() => {
+      setSelectedDay(getCurrentDay());
+    }, [])
+  );
 
-  if (error) {
-    return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Failed to load timetable.</Text>
-        <Text style={styles.errorSub}>{(error as Error).message}</Text>
-      </View>
-    );
-  }
-
-  const daySchedule = timetable?.filter(slot => slot.day === selectedDay) || [];
+  const rawClasses = timetable[selectedDay] || [];
+  const currentDayClasses = [...rawClasses].sort((a, b) => parseStartTime(a.time) - parseStartTime(b.time));
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Timetable</Text>
-        <View style={styles.placeholder} />
-      </View>
+        <View style={styles.headerTitleRow}>
+          <Ionicons name="calendar-outline" size={24} color={colors.text} />
+          <Text style={styles.headerDate}>{getFormattedDate()}</Text>
+          {getCurrentDay() === selectedDay && (
+            <View style={[styles.todayBadge, { backgroundColor: colors.primary + '15' }]}>
+              <Text style={[styles.todayText, { color: colors.primary }]}>TODAY</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.headerSubtitle}>{currentDayClasses.length} classes scheduled</Text>
 
-      <View style={styles.daySelector}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {DAYS.map(day => (
-            <TouchableOpacity 
-              key={day} 
-              style={[styles.dayPill, selectedDay === day && styles.dayPillActive]}
-              onPress={() => setSelectedDay(day)}
-            >
-              <Text style={[styles.dayText, selectedDay === day && styles.dayTextActive]}>
-                {day.substring(0, 3)}
-              </Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.daysScroll}>
+          {DAYS.map((day) => (
+            <TouchableOpacity key={day} onPress={() => setSelectedDay(day)}>
+              <DayPill day={day.substring(0, 3)} active={selectedDay === day} />
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      <FlatList
-        data={daySchedule}
-        keyExtractor={(item, index) => `${item.subject}-${item.timeStart}-${index}`}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
+      <ScrollView contentContainerStyle={styles.timelineContent} showsVerticalScrollIndicator={false}>
+        {currentDayClasses.length > 0 ? (
+          currentDayClasses.map((cls: any, index: number) => (
+            <TimelineCard
+              key={index.toString()}
+              time={cls.time.split('-')[0].trim()}
+              cardStart={cls.time}
+              title={cls.subjectName}
+              type={cls.subjectName.includes('Lab') ? 'Practical' : 'Lecture'}
+              teacher={cls.teacher}
+              location={cls.room}
+              gp={cls.group}
+              color={cls.subjectName.includes('Lab') ? colors.success : colors.primary}
+              isLast={index === currentDayClasses.length - 1}
+            />
+          ))
+        ) : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No classes scheduled for {selectedDay}.</Text>
+            <View style={[styles.emptyIconBg, { backgroundColor: colors.surfaceHigh }]}>
+              <Ionicons name="cafe-outline" size={48} color={colors.textMuted} />
+            </View>
+            <Text style={styles.emptyText}>No classes today!</Text>
+            <Text style={styles.emptySubtext}>Enjoy your free time or sync your timetable.</Text>
           </View>
-        }
-        renderItem={({ item }) => (
-          <GlassCard style={styles.card}>
-            <View style={styles.cardTop}>
-              <Text style={styles.timeText}>{item.timeStart} - {item.timeEnd}</Text>
-              <View style={[styles.typeBadge, { backgroundColor: item.type === 'Practical' ? '#10b98120' : '#3b82f620' }]}>
-                <Text style={[styles.typeText, { color: item.type === 'Practical' ? Colors.success : Colors.primary }]}>
-                  {item.type}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.subjectName}>{item.subject}</Text>
-            <View style={styles.cardBottom}>
-              <Text style={styles.teacherText}>{item.teacher}</Text>
-              <Text style={styles.roomText}>Room: {item.room}</Text>
-            </View>
-          </GlassCard>
         )}
-      />
+      </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
-  loadingText: { ...Typography.body, color: Colors.textDim, marginTop: Spacing.md },
-  errorText: { ...Typography.h3, color: Colors.error },
-  errorSub: { ...Typography.body, color: Colors.textDim, marginTop: Spacing.xs, textAlign: 'center' },
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: Spacing.md, paddingTop: 40, backgroundColor: Colors.surface,
+function DayPill({ day, active }: any) {
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
+  return (
+    <View style={[styles.dayPill, active && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
+      <Text style={[styles.dayText, active && { color: '#ffffff' }]}>{day}</Text>
+    </View>
+  );
+}
+
+function TimelineCard({ time, cardStart, title, type, teacher, location, gp, color, isLast }: any) {
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
+  
+  return (
+    <View style={styles.timeCardContainer}>
+      {/* Left side: Time & Timeline Graphic */}
+      <View style={styles.timelineLeft}>
+        <Text style={styles.timeLabel}>{time}</Text>
+        <View style={styles.timelineGraphic}>
+          <View style={[styles.timelineDot, { borderColor: color }]} />
+          {!isLast && <View style={styles.timelineLine} />}
+        </View>
+      </View>
+      
+      {/* Right side: Card */}
+      <View style={[styles.card, { borderLeftColor: color }]}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <View style={[styles.typeBadge, { backgroundColor: color + '15' }]}>
+            <Text style={[styles.typeText, { color: color }]}>{type}</Text>
+          </View>
+        </View>
+        
+        <View style={styles.teacherRow}>
+          <Ionicons name="person-circle-outline" size={16} color={colors.textMuted} />
+          <Text style={styles.teacherText}>{teacher}</Text>
+        </View>
+        
+        <View style={styles.cardFooter}>
+          <View style={styles.footerItem}>
+             <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+             <Text style={styles.footerText}>{cardStart}</Text>
+          </View>
+          <View style={styles.footerItem}>
+             <Ionicons name="location-outline" size={14} color={colors.textMuted} />
+             <Text style={styles.footerText}>{location}</Text>
+          </View>
+          {gp && (
+            <View style={styles.footerItem}>
+               <Ionicons name="people-outline" size={14} color={colors.textMuted} />
+               <Text style={styles.footerText}>{gp}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const useStyles = (colors: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  header: { paddingTop: 60, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  headerDate: { color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold' },
+  todayBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  todayText: { fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold' },
+  headerSubtitle: { color: colors.textMuted, fontSize: 14, marginBottom: Spacing.lg },
+  
+  daysScroll: { flexDirection: 'row' },
+  dayPill: { 
+    backgroundColor: colors.surface, 
+    borderRadius: Radius.full, 
+    paddingHorizontal: 20, 
+    paddingVertical: 10, 
+    alignItems: 'center', 
+    marginRight: 10, 
+    borderWidth: 1, 
+    borderColor: colors.border 
   },
-  headerTitle: { ...Typography.h3, color: Colors.text },
-  backBtn: { padding: Spacing.sm },
-  backText: { color: Colors.primary, fontSize: 16 },
-  placeholder: { width: 50 },
-  daySelector: {
-    padding: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+  dayText: { color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+
+  timelineContent: { paddingHorizontal: Spacing.md, paddingBottom: 100, paddingTop: 10 },
+  
+  emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 80 },
+  emptyIconBg: { width: 100, height: 100, borderRadius: 50, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  emptyText: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 8 },
+  emptySubtext: { color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_500Medium' },
+  
+  timeCardContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'stretch', 
+    marginBottom: Spacing.md 
   },
-  dayPill: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: 20,
-    marginRight: Spacing.sm,
-    backgroundColor: Colors.surface,
+  
+  timelineLeft: {
+    width: 65,
+    alignItems: 'center',
+    marginRight: 12,
   },
-  dayPillActive: {
-    backgroundColor: Colors.primary,
+  timeLabel: { 
+    color: colors.text, 
+    fontSize: 13, 
+    fontFamily: 'SpaceGrotesk_600SemiBold', 
+    marginBottom: 8 
   },
-  dayText: {
-    ...Typography.body,
-    color: Colors.textDim,
-    fontWeight: '500',
+  timelineGraphic: {
+    flex: 1,
+    alignItems: 'center',
   },
-  dayTextActive: {
-    color: '#FFF',
-    fontWeight: 'bold',
+  timelineDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 3,
+    backgroundColor: colors.background,
+    zIndex: 2,
   },
-  listContent: { padding: Spacing.md },
-  emptyState: { padding: Spacing.xl, alignItems: 'center', marginTop: 40 },
-  emptyText: { ...Typography.body, color: Colors.textDim },
-  card: { marginBottom: Spacing.md, padding: Spacing.md },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
-  timeText: { ...Typography.body, color: Colors.textDim, fontWeight: 'bold' },
-  typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
-  typeText: { fontSize: 12, fontWeight: 'bold' },
-  subjectName: { ...Typography.h3, color: Colors.text, marginBottom: Spacing.sm },
-  cardBottom: { flexDirection: 'row', justifyContent: 'space-between' },
-  teacherText: { ...Typography.body, color: Colors.textDim, fontSize: 14 },
-  roomText: { ...Typography.body, color: Colors.text, fontSize: 14, fontWeight: '500' },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: colors.border,
+    marginTop: -2,
+    marginBottom: -20,
+    zIndex: 1,
+  },
+
+  card: { 
+    flex: 1, 
+    backgroundColor: colors.surfaceHigh, 
+    borderRadius: Radius.lg, 
+    padding: Spacing.lg,
+    borderLeftWidth: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  cardTitle: { color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', flex: 1, paddingRight: 10 },
+  typeBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.full },
+  typeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
+  
+  teacherRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  teacherText: { color: colors.textMuted, fontSize: 13, marginLeft: 6, fontFamily: 'Inter_500Medium' },
+  
+  cardFooter: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
+  footerItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  footerText: { color: colors.textDim, fontSize: 12, fontFamily: 'Inter_500Medium' },
 });

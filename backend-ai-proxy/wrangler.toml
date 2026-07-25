@@ -1,0 +1,9 @@
+name = "studyos-ai-proxy"
+main = "src/index.ts"
+compatibility_date = "2023-01-01"
+
+[vars]
+# Put your API keys here in Cloudflare settings (or run wrangler secret put GEMINI_KEY_1)
+# For local testing, you can uncomment these (but do not commit them to GitHub!)
+# GEMINI_KEY_1 = "your_key_here"
+# GEMINI_KEY_2 = "your_key_here"

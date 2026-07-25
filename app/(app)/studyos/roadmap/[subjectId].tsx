@@ -1,13 +1,16 @@
+import { useThemeStore } from '../../../../store/useThemeStore';
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSubjects } from '../../../../hooks/useSubjects';
 import { useGenerateRoadmap, RoadmapModule } from '../../../../hooks/useGenerateRoadmap';
-import { Colors, Typography, Spacing, Radius } from '../../../../constants/theme';
+import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { GlassCard } from '../../../../components/ui/GlassCard';
 import { CheckCircle2, Circle } from 'lucide-react-native';
 
 export default function SubjectRoadmapScreen() {
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
   const { subjectId } = useLocalSearchParams();
   const router = useRouter();
   const { data: subjects } = useSubjects();
@@ -69,7 +72,7 @@ export default function SubjectRoadmapScreen() {
         </View>
       ) : isPending ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} style={{ marginBottom: Spacing.xl }} />
+          <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: Spacing.xl }} />
           <Text style={styles.loadingText}>{loadingMsg}</Text>
         </View>
       ) : (
@@ -85,7 +88,7 @@ export default function SubjectRoadmapScreen() {
                   onPress={() => router.push(`/(app)/studyos/roadmap/topic/${encodeURIComponent(topic.title)}?subject=${encodeURIComponent(subject.fullname)}`)}
                 >
                   <View style={styles.topicRow}>
-                    <Circle size={24} color={Colors.textDim} style={styles.checkIcon} />
+                    <Circle size={24} color={colors.textDim} style={styles.checkIcon} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.topicTitle}>{topic.title}</Text>
                       <Text style={styles.topicDesc} numberOfLines={2}>{topic.description}</Text>
@@ -101,33 +104,33 @@ export default function SubjectRoadmapScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+const useStyles = (colors: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.xl },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: Spacing.md, paddingTop: 40, backgroundColor: Colors.surface,
+    padding: Spacing.md, paddingTop: 40, backgroundColor: colors.surface,
   },
-  headerTitle: { ...Typography.h3, color: Colors.text, flex: 1, textAlign: 'center' },
+  headerTitle: { ...Typography.h3, color: colors.text, flex: 1, textAlign: 'center' },
   backBtn: { padding: Spacing.sm },
-  backText: { color: Colors.primary, fontSize: 16 },
+  backText: { color: colors.primary, fontSize: 16 },
   placeholder: { width: 50 },
-  title: { ...Typography.h2, color: Colors.text, marginBottom: Spacing.sm, textAlign: 'center' },
-  subtitle: { ...Typography.body, color: Colors.textDim, textAlign: 'center', marginBottom: Spacing.xxl },
+  title: { ...Typography.h2, color: colors.text, marginBottom: Spacing.sm, textAlign: 'center' },
+  subtitle: { ...Typography.body, color: colors.textDim, textAlign: 'center', marginBottom: Spacing.xxl },
   generateBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xxl,
     borderRadius: Radius.full,
   },
-  generateBtnText: { ...Typography.h3, color: '#FFF' },
-  loadingText: { ...Typography.h3, color: Colors.text, textAlign: 'center' },
+  generateBtnText: { ...Typography.h3, color: colors.text },
+  loadingText: { ...Typography.h3, color: colors.text, textAlign: 'center' },
   content: { padding: Spacing.md },
   moduleContainer: { marginBottom: Spacing.xl },
-  moduleTitle: { ...Typography.h2, color: Colors.text, marginBottom: Spacing.md, marginLeft: Spacing.xs },
+  moduleTitle: { ...Typography.h2, color: colors.text, marginBottom: Spacing.md, marginLeft: Spacing.xs },
   topicCard: { marginBottom: Spacing.sm, padding: Spacing.md },
   topicRow: { flexDirection: 'row', alignItems: 'center' },
   checkIcon: { marginRight: Spacing.md },
-  topicTitle: { ...Typography.h3, color: Colors.text, marginBottom: 4 },
-  topicDesc: { ...Typography.body, color: Colors.textDim, fontSize: 14 },
+  topicTitle: { ...Typography.h3, color: colors.text, marginBottom: 4 },
+  topicDesc: { ...Typography.body, color: colors.textDim, fontSize: 14 },
 });

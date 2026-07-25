@@ -11,11 +11,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import { SubscriptionSoonModal } from "../../components/modals/SubscriptionSoonModal";
+import { useStudySessionStore } from "../../store/studySessionStore";
+import MarksScreen from "./studyos/marks";
 
 export default function SubscriptionScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+  const { isStudyOSMode } = useStudySessionStore();
   const [soonModalVisible, setSoonModalVisible] = useState(false);
+
+  if (isStudyOSMode) {
+    return <MarksScreen />;
+  }
 
   return (
     <>

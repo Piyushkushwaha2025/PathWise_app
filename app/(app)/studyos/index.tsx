@@ -1,60 +1,62 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
+import { Redirect } from 'expo-router';
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { useStudySessionStore } from '../../../store/studySessionStore';
+import { useThemeStore } from '../../../store/useThemeStore';
 import { Typography, Spacing } from '../../../constants/theme';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MotiView } from 'moti';
-import { useThemeStore } from "../../../store/useThemeStore";
+import { Ionicons } from '@expo/vector-icons';
+import { GradientButton } from '../../../components/ui/GradientButton';
+import SubjectsScreen from './subjects';
 
 export default function StudyOSIndex() {
-  const insets = useSafeAreaInsets();
+  const { isConnected, isStudyOSMode, setStudyOSMode, checkConnection, universityId } = useStudySessionStore();
   const colors = useThemeStore((s) => s.colors);
-  
+  const styles = useStyles(colors);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    checkConnection().then(() => {
+      setIsReady(true);
+    });
+  }, []);
+
+  if (!isReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  // Not connected -> Go to connect page
+  if (!isConnected) {
+    return <Redirect href="/(app)/studyos/connect" />;
+  }
+
+  if (isStudyOSMode) {
+    return <SubjectsScreen />;
+  }
+
+  // Connected but in Normal Mode -> Show Reopen screen
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <MotiView
-        from={{ opacity: 0, translateY: 20 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'timing', duration: 600 }}
-        style={styles.content}
-      >
-        <View style={styles.iconContainer}>
-          <Ionicons name="construct-outline" size={80} color={colors.primary} />
-        </View>
-        <Text style={[styles.title, { color: colors.text }]}>StudyOS Under Maintenance</Text>
-        <Text style={[styles.subtitle, { color: colors.textDim }]}>
-          We are currently upgrading StudyOS to bring you an even better university integration experience. This feature will be available again soon!
-        </Text>
-      </MotiView>
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <Ionicons name="school" size={80} color={colors.primary} />
+        <Text style={styles.title}>You are connected to {universityId?.toUpperCase()}</Text>
+        <Text style={styles.subtitle}>Would you like to reopen StudyOS?</Text>
+        <GradientButton 
+          label="Reopen StudyOS" 
+          onPress={() => setStudyOSMode(true)} 
+          style={{ width: '100%', marginTop: Spacing.xl }} 
+        />
+      </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    alignItems: 'center',
-    padding: Spacing.xl,
-    maxWidth: 400,
-  },
-  iconContainer: {
-    marginBottom: Spacing.xl,
-    padding: Spacing.lg,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    borderRadius: 100,
-  },
-  title: {
-    ...Typography.h2,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  subtitle: {
-    ...Typography.body,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
+const useStyles = (colors: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' },
+  content: { alignItems: 'center', padding: Spacing.xl, width: '100%' },
+  title: { ...Typography.h2, color: colors.text, textAlign: 'center', marginTop: Spacing.lg },
+  subtitle: { ...Typography.body, color: colors.textDim, textAlign: 'center', marginTop: Spacing.sm },
 });

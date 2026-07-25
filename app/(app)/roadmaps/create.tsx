@@ -18,7 +18,9 @@ import { GradientButton } from "../../../components/ui/GradientButton";
 import { GlassCard } from "../../../components/ui/GlassCard";
 import { useGenerateRoadmap } from "../../../hooks/useRoadmaps";
 import { useToggleEnrollment } from "../../../hooks/useEnrollments";
-import { Colors, Typography, Spacing } from "../../../constants/theme";
+import { Themes, Typography, Spacing } from "../../../constants/theme";
+
+const Colors = Themes.black;
 
 const LEVELS = ["Beginner", "Intermediate", "Advanced"] as const;
 type Level = (typeof LEVELS)[number];

@@ -4,14 +4,25 @@ import { useEffect } from "react";
 import { useUpdateStore } from "../../store/useUpdateStore";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeStore } from "../../store/useThemeStore";
+import { useStudySessionStore } from "../../store/studySessionStore";
+import { useStudyOSStore } from "../../store/studyosStore";
+import { useBackgroundSync } from "../../hooks/useBackgroundSync";
 import { KeyboardAvoidingView, Platform } from "react-native";
 
 export default function AppLayout() {
   const { checkForUpdates } = useUpdateStore();
+  const { checkConnection } = useStudySessionStore();
+  const { loadGamification } = useStudyOSStore();
+  
+  // Initialize background sync and polling
+  useBackgroundSync();
 
   const colors = useThemeStore((s) => s.colors);
 
   useEffect(() => {
+    // Check for college connection on boot to set StudyOS mode if needed
+    checkConnection();
+    loadGamification();
     // Single auto-check on app load — delayed so app fully renders first
     // Manual check is available in Profile → "Check for Updates"
     const timer = setTimeout(() => {

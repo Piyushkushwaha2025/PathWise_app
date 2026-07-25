@@ -34,6 +34,9 @@ import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore, ThemeType } from "../../store/useThemeStore";
 import { useUpdateStore } from "../../store/useUpdateStore";
 import { validateNameInput, validateFeedback, sanitizeString, MAX_NAME_LENGTH, MAX_FEEDBACK_LENGTH } from "../../lib/validation";
+import { useStudySessionStore } from "../../store/studySessionStore";
+import CollegeProfileScreen from "./studyos/profile";
+import { useDBProfile } from "../../lib/db";
 
 type SubBadge = "FREE" | "PRO" | "ELITE";
 
@@ -62,6 +65,9 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { user } = useUser();
   const { signOut } = useClerk();
+  
+  const { isStudyOSMode } = useStudySessionStore();
+  const { dbUser, loading: dbLoading } = useDBProfile();
 
   const colors = useThemeStore((s) => s.colors);
   const currentTheme = useThemeStore((s) => s.theme);
@@ -216,6 +222,7 @@ export default function ProfileScreen() {
   };
 
   const handleThemeSelect = (t: ThemeType) => {
+    // SUBSCRIPTION DISABLED \u2014 themes are free for now
     setSelectedTheme(t);
     setTheme(t);
     user?.update({
@@ -284,6 +291,10 @@ export default function ProfileScreen() {
       color: colors.success,
     },
   ];
+
+  if (isStudyOSMode) {
+    return <CollegeProfileScreen />;
+  }
 
   return (
     <View style={styles.root}>

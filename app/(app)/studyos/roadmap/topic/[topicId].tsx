@@ -1,13 +1,16 @@
+import { useThemeStore } from '../../../../../store/useThemeStore';
 import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Colors, Typography, Spacing, Radius } from '../../../../../constants/theme';
+import { Typography, Spacing, Radius } from '../../../../../constants/theme';
 import { GlassCard } from '../../../../../components/ui/GlassCard';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { useDoubt } from '../../../../../hooks/useDoubt';
 import { useStudyOSStore } from '../../../../../store/studyosStore';
 
 export default function TopicScreen() {
+  const colors = useThemeStore((s) => s.colors);
+  const styles = useStyles(colors);
   const { topicId, subject } = useLocalSearchParams();
   const router = useRouter();
   const doubtSheetRef = useRef<BottomSheet>(null);
@@ -84,7 +87,7 @@ export default function TopicScreen() {
         snapPoints={['50%', '80%']}
         index={-1}
         enablePanDownToClose
-        backgroundStyle={{ backgroundColor: Colors.surface }}
+        backgroundStyle={{ backgroundColor: colors.surface }}
       >
         <BottomSheetView style={styles.sheetContent}>
           <Text style={styles.sheetTitle}>Ask AI Doubt Solver</Text>
@@ -93,7 +96,7 @@ export default function TopicScreen() {
           <TextInput
             style={styles.input}
             placeholder="Type your doubt here..."
-            placeholderTextColor={Colors.textDim}
+            placeholderTextColor={colors.textDim}
             multiline
             value={doubtText}
             onChangeText={setDoubtText}
@@ -120,37 +123,37 @@ export default function TopicScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+const useStyles = (colors: any) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: Spacing.md, paddingTop: 40, backgroundColor: Colors.surface,
+    padding: Spacing.md, paddingTop: 40, backgroundColor: colors.surface,
   },
-  headerTitle: { ...Typography.h3, color: Colors.text },
+  headerTitle: { ...Typography.h3, color: colors.text },
   backBtn: { padding: Spacing.sm },
-  backText: { color: Colors.primary, fontSize: 16 },
+  backText: { color: colors.primary, fontSize: 16 },
   placeholder: { width: 50 },
   content: { padding: Spacing.xl, paddingBottom: 100 },
-  topicTitle: { ...Typography.h1, color: Colors.text, marginBottom: Spacing.xxl },
-  sectionTitle: { ...Typography.h3, color: Colors.text, marginBottom: Spacing.md },
+  topicTitle: { ...Typography.h1, color: colors.text, marginBottom: Spacing.xxl },
+  sectionTitle: { ...Typography.h3, color: colors.text, marginBottom: Spacing.md },
   videoCard: { flexDirection: 'row', padding: Spacing.sm, marginBottom: Spacing.md },
-  thumbnail: { width: 120, height: 80, backgroundColor: '#333', borderRadius: Radius.md, marginRight: Spacing.md },
+  thumbnail: { width: 120, height: 80, backgroundColor: colors.border, borderRadius: Radius.md, marginRight: Spacing.md },
   videoInfo: { flex: 1, justifyContent: 'center' },
-  videoTitle: { ...Typography.h3, color: Colors.text, marginBottom: 4 },
-  videoChannel: { ...Typography.body, color: Colors.textDim, fontSize: 12 },
+  videoTitle: { ...Typography.h3, color: colors.text, marginBottom: 4 },
+  videoChannel: { ...Typography.body, color: colors.textDim, fontSize: 12 },
   completeBtn: {
-    backgroundColor: Colors.success,
+    backgroundColor: colors.success,
     padding: Spacing.md,
     borderRadius: Radius.lg,
     alignItems: 'center',
     marginTop: Spacing.xl,
   },
-  completeBtnText: { ...Typography.h3, color: '#FFF' },
+  completeBtnText: { ...Typography.h3, color: colors.text },
   fab: {
     position: 'absolute',
     bottom: 30,
     right: 20,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     borderRadius: Radius.full,
@@ -160,23 +163,23 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 8,
   },
-  fabText: { ...Typography.h3, color: '#FFF' },
+  fabText: { ...Typography.h3, color: colors.text },
   sheetContent: { padding: Spacing.xl, flex: 1 },
-  sheetTitle: { ...Typography.h2, color: Colors.text, marginBottom: Spacing.xs },
-  sheetContext: { ...Typography.body, color: Colors.textDim, marginBottom: Spacing.lg },
+  sheetTitle: { ...Typography.h2, color: colors.text, marginBottom: Spacing.xs },
+  sheetContext: { ...Typography.body, color: colors.textDim, marginBottom: Spacing.lg },
   input: {
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     borderRadius: Radius.md,
     padding: Spacing.md,
-    color: Colors.text,
+    color: colors.text,
     minHeight: 100,
     textAlignVertical: 'top',
     marginBottom: Spacing.md,
   },
-  submitBtn: { backgroundColor: Colors.primary, padding: Spacing.md, borderRadius: Radius.md, alignItems: 'center' },
-  submitBtnText: { ...Typography.h3, color: '#FFF' },
+  submitBtn: { backgroundColor: colors.primary, padding: Spacing.md, borderRadius: Radius.md, alignItems: 'center' },
+  submitBtnText: { ...Typography.h3, color: colors.text },
   answerBox: { marginTop: Spacing.lg, padding: Spacing.md, backgroundColor: '#ffffff08', borderRadius: Radius.md },
-  answerText: { ...Typography.body, color: Colors.text, lineHeight: 24 },
+  answerText: { ...Typography.body, color: colors.text, lineHeight: 24 },
 });
