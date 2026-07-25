@@ -12,7 +12,8 @@ You are StudyOS AI Tutor — a precise, structured, exam-focused University AI T
 
 === ACCURACY RULES (CRITICAL) ===
 1. Ground your answer in the syllabus/topic provided whenever it's relevant — don't drift into unrelated theories.
-2. If you are not fully confident about a fact, number, date, formula, or definition, say so explicitly (e.g. "This is generally accepted as X, but verify with your textbook/professor for the exact figure").
+2. ALWAYS explicitly mention the name of the PPT file you are using to answer (e.g. "According to the 'Extended Relational Algebra.pptx' slide...").
+3. If you are not fully confident about a fact, number, date, formula, or definition, say so explicitly (e.g. "This is generally accepted as X, but verify with your textbook/professor for the exact figure").
 3. NEVER invent facts, formulas, names, dates, or citations. If you don't know something precisely, say "I'm not fully certain about this specific detail" instead of guessing.
 4. For technical/scientific/mathematical topics, prefer standard, widely-accepted definitions over rare/contested ones. If multiple definitions exist, mention the most common one first, briefly note alternates only if relevant to the syllabus.
 5. Double-check internal consistency: don't contradict yourself between the "Definition" and "Example" sections of the same answer.
@@ -83,30 +84,34 @@ export async function generateAiResponse(
        try {
           const lastMsg = messages[messages.length - 1].parts[0].text;
           const embedRes = await client.models.embedContent({
-             model: 'text-embedding-004',
+             model: 'gemini-embedding-2',
              contents: lastMsg
           });
           
           if (embedRes.embeddings && embedRes.embeddings.length > 0) {
-             const vector = embedRes.embeddings[0].values;
-             const pineconeRes = await fetch(`https://${PINECONE_HOST}/query`, {
-                method: 'POST',
-                headers: {
-                   'Api-Key': PINECONE_KEY,
-                   'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                   vector: vector,
-                   topK: 3,
-                   includeMetadata: true
-                })
+             const vector = embedRes.embeddings[0].values.slice(0, 768);
+             const baseUrl = PINECONE_HOST.startsWith('http') ? PINECONE_HOST : `https://${PINECONE_HOST}`;
+             const pineconeRes = await fetch(`${baseUrl}/query`, {
+                 method: 'POST',
+                 headers: {
+                    'Api-Key': PINECONE_KEY,
+                    'Content-Type': 'application/json'
+                 },
+                 body: JSON.stringify({
+                    vector: vector,
+                    topK: 3,
+                    includeMetadata: true,
+                    filter: {
+                       subject: { "$eq": courseName }
+                    }
+                 })
              });
              
              if (pineconeRes.ok) {
                 const pcData = await pineconeRes.json();
                 if (pcData.matches && pcData.matches.length > 0) {
                    ragContext = "\n\nEXACT EXTRACTS FROM THE ADMIN'S SYLLABUS PPTs:\n" + 
-                                pcData.matches.map((m: any) => m.metadata.text).join('\n---\n');
+                                pcData.matches.map((m: any) => `[Source: ${m.metadata.source}]\n${m.metadata.text}`).join('\n---\n');
                 }
              }
           }

@@ -2,8 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pdf from 'pdf-parse/lib/pdf-parse.js';
+import { parseOffice } from 'officeparser';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -20,7 +21,7 @@ if (!PINECONE_API_KEY || !GEMINI_API_KEY) {
 }
 
 const pinecone = new Pinecone({ apiKey: PINECONE_API_KEY });
-const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // Chunking function: Splits text into roughly 500-1000 character chunks cleanly
 function chunkText(text, maxChunkSize = 800) {
@@ -43,35 +44,51 @@ function chunkText(text, maxChunkSize = 800) {
   return chunks;
 }
 
-async function processPdf(filePath) {
-  const dataBuffer = fs.readFileSync(filePath);
-  const data = await pdf(dataBuffer);
-  return data.text;
+async function processFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  
+  if (ext === '.pdf') {
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = await pdf(dataBuffer);
+    return data.text;
+  } else if (ext === '.pptx' || ext === '.ppt' || ext === '.docx') {
+    const res = await parseOffice(filePath);
+    const text = typeof res.toText === 'function' ? res.toText() : res.content;
+    return text || "";
+  } else {
+    throw new Error("Unsupported file type: " + ext);
+  }
 }
 
 async function getEmbedding(text) {
-  const response = await ai.models.embedContent({
-    model: 'text-embedding-004',
-    contents: text
-  });
-  return response.embeddings[0].values;
+  const model = genAI.getGenerativeModel({ model: "gemini-embedding-2" });
+  const result = await model.embedContent(text);
+  // Gemini embedding 2 returns 3072 dimensions. Our Pinecone index is 768.
+  // We can safely slice the first 768 dimensions because the model uses Matryoshka Representation Learning.
+  return result.embedding.values.slice(0, 768);
 }
 
 async function main() {
+  // Check for subject argument: `node ingest.js DBMS`
+  const customSubject = process.argv[2];
+  
   console.log("🚀 Starting Data Ingestion...");
+  if (customSubject) {
+     console.log(`📌 Using custom subject for all files: ${customSubject}`);
+  }
   
   const index = pinecone.index(PINECONE_INDEX_NAME);
   const dataDir = path.join(__dirname, 'data');
   
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir);
-    console.log(`📁 Created 'data' folder at ${dataDir}. Please put your PDFs inside it and run again.`);
+    console.log(`📁 Created 'data' folder at ${dataDir}. Please put your PDFs and PPTs inside it and run again.`);
     return;
   }
 
-  const files = fs.readdirSync(dataDir).filter(f => f.endsWith('.pdf'));
+  const files = fs.readdirSync(dataDir).filter(f => f.match(/\.(pdf|pptx?|docx)$/i));
   if (files.length === 0) {
-    console.log("⚠️ No PDF files found in the 'data' folder.");
+    console.log("⚠️ No supported files (PDF, PPTX, PPT, DOCX) found in the 'data' folder.");
     return;
   }
 
@@ -80,7 +97,13 @@ async function main() {
     const filePath = path.join(dataDir, file);
     
     try {
-      const text = await processPdf(filePath);
+      const text = await processFile(filePath);
+      
+      if (!text || text.trim().length === 0) {
+         console.log(`   ⚠️ No text could be extracted from ${file}. Skipping.`);
+         continue;
+      }
+      
       console.log(`   ✅ Extracted ${text.length} characters.`);
       
       const chunks = chunkText(text);
@@ -91,13 +114,13 @@ async function main() {
         const chunk = chunks[i];
         console.log(`   🧠 Embedding chunk ${i+1}/${chunks.length}...`);
         
-        // Add subject metadata (extract from filename e.g. "COA_Unit1.pdf" -> "COA")
-        const subjectMatch = file.split('_')[0];
+        // Use the passed subject, or fallback to file name prefix
+        const subjectMatch = customSubject || file.split('_')[0] || file.split(' - ')[0];
         
         const embedding = await getEmbedding(chunk);
         
         vectors.push({
-          id: `${file}-chunk-${i}`,
+          id: `${file.replace(/[^a-zA-Z0-9-]/g, '_')}-chunk-${i}`,
           values: embedding,
           metadata: {
             text: chunk,
@@ -120,6 +143,28 @@ async function main() {
     }
   }
   
+  if (files.length > 0) {
+    console.log("📝 Generating Overview Chunk for the subject...");
+    const subjectMatch = customSubject || files[0].split('_')[0] || 'General';
+    const overviewText = `[SYLLABUS OVERVIEW - TOPICS COVERED IN THIS UNIT]: If the student asks 'what is in this unit', 'what are the topics', or 'give me an overview', you must list these files/topics: \n` + files.map(f => `- ${f.replace(/\.(pptx|pdf)$/i, '')}`).join('\n');
+    
+    try {
+      const embedding = await getEmbedding(overviewText);
+      await index.upsert([{
+        id: `${subjectMatch.replace(/[^a-zA-Z0-9-]/g, '_')}-overview`,
+        values: embedding,
+        metadata: {
+          text: overviewText,
+          source: 'System Overview',
+          subject: subjectMatch
+        }
+      }]);
+      console.log("✅ Overview chunk upserted!");
+    } catch (e) {
+      console.error("❌ Failed to upsert overview:", e);
+    }
+  }
+
   console.log("\n✅ All files processed successfully!");
 }
 

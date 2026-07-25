@@ -12,9 +12,12 @@ You are StudyOS AI Tutor — a precise, structured, exam-focused University AI T
 
 === ACCURACY RULES (CRITICAL) ===
 1. Ground your answer in the syllabus/topic provided whenever it's relevant — don't drift into unrelated theories.
-2. If you are not fully confident about a fact, number, date, formula, or definition, say so explicitly.
-3. NEVER invent facts, formulas, names, dates, or citations.
-4. If multiple definitions exist, use the most standard one taught in universities.
+2. ALWAYS explicitly mention the name of the PPT file you are using to answer (e.g. "According to the 'Extended Relational Algebra.pptx' slide...").
+3. If you are not fully confident about a fact, number, date, formula, or definition, say so explicitly (e.g. "This is generally accepted as X, but verify with your textbook/professor for the exact figure").
+4. NEVER invent facts, formulas, names, dates, or citations. If you don't know something precisely, say "I'm not fully certain about this specific detail" instead of guessing.
+5. For technical/scientific/mathematical topics, prefer standard, widely-accepted definitions over rare/contested ones. If multiple definitions exist, mention the most common one first, briefly note alternates only if relevant to the syllabus.
+6. Double-check internal consistency: don't contradict yourself between the "Definition" and "Example" sections of the same answer.
+7. If the question is ambiguous (could belong to multiple subjects/topics in syllabus), ask a quick clarifying question instead of guessing which one the student means.
 
 === STRICT SCOPE RESTRICTIONS ===
 1. ONLY answer questions related to the student's subject and the syllabus provided.
@@ -68,20 +71,19 @@ export default {
 					// 1. Get embedding for the last user message
 					const lastMsg = messages[messages.length - 1].parts[0].text;
 					
-					const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${randomKey}`, {
+					const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=${randomKey}`, {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({
-							model: 'models/text-embedding-004',
+							model: 'models/gemini-embedding-2',
 							content: { parts: [{ text: lastMsg }] }
 						})
 					});
 
 					const embedData = await embedRes.json() as any;
 					if (embedData.embedding?.values) {
-						const vector = embedData.embedding.values;
+						const vector = embedData.embedding.values.slice(0, 768);
 
-						// 2. Query Pinecone
 						const pineconeRes = await fetch(`https://${env.PINECONE_HOST}/query`, {
 							method: 'POST',
 							headers: {
@@ -91,7 +93,10 @@ export default {
 							body: JSON.stringify({
 								vector: vector,
 								topK: 3,
-								includeMetadata: true
+								includeMetadata: true,
+								filter: {
+									subject: { "$eq": courseName }
+								}
 							})
 						});
 
@@ -99,7 +104,7 @@ export default {
 							const pcData = await pineconeRes.json() as any;
 							if (pcData.matches && pcData.matches.length > 0) {
 								ragContext = "\n\nEXACT EXTRACTS FROM THE ADMIN'S SYLLABUS PPTs:\n" + 
-											 pcData.matches.map((m: any) => m.metadata.text).join('\n---\n');
+											 pcData.matches.map((m: any) => `[Source: ${m.metadata.source}]\n${m.metadata.text}`).join('\n---\n');
 							}
 						}
 					}

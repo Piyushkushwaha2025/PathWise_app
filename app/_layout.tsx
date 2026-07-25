@@ -13,6 +13,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { ForceUpdateGate } from "../components/ForceUpdate";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NewAssignmentNotification from "../components/studyos/NewAssignmentNotification";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -144,28 +145,6 @@ function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
       
       // Register our headless background sync task
       await registerBackgroundSync();
-      
-      // SERVERLESS: Check for new assignments
-      try {
-         const ASSIGNMENTS_JSON_URL = "https://raw.githubusercontent.com/Piyushkushwaha2025/PathWise_app/master/assignments.json";
-         const res = await fetch(`${ASSIGNMENTS_JSON_URL}?t=${Date.now()}`);
-         if (res.ok) {
-            const assignments = await res.json();
-            const storedCountStr = await AsyncStorage.getItem("pathwise_assignments_count");
-            const storedCount = storedCountStr ? parseInt(storedCountStr, 10) : 0;
-            
-            if (assignments.length > storedCount) {
-               // New assignment found!
-               import('react-native').then(({ Alert }) => {
-                  Alert.alert("New Assignment Available! 📚", "Check the StudyOS Assignments tab for details.");
-               });
-               // Update stored count
-               await AsyncStorage.setItem("pathwise_assignments_count", assignments.length.toString());
-            }
-         }
-      } catch (e) {
-         console.warn("Failed to check new assignments", e);
-      }
     })();
   }, [user?.id]);
 
@@ -181,17 +160,14 @@ function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
   useEffect(() => {
     if (isLoaded && fontsLoaded) {
       SplashScreen.hideAsync().catch(() => {});
-      return;
     }
-    // Safety timeout: If Clerk or fonts hang for more than 3 seconds, force hide splash
-    const timer = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, 3000);
-    return () => clearTimeout(timer);
   }, [isLoaded, fontsLoaded]);
+
+  if (!isLoaded || !fontsLoaded) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <NewAssignmentNotification />
       <Stack
         screenOptions={{
           headerShown: false,
