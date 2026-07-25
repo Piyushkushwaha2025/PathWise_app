@@ -103,7 +103,39 @@ export default {
 			}
 
 			const body = await request.json() as any;
-			const { messages, syllabusText, courseName, courseCode, action } = body;
+			const { messages, syllabusText, courseName, courseCode, action, userLearningProfile } = body;
+
+			// --- REFLECT API (Self Learning) ---
+			if (action === 'reflect') {
+				try {
+					const randomGeminiKey = geminiKeys[Math.floor(Math.random() * geminiKeys.length)];
+					const reflectSystemPrompt = `You are a learning pattern analyzer.
+Analyze the provided chat history between a student and an AI Tutor.
+Extract the student's implicit learning preferences (e.g., likes real-world examples, prefers short answers, uses Hindi/Hinglish, struggles with math).
+Output a concise bulleted list of these preferences.
+If the student explicitly states a preference, prioritize it.
+Combine these with any existing preferences provided in the history.
+Do NOT output anything else except the bulleted list.`;
+
+					const reflectMessages = [
+						{ role: 'user', parts: [{ text: reflectSystemPrompt }] },
+						{ role: 'model', parts: [{ text: "Understood." }] },
+						...messages
+					];
+
+					const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${randomGeminiKey}`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ contents: reflectMessages })
+					});
+					
+					const data = await res.json() as any;
+					const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+					return new Response(JSON.stringify({ text }), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+				} catch (e) {
+					return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } });
+				}
+			}
 
 			// --- LIST FILES API ---
 			if (action === 'list-files') {
@@ -238,7 +270,12 @@ export default {
 				}
 			}
 
-			const systemContext = MASTER_PROMPT + `\n\nSYLLABUS CONTEXT FOR THIS SPECIFIC COURSE (${courseName || 'Unknown'}):\n---\n${syllabusText || 'No syllabus provided.'}\n${ragContext}\n---`;
+			let learningProfileStr = "";
+			if (userLearningProfile) {
+				learningProfileStr = `\n\n=== USER PERSONAL LEARNING PREFERENCES ===\n${userLearningProfile}\nAlways adapt your teaching style to these preferences while strictly maintaining the core rules above.`;
+			}
+
+			const systemContext = MASTER_PROMPT + `\n\nSYLLABUS CONTEXT FOR THIS SPECIFIC COURSE (${courseName || 'Unknown'}):\n---\n${syllabusText || 'No syllabus provided.'}\n${ragContext}\n---` + learningProfileStr;
 
             let lastError = null;
 
@@ -294,7 +331,6 @@ export default {
                         }
                         
                         let text = data.choices?.[0]?.message?.content || "I'm sorry, I couldn't generate a response.";
-                        text += `\n\n*(⚡ Answered via ${selectedProviderKey.provider.toUpperCase()})*`;
                         
                         return new Response(JSON.stringify({ text }), {
                             headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
@@ -330,7 +366,6 @@ export default {
                         }
 
                         let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
-                        text += `\n\n*(⚡ Answered via GEMINI)*`;
 
                         return new Response(JSON.stringify({ text }), {
                             headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
