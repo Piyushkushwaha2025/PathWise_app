@@ -97,7 +97,6 @@ export default function StudyOSDashboard() {
        
        // Actually, we can schedule a generic repeating trigger for 8 AM every day
        // and use a background task to fetch classes, or just a simple generic reminder.
-       // For now, let's schedule a generic morning reminder if they have classes on a typical day.
        await Notifications.scheduleNotificationAsync({
           identifier: 'daily_timetable',
           content: {
@@ -105,8 +104,14 @@ export default function StudyOSDashboard() {
              body: 'Check your timetable for today\'s classes and upcoming assignments.',
              sound: true,
           },
-          trigger: { hour: 8, minute: 0, repeats: true } as any,
+          trigger: { 
+             channelId: 'default',
+             hour: 8, 
+             minute: 0, 
+             repeats: true 
+          } as any,
        });
+       
     };
     scheduleTimetable();
   }, []);
@@ -169,6 +174,7 @@ export default function StudyOSDashboard() {
               <Text style={styles.sectionText}>{profile?.course || 'No Course Synced'}</Text>
             </View>
           </View>
+
           <View style={styles.headerRight}>
             <TouchableOpacity onPress={() => setIsCalendarVisible(true)}>
               <Ionicons name="calendar-outline" size={24} color={colors.text} />

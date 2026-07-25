@@ -7,3 +7,5 @@ compatibility_date = "2023-01-01"
 # For local testing, you can uncomment these (but do not commit them to GitHub!)
 PINECONE_HOST = "studyos-index-b9yyms8.svc.aped-4627-b74a.pinecone.io"
 PINECONE_API_KEY = "pcsk_5gmWaY_TszJiTtASxEm3UZ1PNxcJau62DXuRdpsYASMBqtG98FqMsWimC6qg6PBxoYnvVE"
+# GEMINI_KEY_1 = "..."
+# OPENROUTER_KEY_1 = "sk-or-v1-f36e..."

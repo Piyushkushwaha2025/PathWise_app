@@ -293,7 +293,10 @@ export default function LmsCoursesScreen() {
   // Manually add the subjects provided by the user if the scraper missed them
   const manualSubjects = [
      { fullname: 'ENVIRONMENTAL STUDIES', shortname: 'CONT_25UCT-201', originalName: 'CONT_25UCT-201 :: ENVIRONMENTAL STUDIES', id: '22508' },
-     { fullname: 'DISCRETE MATHEMATICS', shortname: 'CONT_25MTT-202', originalName: 'CONT_25MTT-202 :: DISCRETE MATHEMATICS', id: '22653' }
+     { fullname: 'DISCRETE MATHEMATICS', shortname: 'CONT_25MTT-202', originalName: 'CONT_25MTT-202 :: DISCRETE MATHEMATICS', id: '22653' },
+     { fullname: 'COMPUTER ORGANIZATION & ARCHITECTURE', shortname: 'CONT_25CST-208', originalName: 'CONT_25CST-208 :: COMPUTER ORGANIZATION & ARCHITECTURE', id: 'COA_ID' },
+     { fullname: 'DATA STRUCTURES', shortname: 'CONT_25CSH-209', originalName: 'CONT_25CSH-209 :: DATA STRUCTURES', id: 'DS_ID' },
+     { fullname: 'PYTHON PROGRAMMING', shortname: 'CONT_25CSH-214', originalName: 'CONT_25CSH-214 :: PYTHON PROGRAMMING', id: 'PY_ID' }
   ];
 
   manualSubjects.forEach(manualCourse => {
@@ -382,7 +385,7 @@ export default function LmsCoursesScreen() {
                   
                   <TouchableOpacity 
                     style={{ backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginRight: 8, flexDirection: 'row', alignItems: 'center' }}
-                    onPress={() => router.push(`/studyos/subjects/chat/${course.id || course.shortname}?name=${encodeURIComponent(course.fullname)}` as any)}
+                    onPress={() => router.push(`/studyos/subjects/chat/${course.shortname}?name=${encodeURIComponent(course.fullname)}` as any)}
                   >
                     <Ionicons name="sparkles" size={14} color="#fff" style={{ marginRight: 4 }} />
                     <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>AI Tutor</Text>

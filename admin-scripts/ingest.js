@@ -68,8 +68,20 @@ async function getEmbedding(text) {
   return result.embedding.values.slice(0, 768);
 }
 
+function getAllFiles(dirPath, arrayOfFiles) {
+  const files = fs.readdirSync(dirPath);
+  arrayOfFiles = arrayOfFiles || [];
+  files.forEach(function(file) {
+    if (fs.statSync(dirPath + "/" + file).isDirectory()) {
+      arrayOfFiles = getAllFiles(dirPath + "/" + file, arrayOfFiles);
+    } else {
+      arrayOfFiles.push(path.join(dirPath, file));
+    }
+  });
+  return arrayOfFiles.filter(f => f.match(/\.(pdf|pptx?|docx)$/i));
+}
+
 async function main() {
-  // Check for subject argument: `node ingest.js DBMS`
   const customSubject = process.argv[2];
   
   console.log("🚀 Starting Data Ingestion...");
@@ -86,15 +98,33 @@ async function main() {
     return;
   }
 
-  const files = fs.readdirSync(dataDir).filter(f => f.match(/\.(pdf|pptx?|docx)$/i));
-  if (files.length === 0) {
+  const allFiles = getAllFiles(dataDir).filter(f => f.includes('25CSH-214'));
+  if (allFiles.length === 0) {
     console.log("⚠️ No supported files (PDF, PPTX, PPT, DOCX) found in the 'data' folder.");
     return;
   }
 
-  for (const file of files) {
-    console.log(`\n📄 Processing ${file}...`);
-    const filePath = path.join(dataDir, file);
+  // Group files by subject for overview generation
+  const subjectFiles = {};
+
+  for (const filePath of allFiles) {
+    const file = path.basename(filePath);
+    // Relative path to get folder structure, e.g. DBMS\Unit 1\Topic.pptx
+    const relativePath = path.relative(dataDir, filePath);
+    const pathParts = relativePath.split(path.sep);
+    // If inside subject/unit folder (e.g. 25CSH-209/Unit 1), use "25CSH-209 Unit 1"
+    let folderSubject = 'General';
+    if (pathParts.length > 2) {
+        folderSubject = `${pathParts[0]} ${pathParts[1]}`;
+    } else if (pathParts.length > 1) {
+        folderSubject = pathParts[0];
+    }
+    const subjectMatch = customSubject ? `${customSubject} ${pathParts.length > 2 ? pathParts[1] : ''}`.trim() : folderSubject;
+    
+    if (!subjectFiles[subjectMatch]) subjectFiles[subjectMatch] = [];
+    subjectFiles[subjectMatch].push(file);
+
+    console.log(`\n📄 Processing ${file} (Subject: ${subjectMatch})...`);
     
     try {
       const text = await processFile(filePath);
@@ -105,7 +135,6 @@ async function main() {
       }
       
       console.log(`   ✅ Extracted ${text.length} characters.`);
-      
       const chunks = chunkText(text);
       console.log(`   ✂️ Splitted into ${chunks.length} chunks.`);
       
@@ -114,9 +143,7 @@ async function main() {
         const chunk = chunks[i];
         console.log(`   🧠 Embedding chunk ${i+1}/${chunks.length}...`);
         
-        // Use the passed subject, or fallback to file name prefix
-        const subjectMatch = customSubject || file.split('_')[0] || file.split(' - ')[0];
-        
+        await new Promise(r => setTimeout(r, 3000)); // Delay to prevent 429
         const embedding = await getEmbedding(chunk);
         
         vectors.push({
@@ -125,38 +152,35 @@ async function main() {
           metadata: {
             text: chunk,
             source: file,
-            subject: subjectMatch || 'General'
+            subject: subjectMatch
           }
         });
         
-        // Pinecone recommends upserting in batches of ~100
         if (vectors.length >= 50 || i === chunks.length - 1) {
           console.log(`   ☁️ Upserting ${vectors.length} vectors to Pinecone...`);
           await index.upsert(vectors);
-          vectors.length = 0; // clear array
+          vectors.length = 0;
         }
       }
-      
       console.log(`🎉 Finished ${file}!`);
     } catch (e) {
       console.error(`❌ Failed to process ${file}:`, e);
     }
   }
   
-  if (files.length > 0) {
-    console.log("📝 Generating Overview Chunk for the subject...");
-    const subjectMatch = customSubject || files[0].split('_')[0] || 'General';
+  for (const [subject, files] of Object.entries(subjectFiles)) {
+    console.log(`📝 Generating Overview Chunk for subject: ${subject}...`);
     const overviewText = `[SYLLABUS OVERVIEW - TOPICS COVERED IN THIS UNIT]: If the student asks 'what is in this unit', 'what are the topics', or 'give me an overview', you must list these files/topics: \n` + files.map(f => `- ${f.replace(/\.(pptx|pdf)$/i, '')}`).join('\n');
     
     try {
       const embedding = await getEmbedding(overviewText);
       await index.upsert([{
-        id: `${subjectMatch.replace(/[^a-zA-Z0-9-]/g, '_')}-overview`,
+        id: `${subject.replace(/[^a-zA-Z0-9-]/g, '_')}-overview`,
         values: embedding,
         metadata: {
           text: overviewText,
           source: 'System Overview',
-          subject: subjectMatch
+          subject: subject
         }
       }]);
       console.log("✅ Overview chunk upserted!");

@@ -11,14 +11,14 @@ import { useStudySessionStore } from '../../../../store/studySessionStore';
 import * as SecureStore from 'expo-secure-store';
 
 const { width } = Dimensions.get('window');
-const RADAR_SIZE = width - Spacing.xl * 2;
+const RADAR_SIZE = width - 180; // Adjusted size to make circle smaller
 const CENTER = RADAR_SIZE / 2;
-const RADIUS = (RADAR_SIZE / 2) - 30;
+const RADIUS = (RADAR_SIZE / 2) - 35;
 
 export default function MarksScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
-  const { marks, semesterOptionsCache, resultCache, setScrapedData } = useStudyOSStore();
+  const { marks, subjects, semesterOptionsCache, resultCache, setScrapedData } = useStudyOSStore();
   const { clearSession } = useStudySessionStore();
   const router = useRouter();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
@@ -64,16 +64,66 @@ export default function MarksScreen() {
     webViewRef.current?.reload();
   }, []);
 
-  const chartData = marks?.length > 0 ? marks.map(m => {
-    let score = 50;
-    if (m.mstMarks) {
-      const parts = m.mstMarks.split('/');
-      if (parts.length === 2) {
-        score = (parseFloat(parts[0]) / parseFloat(parts[1])) * 100;
+  // Prioritize subjects from dashboard to ensure all are shown, even if they don't have internal marks yet
+  const chartData = subjects?.length > 0 ? subjects.map(s => {
+    // Find matching mark object if it exists
+    const m = marks?.find(mark => 
+      mark.subjectName.toLowerCase() === s.name.toLowerCase() || 
+      mark.subjectName.toLowerCase().includes(s.name.toLowerCase()) || 
+      s.name.toLowerCase().includes(mark.subjectName.toLowerCase())
+    );
+    
+    let totalObtained = 0;
+    let totalMax = 0;
+    let hasValidMarks = false;
+
+    if (m) {
+      if (m.mstMarks && m.mstMarks.includes('/')) {
+         const p = m.mstMarks.split('/');
+         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+            totalObtained += parseFloat(p[0]);
+            totalMax += parseFloat(p[1]);
+            hasValidMarks = true;
+         }
+      }
+      if (m.practicalMarks && m.practicalMarks.includes('/')) {
+         const p = m.practicalMarks.split('/');
+         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+            totalObtained += parseFloat(p[0]);
+            totalMax += parseFloat(p[1]);
+            hasValidMarks = true;
+         }
       }
     }
-    return { subject: m.subjectName.substring(0, 10), score: isNaN(score) ? 0 : score };
-  }) : [{ subject: 'No Data', score: 0 }];
+    
+    const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
+    const cleanedName = s.name.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
+    return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
+  }) : marks?.length > 0 ? marks.map(m => {
+     // Fallback if subjects array is empty but marks exists
+     let totalObtained = 0;
+     let totalMax = 0;
+     let hasValidMarks = false;
+     if (m.mstMarks && m.mstMarks.includes('/')) {
+         const p = m.mstMarks.split('/');
+         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+            totalObtained += parseFloat(p[0]);
+            totalMax += parseFloat(p[1]);
+            hasValidMarks = true;
+         }
+      }
+      if (m.practicalMarks && m.practicalMarks.includes('/')) {
+         const p = m.practicalMarks.split('/');
+         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+            totalObtained += parseFloat(p[0]);
+            totalMax += parseFloat(p[1]);
+            hasValidMarks = true;
+         }
+      }
+     const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
+     const cleanedName = m.subjectName.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
+     return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
+  }) : [{ subject: 'No Data', score: 0, hasMarks: false }];
 
   const extractScript = `
     try {
@@ -99,19 +149,19 @@ export default function MarksScreen() {
          
          var sgpa = '';
          var bodyText = document.body.innerText;
-         var match = bodyText.match(/SGPA\s*[:\-]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
+         var match = bodyText.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
          if (match) {
             sgpa = match[1];
          } else {
-            var sgpaInput = document.querySelector('input[name*="SGPA" i], input[id*="SGPA" i]');
-            if (sgpaInput && sgpaInput.value) {
-               sgpa = sgpaInput.value;
+            var sgpaEl = document.querySelector('input[name*="SGPA" i], input[id*="SGPA" i], span[id*="lblSGPA" i], span[id*="lblCGPA" i]');
+            if (sgpaEl) {
+               sgpa = sgpaEl.value || sgpaEl.innerText;
             } else {
                var spans = document.querySelectorAll('span, td, div');
                for(var k=0; k<spans.length; k++) {
                   var text = spans[k].innerText;
-                  if(text && text.includes('SGPA')) {
-                     var m = text.match(/SGPA\s*[:\-]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
+                  if(text && (text.includes('SGPA') || text.includes('CGPA') || text.includes('GPA'))) {
+                     var m = text.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
                      if (m) {
                         sgpa = m[1];
                         break;
@@ -151,7 +201,7 @@ export default function MarksScreen() {
             
             for (var j = textArr.length - 1; j > codeIndex + 1; j--) {
                var val = textArr[j].toUpperCase();
-               if (/^(O|A\\+|A|B\\+|B|C|D|E|F|P|AB|I|DT|UMC\\*?)$/.test(val)) {
+               if (/^(O|A\\+|A|B\\+|B|C\\+|C|D|E|F|P|AB|I|DT|UMC\\*?)$/.test(val)) {
                   grade = textArr[j]; // Keep original case
                   var beforeGrade = textArr[j - 1];
                   if (!isNaN(parseFloat(beforeGrade))) {
@@ -175,6 +225,25 @@ export default function MarksScreen() {
             if (grade) {
                subjects.push({ code: code, name: name, credit: credit, grade: grade, internal: internal, external: external });
             }
+         }
+      }
+      
+      if (!sgpa && subjects.length > 0) {
+         var totalCredits = 0;
+         var totalPoints = 0;
+         var gradeMap = {
+            'O': 10, 'A+': 10, 'A': 9, 'B+': 8, 'B': 7, 'C+': 6, 'C': 5, 'P': 4, 'F': 0, 'E': 0, 'UMC': 0, 'UMC*': 0
+         };
+         for(var s=0; s<subjects.length; s++) {
+            var cred = parseFloat(subjects[s].credit);
+            var grd = subjects[s].grade ? subjects[s].grade.trim().toUpperCase() : '';
+            if (!isNaN(cred) && gradeMap.hasOwnProperty(grd)) {
+               totalCredits += cred;
+               totalPoints += (cred * gradeMap[grd]);
+            }
+         }
+         if (totalCredits > 0) {
+            sgpa = (totalPoints / totalCredits).toFixed(2);
          }
       }
       
@@ -321,11 +390,35 @@ export default function MarksScreen() {
     `);
   };
 
+  let grandTotalObtained = 0;
+  let grandTotalMax = 0;
+  
+  if (marks && marks.length > 0) {
+     marks.forEach(item => {
+        if (item.mstMarks && item.mstMarks.includes('/')) {
+           const p = item.mstMarks.split('/');
+           if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+              grandTotalObtained += parseFloat(p[0]);
+              grandTotalMax += parseFloat(p[1]);
+           }
+        }
+        if (item.practicalMarks && item.practicalMarks.includes('/')) {
+           const p = item.practicalMarks.split('/');
+           if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+              grandTotalObtained += parseFloat(p[0]);
+              grandTotalMax += parseFloat(p[1]);
+           }
+        }
+     });
+  }
+  const overallPercentage = grandTotalMax > 0 ? ((grandTotalObtained / grandTotalMax) * 100).toFixed(2) + '%' : '';
+
   return (
     <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        alwaysBounceVertical={true}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -336,7 +429,23 @@ export default function MarksScreen() {
       >
         <View style={styles.headerRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Ionicons name="logo-octocat" size={24} color={colors.text} />
+            <View style={{
+              width: 42,
+              height: 42,
+              borderRadius: 21,
+              backgroundColor: colors.primary + '15',
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 1.5,
+              borderColor: colors.primary + '30',
+              shadowColor: colors.primary,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 8,
+              elevation: 4
+            }}>
+              <Ionicons name="radar-outline" size={24} color={colors.primary} />
+            </View>
             <View>
               <Text style={styles.headerTitle}>Performance Radar</Text>
               <Text style={styles.headerSubtitle}>Tap points for details</Text>
@@ -354,13 +463,6 @@ export default function MarksScreen() {
         <View style={styles.radarContainer}>
           <RadarChart data={chartData} />
         </View>
-
-        {isLoading && (
-          <View style={{ padding: 20, alignItems: 'center' }}>
-            <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={{ color: colors.textMuted, marginTop: 10 }}>Fetching University Result...</Text>
-          </View>
-        )}
 
         {resultData && resultData.subjects.length > 0 && !isLoading && (
           <View style={[styles.listContainer, { marginBottom: 24 }]}>
@@ -391,16 +493,57 @@ export default function MarksScreen() {
         )}
 
         <View style={styles.listContainer}>
-          <Text style={styles.listTitle}>Internal Marks</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={styles.listTitle}>Internal Marks</Text>
+            {overallPercentage ? (
+              <View style={styles.sgpaBadge}>
+                <Text style={styles.sgpaText}>{overallPercentage}</Text>
+              </View>
+            ) : null}
+          </View>
             {marks && marks.length > 0 ? marks.map((item, index) => {
               const isExpanded = expandedIndex === index;
+              
+              let totalObtained = 0;
+              let totalMax = 0;
+              let hasValidMarks = false;
+
+              if (item.mstMarks && item.mstMarks.includes('/')) {
+                 const p = item.mstMarks.split('/');
+                 if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+                    totalObtained += parseFloat(p[0]);
+                    totalMax += parseFloat(p[1]);
+                    hasValidMarks = true;
+                 }
+              }
+              if (item.practicalMarks && item.practicalMarks.includes('/')) {
+                 const p = item.practicalMarks.split('/');
+                 if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+                    totalObtained += parseFloat(p[0]);
+                    totalMax += parseFloat(p[1]);
+                    hasValidMarks = true;
+                 }
+              }
+              const percentage = hasValidMarks ? ((totalObtained / totalMax) * 100).toFixed(2) + '%' : '';
+
               return (
                 <View key={index.toString()} style={styles.accordionCard}>
                   <TouchableOpacity 
                     style={styles.accordionHeader} 
                     onPress={() => setExpandedIndex(isExpanded ? null : index)}
                   >
-                    <Text style={styles.accordionTitle}>{item.subjectName}</Text>
+                    <View style={{ flex: 1, paddingRight: 16 }}>
+                      <Text style={styles.accordionTitle}>{item.subjectName}</Text>
+                      {percentage ? (
+                        <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Inter_600SemiBold', marginTop: 4 }}>
+                           {percentage}
+                        </Text>
+                      ) : (
+                        <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 4 }}>
+                           Marks Not Available
+                        </Text>
+                      )}
+                    </View>
                     <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textDim} />
                   </TouchableOpacity>
                   
@@ -541,10 +684,9 @@ export default function MarksScreen() {
   );
 }
 
-function RadarChart({ data }: { data: { subject: string, score: number }[] }) {
+function RadarChart({ data }: { data: { subject: string, score: number, hasMarks?: boolean }[] }) {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
-  const size = 160;
   const points = data.map((d, i) => {
     const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
     const r = (d.score / 100) * RADIUS;
@@ -552,17 +694,14 @@ function RadarChart({ data }: { data: { subject: string, score: number }[] }) {
   }).join(' ');
 
   return (
-    <View style={styles.chartContainer}>
-      <Svg width={RADAR_SIZE} height={RADAR_SIZE}>
+    <View style={[styles.chartContainer, { position: 'relative', width: RADAR_SIZE + 80, height: RADAR_SIZE + 80 }]}>
+      <Svg width={RADAR_SIZE} height={RADAR_SIZE} style={{ position: 'absolute', left: 40, top: 40 }}>
         {[0.2, 0.4, 0.6, 0.8, 1].map((scale, i) => (
-          <Polygon
-            key={i}
-            points={data.map((_, i) => {
-              const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
-              const x = CENTER + RADIUS * scale * Math.cos(angle);
-              const y = CENTER + RADIUS * scale * Math.sin(angle);
-              return `${x},${y}`;
-            }).join(' ')}
+          <Circle
+            key={`circle-${i}`}
+            cx={CENTER}
+            cy={CENTER}
+            r={RADIUS * scale}
             stroke={colors.border}
             strokeWidth="1"
             fill="none"
@@ -575,17 +714,42 @@ function RadarChart({ data }: { data: { subject: string, score: number }[] }) {
           return <Line key={`line-${i}`} x1={CENTER} y1={CENTER} x2={x} y2={y} stroke={colors.border} strokeWidth="1" />;
         })}
         <Polygon points={points} fill="#3b82f640" stroke="#3b82f6" strokeWidth="2" />
-        {data.map((d, i) => {
-          const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
-          const x = CENTER + (RADIUS + 20) * Math.cos(angle);
-          const y = CENTER + (RADIUS + 20) * Math.sin(angle);
-          return (
-            <SvgText key={`label-${i}`} x={x} y={y} fill="#d1d5db" fontSize="11" textAnchor="middle" alignmentBaseline="middle">
-              {d.subject}
-            </SvgText>
-          );
-        })}
       </Svg>
+
+      {data.map((d, i) => {
+        const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
+        const labelRadius = RADIUS + 45; // Sweet spot: not too close, not too far
+        const x = CENTER + labelRadius * Math.cos(angle) + 40; // +40 for wrapper offset
+        const y = CENTER + labelRadius * Math.sin(angle) + 40;
+        
+        let percentColor = '#22c55e'; // Green
+        if (d.score < 60) percentColor = '#ef4444'; // Red
+        else if (d.score < 75) percentColor = '#eab308'; // Yellow
+
+        return (
+          <View 
+            key={`label-view-${i}`} 
+            style={{ 
+              position: 'absolute', 
+              left: x, 
+              top: y, 
+              transform: [{ translateX: -45 }, { translateY: -22 }],
+              width: 90, 
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 10, fontFamily: 'Inter_600SemiBold', textAlign: 'center' }} numberOfLines={3}>
+              {d.subject}
+            </Text>
+            {d.hasMarks && (
+              <Text style={{ color: percentColor, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 2 }}>
+                {d.score.toFixed(0)}%
+              </Text>
+            )}
+          </View>
+        );
+      })}
     </View>
   );
 }

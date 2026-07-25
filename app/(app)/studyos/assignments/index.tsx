@@ -43,15 +43,19 @@ export default function AssignmentsScreen() {
             const triggerTime = new Date(dueDate.getTime() - 24 * 60 * 60 * 1000); // 24h before
             
             if (triggerTime > new Date()) {
-               await Notifications.scheduleNotificationAsync({
-                  identifier: `asg_due_${asg.id}`,
-                  content: {
-                     title: 'Assignment Due Tomorrow!',
-                     body: `"${asg.title}" for ${asg.subject} is due tomorrow. Don't forget!`,
-                     sound: true,
-                  },
-                  trigger: { date: triggerTime, type: 'calendar' } as any,
-               });
+               try {
+                  await Notifications.scheduleNotificationAsync({
+                     identifier: `asg_due_${asg.id}`,
+                     content: {
+                        title: 'Assignment Due Tomorrow!',
+                        body: `"${asg.title}" for ${asg.subject} is due tomorrow. Don't forget!`,
+                        sound: true,
+                     },
+                     trigger: triggerTime, // Direct Date object
+                  });
+               } catch (scheduleErr) {
+                  console.warn("Failed to schedule notification:", scheduleErr);
+               }
             }
          } else {
             // Cancel if already completed

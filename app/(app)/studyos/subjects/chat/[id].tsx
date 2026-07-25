@@ -5,6 +5,7 @@ import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../../../store/useThemeStore';
+import { CenterPopModal } from '../../../../../components/ui/CenterPopModal';
 import Markdown from 'react-native-markdown-display';
 import { generateAiResponse } from '../../../../../lib/aiManager';
 import { useAuth } from '@clerk/clerk-expo';
@@ -21,6 +22,51 @@ interface ChatSession {
   messages: Message[];
   updatedAt: number;
 }
+
+const sortFilesByTopicNumbers = (files: string[]) => {
+  if (!files || !Array.isArray(files)) return [];
+  return [...files].filter(Boolean).sort((a, b) => {
+    if (!a || !b) return 0;
+    // Extract leading numbers like 1.1.1, 1.2, 2.0 etc.
+    const regex = /(?:^|\s)(\d+(?:\.\d+)*)/;
+    const matchA = a.match(regex);
+    const matchB = b.match(regex);
+
+    if (matchA && matchB) {
+      const partsA = matchA[1].split('.').map(Number);
+      const partsB = matchB[1].split('.').map(Number);
+      
+      for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+        const numA = partsA[i] || 0;
+        const numB = partsB[i] || 0;
+        if (numA !== numB) {
+          return numA - numB;
+        }
+      }
+    }
+    return a.localeCompare(b);
+  });
+};
+
+const renderUserMessage = (text: string) => {
+    const instructionMarker = '\n\n[USER INSTRUCTION: ONLY focus your answer strictly on the following files: ';
+    const instructionIndex = text.indexOf(instructionMarker);
+    if (instructionIndex === -1) {
+        return { displayText: text, hiddenFiles: [] };
+    }
+    
+    const displayText = text.substring(0, instructionIndex);
+    const afterMarker = text.substring(instructionIndex + instructionMarker.length);
+    const endMarkerIndex = afterMarker.indexOf('. Do not use general knowledge unless asked.]');
+    
+    let hiddenFiles: string[] = [];
+    if (endMarkerIndex !== -1) {
+        const filesString = afterMarker.substring(0, endMarkerIndex);
+        hiddenFiles = filesString.split('|||');
+    }
+    
+    return { displayText, hiddenFiles };
+};
 
 export default function AITutorChatScreen() {
   const { id, name } = useLocalSearchParams();
@@ -44,54 +90,86 @@ export default function AITutorChatScreen() {
   const [isTyping, setIsTyping] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   
+  // File Selection State
+  const [showFileModal, setShowFileModal] = useState(false);
+  const [availableFiles, setAvailableFiles] = useState<Record<string, string[]>>({});
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [expandedUnits, setExpandedUnits] = useState<string[]>([]);
+  
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  
   // Create a strictly unique storage key using both ID and Subject Name 
   // to ensure chats never mix even if course ID fails to parse.
-  const STORAGE_KEY = `ai_chat_sessions_${id}_${name}`;
+  const STORAGE_KEY = `@chat_history_${id}_${name?.toString().replace(/[^a-zA-Z0-9]/g, '_')}`;
   
-  // Scraper Inject Script
-  const INJECT_SCRIPT = `
-    try {
-       // Moodle courses usually have sections
-       var sections = document.querySelectorAll('li.section, .course-section, .tab-pane, .tab_content');
-       var syllabusText = 'Course Overview & Syllabus:\\n\\n';
-       
-       if (sections.length > 0) {
-           for(var i=0; i<sections.length; i++) {
-              var sec = sections[i];
-              var title = sec.querySelector('.sectionname, h3');
-              var summary = sec.querySelector('.summary, .contentwithoutlink');
-              
-              if(title) syllabusText += '## ' + title.textContent.trim() + '\\n';
-              if(summary) syllabusText += summary.textContent.trim() + '\\n';
-              
-              var activities = sec.querySelectorAll('.activity, .modtype_resource, .modtype_folder');
-              for(var j=0; j<activities.length; j++) {
-                 var act = activities[j];
-                 var actTitle = act.querySelector('.instancename');
-                 if(actTitle) {
-                     syllabusText += '- ' + actTitle.textContent.replace('File', '').replace('Folder', '').replace('Page', '').trim() + '\\n';
-                 }
-              }
-              syllabusText += '\\n';
-           }
-       } else {
-           // Fallback: grab all text if structure is completely different
-           syllabusText += document.body.innerText.substring(0, 5000); // limit to 5000 chars to avoid memory issues
-       }
-       
-       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SYLLABUS_SCRAPED', data: syllabusText }));
-    } catch(e) {
-       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', error: e.message }));
-    }
-    true;
-  `;
-
   useEffect(() => {
     setSessions([]);
     setCurrentSessionId(null);
     loadApiKey();
     loadSessions();
+    fetchAvailableFiles();
   }, [id, name]);
+
+  const fetchAvailableFiles = async () => {
+    setIsLoadingFiles(true);
+    setFetchError(null);
+    try {
+       const res = await fetch('https://studyos-ai-proxy.piyushkushwaha2520.workers.dev', {
+          method: 'POST',
+          headers: { 
+             'Content-Type': 'application/json',
+             'Cache-Control': 'no-cache, no-store, must-revalidate',
+             'Pragma': 'no-cache',
+             'Expires': '0'
+          },
+          body: JSON.stringify({ action: 'list-files', courseCode: id?.toString() || '', _t: Date.now() })
+       });
+       
+       if (!res.ok) {
+          throw new Error(`HTTP Error: ${res.status} ${res.statusText}`);
+       }
+       
+       const textData = await res.text();
+       let data;
+       try {
+           data = JSON.parse(textData);
+       } catch(err) {
+           throw new Error(`JSON Parse Error: ${textData.substring(0, 50)}...`);
+       }
+
+       if (data.success && data.data) {
+          const valuesArray = Object.values(data.data) as string[][];
+          let allFiles: string[] = [];
+          valuesArray.forEach(arr => {
+             if (Array.isArray(arr)) allFiles = allFiles.concat(arr);
+          });
+          const uniqueFiles = [...new Set(allFiles)].filter(Boolean);
+          const groupedByUnit: Record<string, string[]> = {
+             "Unit 1": [], "Unit 2": [], "Unit 3": [], "Unit 4": [], "Unit 5": [], "Other Files": []
+          };
+          
+          uniqueFiles.forEach(file => {
+             if (!file) return;
+             // Look for patterns like "1.1", "topic 1.1", "2.1.4"
+             const match = file.match(/(?:topic\s*|-|^|\s|\b)([1-5])\.\d/i);
+             if (match) {
+                 groupedByUnit[`Unit ${match[1]}`].push(file);
+             } else {
+                 groupedByUnit["Other Files"].push(file);
+             }
+          });
+          
+          setAvailableFiles(groupedByUnit);
+       } else {
+          setFetchError(data.error || "Unknown API Error");
+       }
+    } catch (e) {
+       console.error("Failed to fetch available files:", e);
+       setFetchError(String(e));
+    }
+    setIsLoadingFiles(false);
+  };
 
   const loadSessions = async () => {
     try {
@@ -154,6 +232,9 @@ export default function AITutorChatScreen() {
     }
   };
 
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearSuccess, setClearSuccess] = useState(false);
+
   const clearAllChats = async () => {
     try {
       const keys = await AsyncStorage.getAllKeys();
@@ -161,8 +242,12 @@ export default function AITutorChatScreen() {
       await AsyncStorage.multiRemove(chatKeys);
       setSessions([]);
       createNewSession(true);
-      alert("All previous chat history has been permanently deleted.");
-      setShowSettings(false);
+      setShowClearConfirm(false);
+      setClearSuccess(true);
+      setTimeout(() => {
+        setClearSuccess(false);
+        setShowSettings(false);
+      }, 2000);
     } catch (e) {
       console.error(e);
       alert("Failed to delete chats.");
@@ -170,30 +255,21 @@ export default function AITutorChatScreen() {
   };
 
   const handleMessage = (event: any) => {
-    try {
-      const parsed = JSON.parse(event.nativeEvent.data);
-      if (parsed.type === 'SYLLABUS_SCRAPED') {
-        let text = parsed.data || '';
-        if (text.length < 50) {
-           text = "Syllabus could not be fully extracted. Please ask general questions about the subject.";
-        }
-        setSyllabusText(text);
-        setSyllabusScraped(true);
-      } else if (parsed.type === 'ERROR') {
-        setScrapingError(parsed.error);
-        setSyllabusText("Syllabus extraction failed. The AI will answer based on its general knowledge of " + name + ".");
-        setSyllabusScraped(true);
-      }
-    } catch(e) {}
+     // WebView removed, so no-op here if ever called
   };
 
   const sendMessage = async () => {
     if (!inputText.trim() || !currentSessionId) return;
 
-    const currentText = inputText.trim();
+    let currentText = inputText.trim();
+    if (selectedFiles.length > 0) {
+       currentText += `\n\n[USER INSTRUCTION: ONLY focus your answer strictly on the following files: ${selectedFiles.join('|||')}. Do not use general knowledge unless asked.]`;
+    }
+
     const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text: currentText };
     setInputText('');
     setIsTyping(true);
+    setSelectedFiles([]);
     
     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
 
@@ -222,7 +298,7 @@ export default function AITutorChatScreen() {
       }));
       history.push({ role: 'user', parts: [{ text: newUserMsg.text }] });
 
-      const aiText = await generateAiResponse(history, syllabusText, name as string);
+      const aiText = await generateAiResponse(history, syllabusText, name as string, id as string);
 
       // Save AI msg to state & local storage
       setSessions(prevSessions => {
@@ -339,38 +415,44 @@ export default function AITutorChatScreen() {
           
           <TouchableOpacity 
             style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.error, marginTop: 16 }]} 
-            onPress={clearAllChats}
+            onPress={() => setShowClearConfirm(true)}
           >
              <Text style={[styles.buttonText, { color: colors.error }]}>Delete All Chat History</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Confirmation Modal */}
+        <CenterPopModal isVisible={showClearConfirm} onClose={() => setShowClearConfirm(false)}>
+           <View style={{ backgroundColor: colors.surface, padding: 24, borderRadius: 16, alignItems: 'center' }}>
+              <Ionicons name="warning" size={48} color={colors.error} style={{ marginBottom: 16 }} />
+              <Text style={{ fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, marginBottom: 8, textAlign: 'center' }}>Delete Chat History?</Text>
+              <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: colors.textDim, marginBottom: 24, textAlign: 'center' }}>Are you sure you want to permanently delete all chat history for this subject? This cannot be undone.</Text>
+              <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+                 <TouchableOpacity style={{ flex: 1, padding: 12, borderRadius: 8, backgroundColor: colors.background, alignItems: 'center' }} onPress={() => setShowClearConfirm(false)}>
+                    <Text style={{ color: colors.text, fontFamily: 'Inter_600SemiBold' }}>Cancel</Text>
+                 </TouchableOpacity>
+                 <TouchableOpacity style={{ flex: 1, padding: 12, borderRadius: 8, backgroundColor: colors.error, alignItems: 'center' }} onPress={clearAllChats}>
+                    <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold' }}>Delete</Text>
+                 </TouchableOpacity>
+              </View>
+           </View>
+        </CenterPopModal>
+
+        {/* Success Modal */}
+        <CenterPopModal isVisible={clearSuccess} onClose={() => {}}>
+           <View style={{ backgroundColor: colors.surface, padding: 24, borderRadius: 16, alignItems: 'center' }}>
+              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.success + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                 <Ionicons name="checkmark" size={32} color={colors.success} />
+              </View>
+              <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, textAlign: 'center' }}>Chats Deleted</Text>
+           </View>
+        </CenterPopModal>
+
       </View>
     );
   }
 
-  if (!syllabusScraped) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Stack.Screen options={{ title: name as string || "AI Tutor", headerShadowVisible: false, headerStyle: { backgroundColor: colors.background } }} />
-        
-        <View style={{ width: 0, height: 0, opacity: 0 }}>
-          <WebView 
-            source={{ uri: `https://lms.culko.in/course/view.php?id=${id}` }}
-            injectedJavaScript={INJECT_SCRIPT}
-            onMessage={handleMessage}
-            javaScriptEnabled={true}
-          />
-        </View>
-
-        <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
-           <Ionicons name="sparkles" size={40} color={colors.primary} />
-        </View>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ ...styles.title, marginTop: 24, textAlign: 'center' }}>Initializing AI Tutor</Text>
-        <Text style={{ ...styles.subtitle, textAlign: 'center' }}>Reading your syllabus and topics from LMS...</Text>
-      </View>
-    );
-  }
+  // Removed WebView wait container
 
   const activeSession = sessions.find(s => s.id === currentSessionId);
   const activeMessages = activeSession ? activeSession.messages : [];
@@ -396,17 +478,35 @@ export default function AITutorChatScreen() {
           ref={scrollViewRef}
           onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
         >
-           {activeMessages.map(msg => (
+           {activeMessages.map(msg => {
+              const { displayText, hiddenFiles } = msg.role === 'user' ? renderUserMessage(msg.text) : { displayText: msg.text, hiddenFiles: [] };
+              return (
               <View key={msg.id} style={[styles.messageBubble, msg.role === 'user' ? styles.userBubble : styles.aiBubble]}>
                  {msg.role === 'user' ? (
-                    <Text style={styles.userText}>{msg.text}</Text>
+                    <View>
+                       <Text style={styles.userText}>{displayText}</Text>
+                       {hiddenFiles.length > 0 && (
+                          <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
+                             {hiddenFiles.map((f, i) => {
+                                const match = f.match(/(?:topic\s*|-|^|\s|\b)(\d+(?:\.\d+)*)/i);
+                                const displayName = match ? `Topic ${match[1]}` : (f.length > 25 ? f.substring(0, 25) + '...' : f);
+                                return (
+                                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                      <Ionicons name="document-text" size={14} color="rgba(255,255,255,0.8)" style={{ marginRight: 6 }} />
+                                      <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'Inter_500Medium' }}>{displayName}</Text>
+                                   </View>
+                                );
+                             })}
+                          </View>
+                       )}
+                    </View>
                  ) : (
                     <Markdown style={markdownStyles}>
                        {msg.text}
                     </Markdown>
                  )}
               </View>
-           ))}
+           )})}
            {isTyping && (
              <View style={[styles.messageBubble, styles.aiBubble, { width: 80, alignItems: 'center' }]}>
                <ActivityIndicator size="small" color={colors.primary} />
@@ -423,21 +523,43 @@ export default function AITutorChatScreen() {
            </TouchableOpacity>
 
            <TouchableOpacity 
-             style={styles.historyButton} 
+             style={[styles.historyButton, { marginRight: 8 }]} 
              onPress={() => setShowHistoryModal(true)}
            >
               <Ionicons name="chatbubbles-outline" size={20} color={colors.text} />
            </TouchableOpacity>
 
-           <TextInput 
-              style={styles.chatInput}
-              placeholder="Ask about a topic..."
-              placeholderTextColor={colors.textMuted}
-              value={inputText}
-              onChangeText={setInputText}
-              multiline
-              maxLength={1000}
-           />
+           <TouchableOpacity 
+             style={[styles.historyButton, { marginRight: 8 }]} 
+             onPress={() => {
+                setShowFileModal(true);
+                const totalFiles = Object.values(availableFiles).flat().length;
+                if (totalFiles === 0 && !isLoadingFiles) {
+                   fetchAvailableFiles();
+                }
+             }}
+           >
+              <View>
+                 <Ionicons name="document-attach-outline" size={20} color={colors.primary} />
+                 {selectedFiles.length > 0 && (
+                    <View style={{ position: 'absolute', top: -6, right: -6, backgroundColor: colors.error || 'red', borderRadius: 10, width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}>
+                       <Text style={{ color: 'white', fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold' }}>{selectedFiles.length}</Text>
+                    </View>
+                 )}
+              </View>
+           </TouchableOpacity>
+
+           <View style={{ flex: 1 }}>
+               <TextInput 
+                  style={[styles.chatInput, { marginBottom: 0 }]}
+                  placeholder="Ask about a topic..."
+                  placeholderTextColor={colors.textMuted}
+                  value={inputText}
+                  onChangeText={setInputText}
+                  multiline
+                  maxLength={1000}
+               />
+           </View>
            <TouchableOpacity 
              style={[styles.sendButton, (!inputText.trim() || isTyping) && styles.sendButtonDisabled]} 
              onPress={sendMessage}
@@ -447,6 +569,74 @@ export default function AITutorChatScreen() {
            </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* File Selection Modal */}
+      <Modal visible={showFileModal} animationType="slide" transparent={true} onRequestClose={() => setShowFileModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { height: '80%', paddingBottom: 32 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                 Select Files (Loaded: {Object.values(availableFiles).reduce((acc, curr) => acc + curr.length, 0)})
+              </Text>
+              <TouchableOpacity onPress={() => setShowFileModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            {isLoadingFiles ? (
+               <ActivityIndicator size="large" color={colors.primary} style={{ margin: 40 }} />
+            ) : fetchError ? (
+               <View style={{ padding: 20, alignItems: 'center' }}>
+                 <Ionicons name="alert-circle-outline" size={48} color={colors.error || 'red'} />
+                 <Text style={{ color: colors.error || 'red', textAlign: 'center', marginTop: 12, fontFamily: 'Inter_500Medium' }}>Error Loading Files</Text>
+                 <Text style={{ color: colors.text, textAlign: 'center', marginTop: 8, fontSize: 12 }}>{fetchError}</Text>
+               </View>
+            ) : Object.keys(availableFiles).length === 0 ? (
+               <Text style={{ color: colors.textDim, textAlign: 'center', margin: 20 }}>No files found in database.</Text>
+            ) : (
+               <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
+                 {Object.keys(availableFiles).sort().map(unit => {
+                    const isExpanded = expandedUnits.includes(unit);
+                    return (
+                    <View key={unit} style={{ marginBottom: 12 }}>
+                       <TouchableOpacity 
+                          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
+                          onPress={() => setExpandedUnits(prev => isExpanded ? prev.filter(u => u !== unit) : [...prev, unit])}
+                       >
+                          <Text style={{ fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>{unit}</Text>
+                          <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textDim} />
+                       </TouchableOpacity>
+                       
+                       {isExpanded && (
+                          <View style={{ paddingTop: 8, paddingLeft: 8 }}>
+                             {sortFilesByTopicNumbers(availableFiles[unit]).map(file => {
+                                const isSelected = selectedFiles.includes(file);
+                                return (
+                                   <TouchableOpacity 
+                                      key={file} 
+                                      style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12, backgroundColor: isSelected ? colors.primary + '20' : 'transparent', borderRadius: 8, marginBottom: 4, borderWidth: 1, borderColor: isSelected ? colors.primary : 'transparent' }}
+                                      onPress={() => {
+                                         if (isSelected) {
+                                            setSelectedFiles(prev => prev.filter(f => f !== file));
+                                         } else {
+                                            setSelectedFiles(prev => [...prev, file]);
+                                         }
+                                      }}
+                                   >
+                                      <Ionicons name={isSelected ? "checkbox" : "square-outline"} size={20} color={isSelected ? colors.primary : colors.textDim} style={{ marginRight: 12 }} />
+                                      <Text style={{ fontSize: 14, color: isSelected ? colors.primary : colors.text, flex: 1 }} numberOfLines={2}>{file}</Text>
+                                   </TouchableOpacity>
+                                );
+                             })}
+                          </View>
+                       )}
+                    </View>
+                 )})}
+               </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* History Modal */}
       <Modal visible={showHistoryModal} animationType="fade" transparent={true} onRequestClose={() => setShowHistoryModal(false)}>

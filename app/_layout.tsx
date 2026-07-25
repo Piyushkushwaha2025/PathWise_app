@@ -160,6 +160,15 @@ function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
   useEffect(() => {
     if (isLoaded && fontsLoaded) {
       SplashScreen.hideAsync().catch(() => {});
+      
+      // Request notification permissions
+      const requestPermissions = async () => {
+         const { status } = await Notifications.getPermissionsAsync();
+         if (status !== 'granted') {
+            await Notifications.requestPermissionsAsync();
+         }
+      };
+      requestPermissions();
     }
   }, [isLoaded, fontsLoaded]);
 
