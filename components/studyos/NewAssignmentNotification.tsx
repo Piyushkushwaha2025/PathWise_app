@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, AppState } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -36,6 +36,17 @@ export default function NewAssignmentNotification() {
     };
 
     checkForAssignments();
+
+    // Re-check when app comes to foreground
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        checkForAssignments();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   if (!isVisible) return null;

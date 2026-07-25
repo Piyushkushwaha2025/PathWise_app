@@ -175,6 +175,31 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
       }
     } catch(e) { console.error('BG Sync Marks Err:', e); }
 
+    // 3. Check for new Assignments
+    try {
+      const ASSIGNMENTS_JSON_URL = "https://raw.githubusercontent.com/Piyushkushwaha2025/PathWise_app/master/assignments.json";
+      const res = await fetch(`${ASSIGNMENTS_JSON_URL}?t=${Date.now()}`);
+      if (res.ok) {
+         const assignments = await res.json();
+         const storedCountStr = await AsyncStorage.getItem("pathwise_assignments_count");
+         const storedCount = storedCountStr ? parseInt(storedCountStr, 10) : 0;
+         
+         if (assignments.length > storedCount) {
+            const newAsg = assignments[assignments.length - 1]; // Assume latest is at the end
+            await Notifications.scheduleNotificationAsync({
+               content: {
+                  title: 'New Assignment Added!',
+                  body: `${newAsg.title} for ${newAsg.subject}`,
+                  sound: true,
+               },
+               trigger: null,
+            });
+            notificationsSent++;
+            await AsyncStorage.setItem("pathwise_assignments_count", assignments.length.toString());
+         }
+      }
+    } catch(e) { console.error('BG Sync Assignments Err:', e); }
+
     if (notificationsSent > 0) {
        await AsyncStorage.setItem('studyos_scraped_data', JSON.stringify(oldData));
        return BackgroundFetch.BackgroundFetchResult.NewData;

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 
@@ -34,6 +35,30 @@ export default function AssignmentsScreen() {
       
       const data = await res.json();
       setAssignments(data);
+      
+      // Schedule Due Date Notifications
+      for (const asg of data) {
+         if (!completedIds.includes(asg.id)) {
+            const dueDate = new Date(asg.dueDate);
+            const triggerTime = new Date(dueDate.getTime() - 24 * 60 * 60 * 1000); // 24h before
+            
+            if (triggerTime > new Date()) {
+               await Notifications.scheduleNotificationAsync({
+                  identifier: `asg_due_${asg.id}`,
+                  content: {
+                     title: 'Assignment Due Tomorrow!',
+                     body: `"${asg.title}" for ${asg.subject} is due tomorrow. Don't forget!`,
+                     sound: true,
+                  },
+                  trigger: { date: triggerTime, type: 'calendar' } as any,
+               });
+            }
+         } else {
+            // Cancel if already completed
+            await Notifications.cancelScheduledNotificationAsync(`asg_due_${asg.id}`);
+         }
+      }
+      
     } catch (error: any) {
       console.error(error);
       Alert.alert("Error fetching assignments", error?.message || String(error));

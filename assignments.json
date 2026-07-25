@@ -14,5 +14,13 @@
     "description": "Mid-term exam covering Unit 1: Database System Architecture and Relational Models. Please arrive 15 minutes early.",
     "dueDate": "2026-07-27T09:00:00Z",
     "createdAt": "2026-07-25T15:52:00Z"
+  },
+  {
+    "id": "asg_physics_02",
+    "title": "Physics Practical Report",
+    "subject": "Physics",
+    "description": "Submit your lab report for the Pendulum experiment.",
+    "dueDate": "2026-07-29T23:59:59Z",
+    "createdAt": "2026-07-25T15:55:00Z"
   }
 ]
