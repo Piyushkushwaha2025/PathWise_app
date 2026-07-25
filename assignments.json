@@ -1,26 +1,10 @@
 [
   {
-    "id": "asg_math_01",
-    "title": "Solve Linear Equations Worksheet",
-    "subject": "Mathematics",
-    "description": "Complete all 10 questions on page 42 of the textbook. Show all your steps clearly.",
-    "dueDate": "2026-07-28T23:59:59Z",
-    "createdAt": "2026-07-25T10:00:00Z"
-  },
-  {
-    "id": "exam_dbms_mid",
-    "title": "Mid Term Exam - DBMS",
+    "id": "asg_dbms_final_01",
+    "title": "DBMS Lab File Submission",
     "subject": "DBMS",
-    "description": "Mid-term exam covering Unit 1: Database System Architecture and Relational Models. Please arrive 15 minutes early.",
-    "dueDate": "2026-07-27T09:00:00Z",
-    "createdAt": "2026-07-25T15:52:00Z"
-  },
-  {
-    "id": "asg_physics_02",
-    "title": "Physics Practical Report",
-    "subject": "Physics",
-    "description": "Submit your lab report for the Pendulum experiment.",
-    "dueDate": "2026-07-29T23:59:59Z",
-    "createdAt": "2026-07-25T15:55:00Z"
+    "description": "Please complete all SQL queries from Practical 1 to 5 and submit the lab file.",
+    "dueDate": "2026-07-28T10:00:00Z",
+    "createdAt": "2026-07-25T16:00:00Z"
   }
 ]
