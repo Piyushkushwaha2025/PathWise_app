@@ -6,21 +6,14 @@ export function useDownloadCount() {
   useEffect(() => {
     async function fetchCount() {
       try {
-        const res = await fetch('https://api.github.com/repos/Piyushkushwaha2025/PathWise_app/releases');
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://pathwise-beige.vercel.app';
+        const res = await fetch(`${apiUrl}/api/users/count`);
         if (!res.ok) return;
-        const releases = await res.json();
-        let total = 0;
-        releases.forEach((release: any) => {
-          release.assets?.forEach((asset: any) => {
-            if (asset.name?.endsWith('.apk')) {
-              total += asset.download_count;
-            }
-          });
-        });
-        setDownloadCount(total);
+        const data = await res.json();
+        setDownloadCount(data.count || 0);
       } catch (err) {
         if (__DEV__) {
-          console.warn('Failed to fetch download count:', err);
+          console.warn('Failed to fetch user count:', err);
         }
       }
     }

@@ -441,6 +441,16 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), asyn
   }
 });
 
+// Get total user count
+app.get('/api/users/count', async (req, res) => {
+  try {
+    const count = await User.countDocuments();
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
