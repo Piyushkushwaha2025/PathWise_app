@@ -6,6 +6,8 @@ const crypto = require('crypto');
 const Razorpay = require('razorpay');
 const multer = require('multer');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const User = require('./models/User');
 const Assignment = require('./models/Assignment');
 const UserAssignment = require('./models/UserAssignment');
@@ -23,17 +25,30 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
   .catch((err) => console.error('❌ MongoDB Connection Error:', err));
 
-// ─── Cloudflare R2 Client ────────────────────────────────────────────────────
-const r2 = new S3Client({
-  region: 'auto',
-  endpoint: `https://${process.env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+// ─── Backblaze B2 (S3-compatible) ────────────────────────────────────────────
+const B2_ENDPOINT = process.env.B2_ENDPOINT || 'https://s3.us-east-005.backblazeb2.com';
+const B2_REGION = B2_ENDPOINT.replace('https://s3.', '').replace('.backblazeb2.com', ''); // "us-east-005"
+
+const b2 = new S3Client({
+  region: B2_REGION,
+  endpoint: B2_ENDPOINT,
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    accessKeyId: process.env.B2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.B2_SECRET_ACCESS_KEY,
   },
 });
-const R2_BUCKET = process.env.R2_BUCKET_NAME || 'studyos-assignments';
-const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL; // e.g. https://pub-xxx.r2.dev
+const B2_BUCKET = process.env.B2_BUCKET_NAME || 'studyos-assignments';
+
+// Helper: generate a 1-hour signed download URL
+async function getDownloadUrl(key) {
+  try {
+    const command = new GetObjectCommand({ Bucket: B2_BUCKET, Key: key });
+    return await getSignedUrl(b2, command, { expiresIn: 3600 });
+  } catch {
+    return null;
+  }
+}
+
 
 // ─── Multer (in-memory, max 5MB, PDF/doc only) ──────────────────────────────
 const upload = multer({
@@ -201,15 +216,15 @@ app.post('/api/assignments/upload-pdf', getClerkId, requireCR, upload.single('fi
     const filename = `${Date.now()}-${req.file.originalname.replace(/\s/g, '_')}`;
     const key = `assignments/${req.crUser.section_code}/${filename}`;
 
-    await r2.send(new PutObjectCommand({
-      Bucket: R2_BUCKET,
+    await b2.send(new PutObjectCommand({
+      Bucket: B2_BUCKET,
       Key: key,
       Body: req.file.buffer,
       ContentType: req.file.mimetype,
     }));
 
-    const pdf_url = `${R2_PUBLIC_URL}/${key}`;
-    res.json({ success: true, pdf_url, pdf_filename: req.file.originalname });
+    // Store the key (path), not a public URL — signed URLs generated on download
+    res.json({ success: true, pdf_key: key, pdf_filename: req.file.originalname });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -218,7 +233,7 @@ app.post('/api/assignments/upload-pdf', getClerkId, requireCR, upload.single('fi
 // 8. Create Assignment (CR only)
 app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
   try {
-    const { title, subject, description, dueDate, pdf_url, pdf_filename } = req.body;
+    const { title, subject, description, dueDate, pdf_key, pdf_filename } = req.body;
     if (!title || !subject || !dueDate) return res.status(400).json({ error: 'title, subject, dueDate required' });
 
     const assignment = new Assignment({
@@ -228,7 +243,7 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
       dueDate: new Date(dueDate),
       created_by: req.clerkUserId,
       section_code: req.crUser.section_code,
-      pdf_url: pdf_url || null,
+      pdf_key: pdf_key || null,
       pdf_filename: pdf_filename || null,
     });
     await assignment.save();
@@ -277,9 +292,14 @@ app.get('/api/assignments', getClerkId, async (req, res) => {
     const completedMap = {};
     userAssignments.forEach(ua => { completedMap[ua.assignmentId.toString()] = ua.status; });
 
-    const result = assignments.map(a => ({
-      ...a.toObject(),
-      status: completedMap[a._id.toString()] || 'pending'
+    // Generate signed download URLs for PDFs
+    const result = await Promise.all(assignments.map(async a => {
+      const obj = a.toObject();
+      return {
+        ...obj,
+        status: completedMap[a._id.toString()] || 'pending',
+        pdf_download_url: obj.pdf_key ? await getDownloadUrl(obj.pdf_key) : null,
+      };
     }));
 
     res.json(result);
@@ -323,10 +343,9 @@ app.delete('/api/assignments/:id', getClerkId, async (req, res) => {
       return res.status(403).json({ error: 'You can only delete your own assignments' });
     }
 
-    // Delete PDF from R2 if exists
-    if (assignment.pdf_url) {
-      const key = assignment.pdf_url.replace(`${R2_PUBLIC_URL}/`, '');
-      try { await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key })); } catch (_) {}
+    // Delete PDF from B2 if exists
+    if (assignment.pdf_key) {
+      try { await b2.send(new DeleteObjectCommand({ Bucket: B2_BUCKET, Key: assignment.pdf_key })); } catch (_) {}
     }
 
     await assignment.deleteOne();

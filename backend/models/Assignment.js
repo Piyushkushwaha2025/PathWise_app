@@ -26,9 +26,9 @@ const AssignmentSchema = new mongoose.Schema({
     type: String,   // e.g. "CSE-B-2025" — only students of this section see it
     required: true
   },
-  pdf_url: {
+  pdf_key: {
     type: String,
-    default: null   // Cloudflare R2 public URL
+    default: null   // Backblaze B2 object key
   },
   pdf_filename: {
     type: String,

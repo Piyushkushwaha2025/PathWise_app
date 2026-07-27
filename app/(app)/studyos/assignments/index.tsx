@@ -145,10 +145,10 @@ export default function AssignmentsScreen() {
                       )}
 
                       {/* PDF Attachment */}
-                      {item.pdf_url && (
+                      {item.pdf_download_url && (
                         <TouchableOpacity
                           style={styles.pdfBtn}
-                          onPress={() => Linking.openURL(item.pdf_url!)}
+                          onPress={() => Linking.openURL(item.pdf_download_url!)}
                         >
                           <Ionicons name="document-text-outline" size={18} color="#3b82f6" />
                           <Text style={styles.pdfBtnText} numberOfLines={1}>

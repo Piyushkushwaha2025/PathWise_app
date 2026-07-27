@@ -23,7 +23,8 @@ export interface AssignmentData {
   dueDate: string;
   section_code: string;
   created_by: string;
-  pdf_url: string | null;
+  pdf_key: string | null;
+  pdf_download_url: string | null;
   pdf_filename: string | null;
   status: 'pending' | 'submitted';
   createdAt: string;
@@ -95,7 +96,7 @@ export async function toggleAssignment(clerkId: string, assignmentId: string): P
   return data.status;
 }
 
-export async function uploadPdf(clerkId: string, file: { uri: string; name: string; type: string }): Promise<{ pdf_url: string; pdf_filename: string }> {
+export async function uploadPdf(clerkId: string, file: { uri: string; name: string; type: string }): Promise<{ pdf_key: string; pdf_filename: string }> {
   const formData = new FormData();
   formData.append('file', { uri: file.uri, name: file.name, type: file.type } as any);
   const res = await fetch(`${API_URL}/assignments/upload-pdf`, {
@@ -110,7 +111,7 @@ export async function uploadPdf(clerkId: string, file: { uri: string; name: stri
 
 export async function createAssignment(clerkId: string, payload: {
   title: string; subject: string; description: string;
-  dueDate: string; pdf_url?: string; pdf_filename?: string;
+  dueDate: string; pdf_key?: string; pdf_filename?: string;
 }): Promise<AssignmentData> {
   const res = await fetch(`${API_URL}/assignments`, {
     method: 'POST',

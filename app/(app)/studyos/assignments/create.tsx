@@ -55,13 +55,13 @@ export default function CreateAssignmentScreen() {
 
     try {
       setSaving(true);
-      let pdf_url: string | undefined;
+      let pdf_key: string | undefined;
       let pdf_filename: string | undefined;
 
       if (pdfFile) {
         setUploading(true);
         const uploaded = await uploadPdf(userId, pdfFile);
-        pdf_url = uploaded.pdf_url;
+        pdf_key = uploaded.pdf_key;
         pdf_filename = uploaded.pdf_filename;
         setUploading(false);
       }
@@ -71,7 +71,7 @@ export default function CreateAssignmentScreen() {
         subject: subject.trim(),
         description: description.trim(),
         dueDate: dueDate.toISOString(),
-        pdf_url,
+        pdf_key,
         pdf_filename,
       });
 
