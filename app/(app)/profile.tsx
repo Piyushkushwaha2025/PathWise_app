@@ -31,6 +31,8 @@ import { useFeedback } from "../../hooks/useFeedback";
 import { useDownloadCount } from "../../hooks/useDownloadCount";
 import { useRoadmapsCatalog, useRoadmaps } from "../../hooks/useRoadmaps";
 import { Typography, Spacing } from "../../constants/theme";
+import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore, ThemeType } from "../../store/useThemeStore";
 import { useUpdateStore } from "../../store/useUpdateStore";
 import { validateNameInput, validateFeedback, sanitizeString, MAX_NAME_LENGTH, MAX_FEEDBACK_LENGTH } from "../../lib/validation";
@@ -159,6 +161,14 @@ export default function ProfileScreen() {
 
   const handleSignOut = async () => {
     try {
+      // Clear all cached LMS data and user settings
+      await AsyncStorage.clear();
+      await SecureStore.deleteItemAsync('culko_cookies');
+      await SecureStore.deleteItemAsync('culko_u');
+      await SecureStore.deleteItemAsync('culko_p');
+      await SecureStore.deleteItemAsync('gemini_api_key');
+
+      // Logout from Clerk
       await signOut();
       router.replace("/(auth)/sign-in");
     } catch (e) {
