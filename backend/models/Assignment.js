@@ -11,11 +11,28 @@ const AssignmentSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    required: true
+    default: ''
   },
   dueDate: {
     type: Date,
     required: true
+  },
+  // CR Sub-Admin additions
+  created_by: {
+    type: String,   // clerkUserId of the CR who posted it
+    required: true
+  },
+  section_code: {
+    type: String,   // e.g. "CSE-B-2025" — only students of this section see it
+    required: true
+  },
+  pdf_url: {
+    type: String,
+    default: null   // Cloudflare R2 public URL
+  },
+  pdf_filename: {
+    type: String,
+    default: null
   }
 }, { timestamps: true });
 

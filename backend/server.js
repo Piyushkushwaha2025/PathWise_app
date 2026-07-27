@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const crypto = require('crypto');
 const Razorpay = require('razorpay');
+const multer = require('multer');
+const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const User = require('./models/User');
 const Assignment = require('./models/Assignment');
 const UserAssignment = require('./models/UserAssignment');
@@ -21,135 +23,362 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
   .catch((err) => console.error('❌ MongoDB Connection Error:', err));
 
-// Middleware to simulate Clerk Auth Verification (In production, use @clerk/express)
-// For now, the app just sends the clerkUserId in the body/headers
+// ─── Cloudflare R2 Client ────────────────────────────────────────────────────
+const r2 = new S3Client({
+  region: 'auto',
+  endpoint: `https://${process.env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
+const R2_BUCKET = process.env.R2_BUCKET_NAME || 'studyos-assignments';
+const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL; // e.g. https://pub-xxx.r2.dev
+
+// ─── Multer (in-memory, max 5MB, PDF/doc only) ──────────────────────────────
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['application/pdf', 'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Only PDF and Word documents are allowed'));
+  }
+});
+
+// ─── Auth Middleware ─────────────────────────────────────────────────────────
 const getClerkId = (req, res, next) => {
-   const clerkId = req.headers['x-clerk-user-id'] || req.body.clerkUserId;
-   if (!clerkId) {
-      return res.status(401).json({ error: 'Unauthorized: Missing Clerk User ID' });
-   }
-   req.clerkUserId = clerkId;
-   next();
+  const clerkId = req.headers['x-clerk-user-id'] || req.body.clerkUserId;
+  if (!clerkId) return res.status(401).json({ error: 'Unauthorized: Missing Clerk User ID' });
+  req.clerkUserId = clerkId;
+  next();
 };
 
-// Razorpay Instance
-// These should be in your .env file
+const requireCR = async (req, res, next) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user || !['cr', 'admin'].includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden: CR or Admin role required' });
+    }
+    req.crUser = user;
+    next();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+const requireAdmin = async (req, res, next) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden: Admin role required' });
+    }
+    next();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+// ─── Razorpay ────────────────────────────────────────────────────────────────
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'test_key',
   key_secret: process.env.RAZORPAY_KEY_SECRET || 'test_secret',
 });
 
-// 1. Get or Create User Profile
+// ════════════════════════════════════════════════════════════════════════════
+// USER ROUTES
+// ════════════════════════════════════════════════════════════════════════════
+
+// 1. Get or Create User Profile (returns role info too)
 app.post('/api/user/sync', getClerkId, async (req, res) => {
-   try {
-      let user = await User.findOne({ clerkUserId: req.clerkUserId });
-      
-      if (!user) {
-         user = new User({
-            clerkUserId: req.clerkUserId,
-            email: req.body.email || '',
-            app_first_opened_date: new Date(),
-         });
-         await user.save();
-      }
-      
-      res.json(user);
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
+  try {
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) {
+      user = new User({
+        clerkUserId: req.clerkUserId,
+        email: req.body.email || '',
+        app_first_opened_date: new Date(),
+      });
+      await user.save();
+    } else if (req.body.email && !user.email) {
+      user.email = req.body.email;
+      await user.save();
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// 2. Set Free AI Subject (Only works if not already set)
+// 2. Set Free AI Subject
 app.post('/api/user/set-free-subject', getClerkId, async (req, res) => {
-   try {
-      const { subjectId } = req.body;
-      let user = await User.findOne({ clerkUserId: req.clerkUserId });
-      
-      if (!user) return res.status(404).json({ error: 'User not found' });
-
-      if (user.free_ai_subject_id) {
-         return res.status(400).json({ error: 'Free subject already selected', currentSubject: user.free_ai_subject_id });
-      }
-
-      user.free_ai_subject_id = subjectId;
-      await user.save();
-      
-      res.json({ success: true, user });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
+  try {
+    const { subjectId } = req.body;
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.free_ai_subject_id) {
+      return res.status(400).json({ error: 'Free subject already selected', currentSubject: user.free_ai_subject_id });
+    }
+    user.free_ai_subject_id = subjectId;
+    await user.save();
+    res.json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// 3. (Mock fallback) Upgrade to Premium
+// 3. Upgrade to Premium
 app.post('/api/user/upgrade', getClerkId, async (req, res) => {
-   try {
-      let user = await User.findOne({ clerkUserId: req.clerkUserId });
-      if (!user) return res.status(404).json({ error: 'User not found' });
-
-      user.is_premium = true;
-      await user.save();
-      
-      res.json({ success: true, user });
-   } catch (error) {
-      res.status(500).json({ error: error.message });
-   }
+  try {
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.is_premium = true;
+    await user.save();
+    res.json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// 4. Create Razorpay Order
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN ROUTES — CR Management
+// ════════════════════════════════════════════════════════════════════════════
+
+// 4. Make a user CR (admin only) — you call this once per CR
+app.post('/api/admin/set-cr', getClerkId, requireAdmin, async (req, res) => {
+  try {
+    const { email, section_code } = req.body;
+    if (!email || !section_code) return res.status(400).json({ error: 'email and section_code required' });
+
+    const user = await User.findOneAndUpdate(
+      { email },
+      { role: 'cr', section_code },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ error: 'User not found with that email' });
+    res.json({ success: true, user });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 5. Revoke CR access (admin only)
+app.post('/api/admin/revoke-cr', getClerkId, requireAdmin, async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOneAndUpdate(
+      { email },
+      { role: 'student', section_code: null },
+      { new: true }
+    );
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ success: true, user });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 6. List all CRs (admin only)
+app.get('/api/admin/crs', getClerkId, requireAdmin, async (req, res) => {
+  try {
+    const crs = await User.find({ role: 'cr' }).select('email section_code clerkUserId createdAt');
+    res.json(crs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// ASSIGNMENT ROUTES
+// ════════════════════════════════════════════════════════════════════════════
+
+// 7. Upload PDF to Cloudflare R2 (CR only)
+app.post('/api/assignments/upload-pdf', getClerkId, requireCR, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+    const filename = `${Date.now()}-${req.file.originalname.replace(/\s/g, '_')}`;
+    const key = `assignments/${req.crUser.section_code}/${filename}`;
+
+    await r2.send(new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+    }));
+
+    const pdf_url = `${R2_PUBLIC_URL}/${key}`;
+    res.json({ success: true, pdf_url, pdf_filename: req.file.originalname });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 8. Create Assignment (CR only)
+app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
+  try {
+    const { title, subject, description, dueDate, pdf_url, pdf_filename } = req.body;
+    if (!title || !subject || !dueDate) return res.status(400).json({ error: 'title, subject, dueDate required' });
+
+    const assignment = new Assignment({
+      title,
+      subject,
+      description: description || '',
+      dueDate: new Date(dueDate),
+      created_by: req.clerkUserId,
+      section_code: req.crUser.section_code,
+      pdf_url: pdf_url || null,
+      pdf_filename: pdf_filename || null,
+    });
+    await assignment.save();
+
+    // Send push notifications to all students in this section
+    const students = await User.find({
+      section_code: req.crUser.section_code,
+      role: 'student',
+      expoPushToken: { $ne: null }
+    });
+
+    const messages = students
+      .filter(s => Expo.isExpoPushToken(s.expoPushToken))
+      .map(s => ({
+        to: s.expoPushToken,
+        sound: 'default',
+        title: '📋 New Assignment Posted!',
+        body: `${title} — Due: ${new Date(dueDate).toLocaleDateString()}`,
+        data: { assignmentId: assignment._id.toString() },
+      }));
+
+    if (messages.length > 0) {
+      const chunks = expo.chunkPushNotifications(messages);
+      for (const chunk of chunks) {
+        try { await expo.sendPushNotificationsAsync(chunk); } catch (_) {}
+      }
+    }
+
+    res.json({ success: true, assignment });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 9. Get Assignments for a section
+app.get('/api/assignments', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user || !user.section_code) return res.json([]);
+
+    const assignments = await Assignment.find({ section_code: user.section_code })
+      .sort({ dueDate: 1 });
+
+    // Fetch completion status for this user
+    const userAssignments = await UserAssignment.find({ clerkUserId: req.clerkUserId });
+    const completedMap = {};
+    userAssignments.forEach(ua => { completedMap[ua.assignmentId.toString()] = ua.status; });
+
+    const result = assignments.map(a => ({
+      ...a.toObject(),
+      status: completedMap[a._id.toString()] || 'pending'
+    }));
+
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 10. Mark assignment as done/pending
+app.post('/api/assignments/:id/toggle', getClerkId, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await UserAssignment.findOne({ clerkUserId: req.clerkUserId, assignmentId: id });
+
+    if (!existing) {
+      await UserAssignment.create({ clerkUserId: req.clerkUserId, assignmentId: id, status: 'submitted', submittedAt: new Date() });
+      return res.json({ status: 'submitted' });
+    }
+
+    const newStatus = existing.status === 'submitted' ? 'pending' : 'submitted';
+    existing.status = newStatus;
+    existing.submittedAt = newStatus === 'submitted' ? new Date() : null;
+    await existing.save();
+    res.json({ status: newStatus });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 11. Delete Assignment (CR who created it or admin)
+app.delete('/api/assignments/:id', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user || !['cr', 'admin'].includes(user.role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const assignment = await Assignment.findById(req.params.id);
+    if (!assignment) return res.status(404).json({ error: 'Not found' });
+
+    // Only the creator or admin can delete
+    if (assignment.created_by !== req.clerkUserId && user.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only delete your own assignments' });
+    }
+
+    // Delete PDF from R2 if exists
+    if (assignment.pdf_url) {
+      const key = assignment.pdf_url.replace(`${R2_PUBLIC_URL}/`, '');
+      try { await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key })); } catch (_) {}
+    }
+
+    await assignment.deleteOne();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PAYMENT ROUTES
+// ════════════════════════════════════════════════════════════════════════════
+
 app.post('/api/payment/create-order', getClerkId, async (req, res) => {
-   try {
-       const options = {
-           amount: 299 * 100, // Amount in paise (299 INR)
-           currency: "INR",
-           receipt: `receipt_${req.clerkUserId}_${Date.now()}`
-       };
-       
-       const order = await razorpay.orders.create(options);
-       res.json(order);
-   } catch (error) {
-       res.status(500).json({ error: error.message });
-   }
+  try {
+    const options = {
+      amount: 299 * 100,
+      currency: 'INR',
+      receipt: `receipt_${req.clerkUserId}_${Date.now()}`
+    };
+    const order = await razorpay.orders.create(options);
+    res.json(order);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// 5. Razorpay Webhook (Verifies payment and upgrades user)
 app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-   try {
-       // Note: To use req.body as a buffer for signature verification, 
-       // express.raw() should be the only parser for this route.
-       // However, since we used express.json() globally, we might need a workaround.
-       // For this simple implementation, we'll verify it using the parsed JSON.
-       
-       const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'your_webhook_secret';
-       const signature = req.headers['x-razorpay-signature'];
-       
-       // Calculate signature
-       const expectedSignature = crypto.createHmac('sha256', secret)
-           .update(JSON.stringify(req.body))
-           .digest('hex');
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'your_webhook_secret';
+    const signature = req.headers['x-razorpay-signature'];
+    const expectedSignature = crypto.createHmac('sha256', secret)
+      .update(JSON.stringify(req.body)).digest('hex');
 
-       if (expectedSignature === signature) {
-           // Payment is legit!
-           const event = req.body;
-           if (event.event === 'payment.captured') {
-               // We need the clerkUserId. Usually you pass it in the Razorpay Notes.
-               const clerkUserId = event.payload.payment.entity.notes.clerkUserId;
-               if (clerkUserId) {
-                   await User.findOneAndUpdate(
-                       { clerkUserId },
-                       { is_premium: true }
-                   );
-                   console.log(`✅ Upgraded user ${clerkUserId} to Premium!`);
-               }
-           }
-           res.json({ status: 'ok' });
-       } else {
-           res.status(400).json({ error: 'Invalid Signature' });
-       }
-   } catch (error) {
-       res.status(500).json({ error: error.message });
-   }
+    if (expectedSignature === signature) {
+      const event = req.body;
+      if (event.event === 'payment.captured') {
+        const clerkUserId = event.payload.payment.entity.notes.clerkUserId;
+        if (clerkUserId) {
+          await User.findOneAndUpdate({ clerkUserId }, { is_premium: true });
+          console.log(`✅ Upgraded user ${clerkUserId} to Premium!`);
+        }
+      }
+      res.json({ status: 'ok' });
+    } else {
+      res.status(400).json({ error: 'Invalid Signature' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(\`🚀 Server running on port \${PORT}\`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });

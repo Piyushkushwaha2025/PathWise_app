@@ -24,6 +24,16 @@ const UserSchema = new mongoose.Schema({
   expoPushToken: {
     type: String,
     default: null
+  },
+  // CR Sub-Admin System
+  role: {
+    type: String,
+    enum: ['student', 'cr', 'admin'],
+    default: 'student'
+  },
+  section_code: {
+    type: String,
+    default: null  // e.g. "CSE-B-2025" — the class/section this CR manages
   }
 }, { timestamps: true });
 
