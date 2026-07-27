@@ -51,7 +51,7 @@ export default function AssignmentsScreen() {
                         body: `"${asg.title}" for ${asg.subject} is due tomorrow. Don't forget!`,
                         sound: true,
                      },
-                     trigger: triggerTime, // Direct Date object
+                     trigger: { date: triggerTime } as any, // Cast to any to bypass strict type check for now
                   });
                } catch (scheduleErr) {
                   console.warn("Failed to schedule notification:", scheduleErr);

@@ -66,7 +66,7 @@ export function useDBProfile() {
     if (userId) {
       syncUserWithDB(userId)
         .then(setDbUser)
-        .catch(console.error)
+        .catch((e) => console.log('DB Sync failed, backend might be offline:', e.message))
         .finally(() => setLoading(false));
     } else {
       setDbUser(null);

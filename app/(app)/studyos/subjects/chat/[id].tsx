@@ -3,11 +3,13 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Activi
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import { GoogleGenAI } from '@google/genai';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../../../store/useThemeStore';
 import { CenterPopModal } from '../../../../../components/ui/CenterPopModal';
 import Markdown from 'react-native-markdown-display';
-import { generateAiResponse } from '../../../../../lib/aiManager';
+import { generateAiResponse, reflectAndLearn } from '../../../../../lib/aiManager';
 import { useAuth } from '@clerk/clerk-expo';
 
 interface Message {
@@ -78,6 +80,10 @@ export default function AITutorChatScreen() {
 
   const [apiKey, setApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [isEditingKey, setIsEditingKey] = useState(false);
+  const [hasSavedKey, setHasSavedKey] = useState(false);
+  const [keyError, setKeyError] = useState('');
+  const [isValidatingKey, setIsValidatingKey] = useState(false);
   const [syllabusScraped, setSyllabusScraped] = useState(false);
   const [syllabusText, setSyllabusText] = useState('');
   const [scrapingError, setScrapingError] = useState('');
@@ -215,21 +221,90 @@ export default function AITutorChatScreen() {
   };
 
   const loadApiKey = async () => {
-    const key = await AsyncStorage.getItem('gemini_api_key');
+    let key = await SecureStore.getItemAsync('gemini_api_key');
+    if (!key) {
+      const oldKey = await AsyncStorage.getItem('gemini_api_key');
+      if (oldKey) {
+        key = oldKey;
+        await SecureStore.setItemAsync('gemini_api_key', oldKey);
+        await AsyncStorage.removeItem('gemini_api_key');
+      }
+    }
     if (key) {
       setApiKey(key);
+      setHasSavedKey(true);
+      setIsEditingKey(false);
+    } else {
+      setHasSavedKey(false);
+      setIsEditingKey(true);
     }
   };
 
   const saveApiKey = async () => {
-    if (apiKey.trim().length > 10) {
-      await AsyncStorage.setItem('gemini_api_key', apiKey.trim());
-      setShowSettings(false);
-    } else {
-      await AsyncStorage.removeItem('gemini_api_key');
-      setApiKey('');
-      setShowSettings(false);
+    setKeyError('');
+    const key = apiKey.trim().replace(/['"]/g, '');
+    if (key.length <= 10) {
+      setKeyError('Key must be at least 11 characters long.');
+      return;
     }
+    
+    setIsValidatingKey(true);
+    try {
+      if (key.startsWith('AIza')) {
+        // Gemini Validation
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+        if (!res.ok) throw new Error('Invalid Gemini key');
+      } else if (key.startsWith('sk-ant-')) {
+        // Anthropic Validation (POST to /messages with max_tokens: 1 to ensure key is fully active)
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify({ model: 'claude-3-5-sonnet-20241022', max_tokens: 1, messages: [{ role: 'user', content: 'test' }] })
+        });
+        const data = await res.json();
+        if (data.type === 'error') throw new Error(data.error.message);
+      } else if (key.startsWith('gsk_')) {
+        // Groq Validation
+        const res = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { 'Authorization': `Bearer ${key}` }
+        });
+        if (!res.ok) throw new Error('Invalid Groq key');
+      } else if (key.startsWith('sk-')) {
+        // OpenAI Validation
+        const res = await fetch('https://api.openai.com/v1/models', {
+          headers: { 'Authorization': `Bearer ${key}` }
+        });
+        if (!res.ok) throw new Error('Invalid OpenAI key');
+      } else if (key.startsWith('nvapi-')) {
+        // Nvidia Validation
+        const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'meta/llama-3.1-8b-instruct', max_tokens: 1, messages: [{ role: 'user', content: 'test' }] })
+        });
+        if (!res.ok) throw new Error('Invalid Nvidia key');
+      } else {
+        throw new Error('Unsupported key format. Must start with AIza, sk-ant-, sk-, gsk_, or nvapi-');
+      }
+      
+      await SecureStore.setItemAsync('gemini_api_key', key);
+      setHasSavedKey(true);
+      setIsEditingKey(false);
+      setShowSettings(false);
+    } catch (e: any) {
+      console.error("[API Key Validation Failed]:", e.message);
+      setKeyError(e.message || 'It is not a valid key');
+      setApiKey('');
+    } finally {
+      setIsValidatingKey(false);
+    }
+  };
+
+  const removeApiKey = async () => {
+    await SecureStore.deleteItemAsync('gemini_api_key');
+    setApiKey('');
+    setHasSavedKey(false);
+    setIsEditingKey(true);
   };
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -237,9 +312,7 @@ export default function AITutorChatScreen() {
 
   const clearAllChats = async () => {
     try {
-      const keys = await AsyncStorage.getAllKeys();
-      const chatKeys = keys.filter(k => k.startsWith('ai_chat_sessions_'));
-      await AsyncStorage.multiRemove(chatKeys);
+      await AsyncStorage.removeItem(STORAGE_KEY);
       setSessions([]);
       createNewSession(true);
       setShowClearConfirm(false);
@@ -251,6 +324,19 @@ export default function AITutorChatScreen() {
     } catch (e) {
       console.error(e);
       alert("Failed to delete chats.");
+    }
+  };
+
+  const deleteSession = (sessionId: string) => {
+    if (sessions.length <= 1) {
+       clearAllChats();
+       return;
+    }
+    const updated = sessions.filter(s => s.id !== sessionId);
+    setSessions(updated);
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    if (currentSessionId === sessionId) {
+       setCurrentSessionId(updated[0].id);
     }
   };
 
@@ -298,13 +384,24 @@ export default function AITutorChatScreen() {
       }));
       history.push({ role: 'user', parts: [{ text: newUserMsg.text }] });
 
-      const aiText = await generateAiResponse(history, syllabusText, name as string, id as string);
+      const learningProfile = await AsyncStorage.getItem('ai_learning_profile') || undefined;
+      const aiText = await generateAiResponse(history, syllabusText, name as string, id as string, learningProfile);
+
+      // Trigger self-learning in the background
+      if (!apiKey) {
+         const fullHistory = [...history, { role: 'model' as const, parts: [{ text: aiText }] }];
+         reflectAndLearn(fullHistory, learningProfile || "").then(newProfile => {
+             if (newProfile && newProfile.length > 5) {
+                 AsyncStorage.setItem('ai_learning_profile', newProfile);
+             }
+         });
+      }
 
       // Save AI msg to state & local storage
       setSessions(prevSessions => {
         const updated = prevSessions.map(s => {
            if (s.id === currentSessionId) {
-              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'ai', role: 'model', text: aiText }], updatedAt: Date.now() };
+              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'ai', role: 'model' as const, text: aiText }], updatedAt: Date.now() };
            }
            return s;
         });
@@ -329,7 +426,7 @@ export default function AITutorChatScreen() {
       setSessions(prevSessions => {
         const updated = prevSessions.map(s => {
            if (s.id === currentSessionId) {
-              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'err', role: 'model', text: errMsg }], updatedAt: Date.now() };
+              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'err', role: 'model' as const, text: errMsg }], updatedAt: Date.now() };
            }
            return s;
         });
@@ -396,22 +493,55 @@ export default function AITutorChatScreen() {
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
             <Ionicons name="key" size={24} color={colors.primary} />
           </View>
-          <Text style={styles.title}>Personal API Key (Optional)</Text>
-          <Text style={styles.subtitle}>Enter your own free Gemini API Key for unlimited, fast responses. Leave blank to use the shared free pool (20 msgs/day).</Text>
+          <Text style={styles.title}>Personal API Key</Text>
+          <Text style={styles.subtitle}>Enter your own API Key (Gemini, Claude, OpenAI, or Groq) for unlimited, fast responses. Leave blank to use the shared pool.</Text>
           
-          <TextInput 
-            style={styles.input}
-            placeholder="Paste your Gemini API Key here"
-            placeholderTextColor={colors.textMuted}
-            value={apiKey}
-            onChangeText={setApiKey}
-            autoCapitalize="none"
-            secureTextEntry
-          />
-          
-          <TouchableOpacity style={styles.button} onPress={saveApiKey}>
-             <Text style={styles.buttonText}>Save & Return</Text>
-          </TouchableOpacity>
+          {hasSavedKey && !isEditingKey ? (
+             <View style={{ width: '100%' }}>
+                <View style={{ backgroundColor: colors.background, padding: 16, borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="lock-closed" size={16} color={colors.success} style={{ marginRight: 8 }} />
+                      <Text style={{ color: colors.text, fontFamily: 'JetBrainsMono_400Regular' }}>{apiKey.substring(0, 8)}••••••••••</Text>
+                   </View>
+                   <View style={{ backgroundColor: colors.success + '20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                      <Text style={{ color: colors.success, fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>
+                         {apiKey.startsWith('AIza') ? 'Gemini' : apiKey.startsWith('sk-ant-') ? 'Claude' : apiKey.startsWith('gsk_') ? 'Groq' : apiKey.startsWith('nvapi-') ? 'Nvidia' : apiKey.startsWith('sk-') ? 'OpenAI' : 'Valid'}
+                      </Text>
+                   </View>
+                </View>
+                <TouchableOpacity style={styles.button} onPress={() => setIsEditingKey(true)}>
+                   <Text style={styles.buttonText}>Change API Key</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.error, marginTop: 12 }]} onPress={removeApiKey}>
+                   <Text style={[styles.buttonText, { color: colors.error }]}>Remove API Key</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginTop: 12 }]} onPress={() => setShowSettings(false)}>
+                   <Text style={[styles.buttonText, { color: colors.text }]}>Back to Chat</Text>
+                </TouchableOpacity>
+             </View>
+          ) : (
+             <View style={{ width: '100%' }}>
+                <TextInput 
+                  style={[styles.input, keyError ? { borderColor: colors.error } : null]}
+                  placeholder="Paste your API Key here (Gemini, Claude, etc)"
+                  placeholderTextColor={colors.textMuted}
+                  value={apiKey}
+                  onChangeText={(txt) => { setApiKey(txt); setKeyError(''); }}
+                  autoCapitalize="none"
+                  secureTextEntry
+                />
+                
+                {keyError ? <Text style={{ color: colors.error, fontSize: 13, marginTop: -8, marginBottom: 12, fontFamily: 'Inter_500Medium' }}>{keyError}</Text> : null}
+                
+                <TouchableOpacity style={[styles.button, isValidatingKey && { opacity: 0.7 }]} onPress={saveApiKey} disabled={isValidatingKey}>
+                   {isValidatingKey ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Save Key</Text>}
+                </TouchableOpacity>
+                
+                <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', marginTop: 12 }]} onPress={() => { setIsEditingKey(false); if(!hasSavedKey) setShowSettings(false); }}>
+                   <Text style={[styles.buttonText, { color: colors.text }]}>Cancel</Text>
+                </TouchableOpacity>
+             </View>
+          )}
           
           <TouchableOpacity 
             style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.error, marginTop: 16 }]} 
@@ -651,25 +781,29 @@ export default function AITutorChatScreen() {
             
             <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
               {sessions.map((s, index) => (
-                 <TouchableOpacity 
-                    key={s.id} 
-                    style={styles.modalOption}
-                    onPress={() => {
-                       setCurrentSessionId(s.id);
-                       setShowHistoryModal(false);
-                       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: false }), 100);
-                    }}
-                 >
-                    <Text style={[styles.modalOptionText, currentSessionId === s.id && styles.modalOptionTextSelected]} numberOfLines={1}>
-                       {s.title}
-                    </Text>
-                 </TouchableOpacity>
+                 <View key={s.id} style={[styles.modalOption, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                   <TouchableOpacity 
+                      style={{ flex: 1 }}
+                      onPress={() => {
+                         setCurrentSessionId(s.id);
+                         setShowHistoryModal(false);
+                         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: false }), 100);
+                      }}
+                   >
+                      <Text style={[styles.modalOptionText, currentSessionId === s.id && styles.modalOptionTextSelected]} numberOfLines={1}>
+                         {s.title}
+                      </Text>
+                   </TouchableOpacity>
+                   <TouchableOpacity onPress={() => deleteSession(s.id)} style={{ padding: 4 }}>
+                      <Ionicons name="trash-outline" size={20} color={colors.error || 'red'} />
+                   </TouchableOpacity>
+                 </View>
               ))}
               
               {sessions.length < 5 && (
                 <TouchableOpacity 
                   style={[styles.modalOption, { borderBottomWidth: 0, marginTop: 8 }]} 
-                  onPress={createNewSession}
+                  onPress={() => createNewSession()}
                 >
                    <Text style={{ color: colors.primary, fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>+ Create New Chat</Text>
                 </TouchableOpacity>

@@ -444,7 +444,7 @@ export default function MarksScreen() {
               shadowRadius: 8,
               elevation: 4
             }}>
-              <Ionicons name="radar-outline" size={24} color={colors.primary} />
+              <Ionicons name="stats-chart-outline" size={24} color={colors.primary} />
             </View>
             <View>
               <Text style={styles.headerTitle}>Performance Radar</Text>

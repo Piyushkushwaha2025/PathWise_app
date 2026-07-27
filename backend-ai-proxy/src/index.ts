@@ -137,6 +137,27 @@ Do NOT output anything else except the bulleted list.`;
 				}
 			}
 
+			// --- EMBED API (For RAG with non-Gemini Keys) ---
+			if (action === 'embed') {
+				try {
+					const randomGeminiKey = geminiKeys[Math.floor(Math.random() * geminiKeys.length)];
+					const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${randomGeminiKey}`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							model: 'models/gemini-embedding-001',
+							content: { parts: [{ text: body.text }] },
+							outputDimensionality: 768
+						})
+					});
+					const embedData = await embedRes.json() as any;
+					const vector = embedData.embedding?.values || [];
+					return new Response(JSON.stringify({ vector, debug: embedData }), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+				} catch (e) {
+					return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { 'Access-Control-Allow-Origin': '*' } });
+				}
+			}
+
 			// --- LIST FILES API ---
 			if (action === 'list-files') {
 				if (env.PINECONE_HOST && env.PINECONE_API_KEY) {
@@ -211,12 +232,13 @@ Do NOT output anything else except the bulleted list.`;
 					}
 					
 					// ALWAYS run Semantic vector search for the user's question
-					const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${randomGeminiKey}`, {
+					const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${randomGeminiKey}`, {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({
-							model: 'models/text-embedding-004',
-							content: { parts: [{ text: embedText }] }
+							model: 'models/gemini-embedding-001',
+							content: { parts: [{ text: embedText }] },
+							outputDimensionality: 768
 						})
 					});
 					const embedData = await embedRes.json() as any;
@@ -332,6 +354,10 @@ Do NOT output anything else except the bulleted list.`;
                         
                         let text = data.choices?.[0]?.message?.content || "I'm sorry, I couldn't generate a response.";
                         
+                        const dotMap: any = { 'gemini': '🔹', 'openrouter': '▫️', 'groq': '🔸', 'xai': '▪️', 'glm': '🔺' };
+                        const dot = dotMap[selectedProviderKey.provider] || '▫️';
+                        text += `\n\n${dot}`;
+                        
                         return new Response(JSON.stringify({ text }), {
                             headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
                         });
@@ -366,6 +392,10 @@ Do NOT output anything else except the bulleted list.`;
                         }
 
                         let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
+                        
+                        const dotMap: any = { 'gemini': '🔹', 'openrouter': '▫️', 'groq': '🔸', 'xai': '▪️', 'glm': '🔺' };
+                        const dot = dotMap[selectedProviderKey.provider] || '▫️';
+                        text += `\n\n${dot}`;
 
                         return new Response(JSON.stringify({ text }), {
                             headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }

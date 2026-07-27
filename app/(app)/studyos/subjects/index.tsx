@@ -384,11 +384,11 @@ export default function LmsCoursesScreen() {
                   </View>
                   
                   <TouchableOpacity 
-                    style={{ backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginRight: 8, flexDirection: 'row', alignItems: 'center' }}
+                    style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, marginRight: 8, flexDirection: 'row', alignItems: 'center' }}
                     onPress={() => router.push(`/studyos/subjects/chat/${course.shortname}?name=${encodeURIComponent(course.fullname)}` as any)}
                   >
-                    <Ionicons name="sparkles" size={14} color="#fff" style={{ marginRight: 4 }} />
-                    <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>AI Tutor</Text>
+                    <Ionicons name="sparkles" size={16} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={{ color: '#fff', fontSize: 14, fontFamily: 'Inter_600SemiBold' }}>AI</Text>
                   </TouchableOpacity>
                   
                   <Ionicons name="chevron-forward" size={20} color={colors.textDim} />

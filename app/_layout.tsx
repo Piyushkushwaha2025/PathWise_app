@@ -11,7 +11,6 @@ import * as SplashScreen from "expo-splash-screen";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { ErrorBoundary } from "../components/ErrorBoundary";
-import { ForceUpdateGate } from "../components/ForceUpdate";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NewAssignmentNotification from "../components/studyos/NewAssignmentNotification";
 import {
@@ -214,9 +213,7 @@ export default function RootLayout() {
             <BottomSheetModalProvider>
               <StatusBar style="light" />
               <ErrorBoundary>
-                <ForceUpdateGate>
-                  <RootLayoutInner fontsLoaded={fontsLoaded || !!fontError} />
-                </ForceUpdateGate>
+                <RootLayoutInner fontsLoaded={fontsLoaded || !!fontError} />
               </ErrorBoundary>
             </BottomSheetModalProvider>
           </GestureHandlerRootView>

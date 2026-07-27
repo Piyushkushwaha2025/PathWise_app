@@ -52,6 +52,9 @@ export default function StudyOSDashboard() {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [currentMonth, setCurrentMonth] = useState(todayStr.substring(0, 7));
 
+  const currentHour = new Date().getHours();
+  const greetingText = currentHour < 12 ? 'Good Morning' : currentHour < 17 ? 'Good Afternoon' : 'Good Evening';
+
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setToastVisible(true);
@@ -83,38 +86,7 @@ export default function StudyOSDashboard() {
     return () => sub.remove();
   }, []);
 
-  // Schedule Daily Timetable Notification
-  useEffect(() => {
-    const scheduleTimetable = async () => {
-       const { status } = await Notifications.getPermissionsAsync();
-       if (status !== 'granted') return;
-       
-       await Notifications.cancelScheduledNotificationAsync('daily_timetable');
-       
-       const daysMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-       const tomorrowStr = daysMap[(new Date().getDay() + 1) % 7];
-       const tomorrowClasses = roadmaps ? [] : []; // We need timetable from useStudyOSStore
-       
-       // Actually, we can schedule a generic repeating trigger for 8 AM every day
-       // and use a background task to fetch classes, or just a simple generic reminder.
-       await Notifications.scheduleNotificationAsync({
-          identifier: 'daily_timetable',
-          content: {
-             title: 'Good Morning!',
-             body: 'Check your timetable for today\'s classes and upcoming assignments.',
-             sound: true,
-          },
-          trigger: { 
-             channelId: 'default',
-             hour: 8, 
-             minute: 0, 
-             repeats: true 
-          } as any,
-       });
-       
-    };
-    scheduleTimetable();
-  }, []);
+
 
   const onRefresh = React.useCallback(() => {
     lastSyncTime.current = 0; // force sync on manual pull
@@ -169,7 +141,7 @@ export default function StudyOSDashboard() {
               <Ionicons name="logo-octocat" size={32} color={colors.text} />
             </View>
             <View>
-              <Text style={styles.greeting}>Good Morning</Text>
+              <Text style={styles.greeting}>{greetingText}</Text>
               <Text style={styles.userName}>{profile?.name || 'Student'}</Text>
               <Text style={styles.sectionText}>{profile?.course || 'No Course Synced'}</Text>
             </View>

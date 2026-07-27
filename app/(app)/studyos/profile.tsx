@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, Pressable } from 'react-native';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import { useStudyOSStore } from '../../../store/studyosStore';
@@ -16,6 +16,8 @@ export default function CollegeProfileScreen() {
   
   const { profile } = useStudyOSStore();
   const { setStudyOSMode, clearSession, universityId } = useStudySessionStore();
+  
+  const [isDisconnectModalVisible, setDisconnectModalVisible] = useState(false);
 
   const handleSwitch = () => {
     // Navigate FIRST, then change mode after small delay.
@@ -27,27 +29,15 @@ export default function CollegeProfileScreen() {
   };
 
   const handleDisconnect = () => {
-    Alert.alert(
-      "Disconnect",
-      "Are you sure you want to log out from your college account?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Disconnect", 
-          style: "destructive",
-          onPress: async () => {
-            // Navigate to dashboard FIRST before clearing session.
-            // This prevents the TabBar from re-rendering in StudyOS context
-            // with isStudyOSMode=false, which causes tabs to visually shift.
-            router.replace('/(app)/dashboard');
-            // Small delay to let navigation settle before state change
-            setTimeout(async () => {
-              await clearSession();
-            }, 50);
-          }
-        }
-      ]
-    );
+    setDisconnectModalVisible(true);
+  };
+
+  const confirmDisconnect = async () => {
+    setDisconnectModalVisible(false);
+    router.replace('/(app)/dashboard');
+    setTimeout(async () => {
+      await clearSession();
+    }, 50);
   };
 
   return (
@@ -108,6 +98,38 @@ export default function CollegeProfileScreen() {
           </GlassCard>
         </MotiView>
       </ScrollView>
+
+      {/* Custom Disconnect Modal */}
+      <Modal visible={isDisconnectModalVisible} transparent={true} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <MotiView 
+            from={{ opacity: 0, scale: 0.9 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            transition={{ type: 'spring', damping: 20 }}
+            style={styles.modalContent}
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconBox}>
+                <Ionicons name="warning-outline" size={32} color={colors.error} />
+              </View>
+              <Text style={styles.modalTitle}>Disconnect College?</Text>
+            </View>
+            
+            <Text style={styles.modalText}>
+              Are you sure you want to log out from your college account? You will need to log in again to access your subjects.
+            </Text>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setDisconnectModalVisible(false)}>
+                <Text style={styles.modalBtnCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnDanger} onPress={confirmDisconnect}>
+                <Text style={styles.modalBtnDangerText}>Disconnect</Text>
+              </TouchableOpacity>
+            </View>
+          </MotiView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -175,4 +197,75 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   menuLabel: { ...Typography.body, flex: 1, color: colors.text, fontWeight: "600" },
   divider: { height: 1, backgroundColor: colors.border, marginHorizontal: Spacing.md },
+  
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: Spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  modalIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: `${colors.error}15`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  modalTitle: {
+    ...Typography.h2,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  modalText: {
+    ...Typography.body,
+    color: colors.textDim,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+    lineHeight: 22,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  modalBtnCancel: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalBtnCancelText: {
+    ...Typography.body,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  modalBtnDanger: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: colors.error,
+    alignItems: 'center',
+  },
+  modalBtnDangerText: {
+    ...Typography.body,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
 });
