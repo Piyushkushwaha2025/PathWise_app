@@ -51,8 +51,8 @@ export default function RoadmapsScreen() {
 
 
 
-  const filteredRoadmaps = roadmapsCatalog.filter((roadmap) =>
-    roadmap.title.toLowerCase().startsWith(searchQuery.toLowerCase())
+  const filteredRoadmaps = (roadmapsCatalog || []).filter((roadmap: any) =>
+    roadmap?.title?.toLowerCase().startsWith(searchQuery.toLowerCase())
   );
 
   const renderHeader = () => (
@@ -105,7 +105,7 @@ export default function RoadmapsScreen() {
 
   const renderItem = useCallback(
     ({ item: roadmap }: any) => {
-      const isEnrolled = enrolledIds.includes(roadmap.id);
+      const isEnrolled = enrolledIds?.includes(roadmap.id) || false;
 
       return (
           <TouchableOpacity
