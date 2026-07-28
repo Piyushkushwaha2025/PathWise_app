@@ -72,15 +72,6 @@ export default function AssignmentsScreen() {
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
           headerShadowVisible: false,
-          headerRight: () =>
-            isCR ? (
-              <TouchableOpacity
-                onPress={() => router.push('/studyos/assignments/create' as any)}
-                style={{ marginRight: 16 }}
-              >
-                <Ionicons name="add-circle" size={28} color={colors.primary} />
-              </TouchableOpacity>
-            ) : null,
         }}
       />
 
@@ -184,6 +175,17 @@ export default function AssignmentsScreen() {
                     </View>
                   );
                 })
+              )}
+              
+              {/* Bottom Add Assignment Button for CR */}
+              {isCR && activeTab === 'pending' && (
+                <TouchableOpacity
+                  style={[styles.submitBtn, { marginTop: 16, backgroundColor: colors.primary }]}
+                  onPress={() => router.push('/studyos/assignments/create' as any)}
+                >
+                  <Ionicons name="add-circle-outline" size={22} color="#fff" />
+                  <Text style={[styles.submitBtnText, { color: '#fff' }]}>Add New Assignment</Text>
+                </TouchableOpacity>
               )}
             </ScrollView>
           )}
