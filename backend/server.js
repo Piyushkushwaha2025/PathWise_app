@@ -157,17 +157,7 @@ const requireCR = async (req, res, next) => {
   }
 };
 
-const requireAdmin = async (req, res, next) => {
-  try {
-    const user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user || user.role !== 'admin') {
-      return res.status(403).json({ error: 'Forbidden: Admin role required' });
-    }
-    next();
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-};
+// Admin role management is done directly via MongoDB Atlas — no API routes needed.
 
 // ─── Razorpay ────────────────────────────────────────────────────────────────
 const razorpay = new Razorpay({
@@ -264,52 +254,9 @@ app.post('/api/user/upgrade', getClerkId, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// ADMIN ROUTES — CR Management
+// CR roles are assigned directly in MongoDB Atlas by the admin (you).
+// No API routes needed for CR management.
 // ════════════════════════════════════════════════════════════════════════════
-
-// 4. Make a user CR (admin only) — you call this once per CR
-app.post('/api/admin/set-cr', getClerkId, requireAdmin, async (req, res) => {
-  try {
-    const { email, section_code } = req.body;
-    if (!email || !section_code) return res.status(400).json({ error: 'email and section_code required' });
-
-    const user = await User.findOneAndUpdate(
-      { email },
-      { role: 'cr', section_code },
-      { new: true }
-    );
-    if (!user) return res.status(404).json({ error: 'User not found with that email' });
-    res.json({ success: true, user });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// 5. Revoke CR access (admin only)
-app.post('/api/admin/revoke-cr', getClerkId, requireAdmin, async (req, res) => {
-  try {
-    const { email } = req.body;
-    const user = await User.findOneAndUpdate(
-      { email },
-      { role: 'student', section_code: null },
-      { new: true }
-    );
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ success: true, user });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// 6. List all CRs (admin only)
-app.get('/api/admin/crs', getClerkId, requireAdmin, async (req, res) => {
-  try {
-    const crs = await User.find({ role: 'cr' }).select('email section_code clerkUserId createdAt');
-    res.json(crs);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // ════════════════════════════════════════════════════════════════════════════
 // ASSIGNMENT ROUTES
