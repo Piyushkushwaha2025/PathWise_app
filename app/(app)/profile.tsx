@@ -167,6 +167,9 @@ export default function ProfileScreen() {
       await SecureStore.deleteItemAsync('culko_u');
       await SecureStore.deleteItemAsync('culko_p');
       await SecureStore.deleteItemAsync('gemini_api_key');
+      
+      // Clear Zustand states
+      await useStudySessionStore.getState().clearSession();
 
       // Logout from Clerk
       await signOut();

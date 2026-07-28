@@ -15,6 +15,7 @@ interface CulkoProfile {
   course: string;
   cgpa: string;
   semester?: string;
+  section?: string;
 }
 
 interface CulkoSubject {

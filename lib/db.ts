@@ -1,5 +1,6 @@
 import { useAuth } from '@clerk/clerk-expo';
 import { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
 // Use localhost for emulator, or your local IP for physical device testing
 // In production, this would be your hosted backend URL (e.g., Render, Heroku)
@@ -7,7 +8,8 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.100:5000/ap
 
 export interface UserData {
   clerkUserId: string;
-  email: string;
+  email: string | null;
+  uid?: string;
   app_first_opened_date: string;
   free_ai_subject_id: string | null;
   is_premium: boolean;
@@ -30,14 +32,19 @@ export interface AssignmentData {
   createdAt: string;
 }
 
-export async function syncUserWithDB(clerkId: string, email?: string): Promise<UserData> {
+export async function syncUserWithDB(
+  clerkId: string, 
+  email?: string, 
+  section_code?: string,
+  uid?: string
+): Promise<UserData> {
   const res = await fetch(`${API_URL}/user/sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-clerk-user-id': clerkId
     },
-    body: JSON.stringify({ email })
+    body: JSON.stringify({ email, section_code, uid })
   });
   
   if (!res.ok) throw new Error('Failed to sync user');
@@ -75,11 +82,22 @@ export async function createRazorpayOrder(clerkId: string): Promise<any> {
 
 // ─── Assignment API ──────────────────────────────────────────────────────────
 
-export async function fetchAssignments(clerkId: string): Promise<AssignmentData[]> {
+export async function fetchAssignments(clerkId: string, section?: string): Promise<AssignmentData[]> {
   try {
-    const res = await fetch(`${API_URL}/assignments`, {
+    const url = section ? `${API_URL}/assignments?section=${encodeURIComponent(section)}` : `${API_URL}/assignments`;
+    const res = await fetch(url, {
       headers: { 'x-clerk-user-id': clerkId }
     });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchSections(): Promise<string[]> {
+  try {
+    const res = await fetch(`${API_URL}/sections`);
     if (!res.ok) return [];
     return res.json();
   } catch {
@@ -96,17 +114,43 @@ export async function toggleAssignment(clerkId: string, assignmentId: string): P
   return data.status;
 }
 
-export async function uploadPdf(clerkId: string, file: { uri: string; name: string; type: string }): Promise<{ pdf_key: string; pdf_filename: string }> {
-  const formData = new FormData();
-  formData.append('file', { uri: file.uri, name: file.name, type: file.type } as any);
-  const res = await fetch(`${API_URL}/assignments/upload-pdf`, {
-    method: 'POST',
-    headers: { 'x-clerk-user-id': clerkId },
-    body: formData,
+export function uploadPdf(clerkId: string, file: { uri: string; name: string; type: string }): Promise<{ pdf_key: string; pdf_filename: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_URL}/assignments/upload-pdf`);
+    xhr.setRequestHeader('x-clerk-user-id', clerkId);
+    
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (e) {
+          reject(new Error('Invalid JSON response from server'));
+        }
+      } else {
+        try {
+          const err = JSON.parse(xhr.responseText);
+          reject(new Error(err.error || 'Upload failed'));
+        } catch (e) {
+          reject(new Error('Upload failed with status ' + xhr.status));
+        }
+      }
+    };
+    
+    xhr.onerror = () => {
+      reject(new Error('Network request failed for file upload'));
+    };
+
+    const formData = new FormData();
+    // React Native FormData requires exactly these properties
+    formData.append('file', {
+      uri: Platform.OS === 'android' ? file.uri : file.uri.replace('file://', ''),
+      name: file.name,
+      type: file.type || 'application/pdf'
+    } as any);
+
+    xhr.send(formData);
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Upload failed');
-  return data;
 }
 
 export async function createAssignment(clerkId: string, payload: {

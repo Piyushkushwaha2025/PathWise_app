@@ -7,6 +7,8 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import { useStudyOSStore } from '../../../store/studyosStore';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import * as SecureStore from 'expo-secure-store';
+import { useAuth } from '@clerk/clerk-expo';
+import { syncUserWithDB } from '../../../lib/db';
 
 const SCRAPE_STEPS = [
   {
@@ -99,12 +101,30 @@ const SCRAPE_STEPS = [
         }));
 
         var subjects = [];
+        var section = '';
+        var headerCells = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr:first-child th');
+        var sectionIdx = -1;
+        for (var h = 0; h < headerCells.length; h++) {
+           if (headerCells[h].innerText.toLowerCase().includes('section')) {
+              sectionIdx = h;
+              break;
+           }
+        }
+
         var rows = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr');
         for (var i = 1; i < rows.length; i++) {
           var code = rows[i].querySelector('span[id*="lblCourseCode"]')?.innerText.trim();
           var name = rows[i].querySelector('span[id*="lblCourseName"]')?.innerText.trim();
           var type = rows[i].querySelector('span[id*="lblType"]')?.innerText.trim();
           
+          if (!section && sectionIdx !== -1) {
+             var cells = rows[i].querySelectorAll('td');
+             if (cells.length > sectionIdx) {
+                var secVal = cells[sectionIdx].innerText.trim();
+                if (secVal) section = secVal;
+             }
+          }
+
           var credits = '0';
           var creditSpan = rows[i].querySelector('span[id*="lblCredit"]');
           if (creditSpan) {
@@ -128,11 +148,11 @@ const SCRAPE_STEPS = [
         }
         if(subjects.length === 0) throw new Error("No subjects found");
         
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'subjects', data: subjects }));
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'subjects', data: { list: subjects, section: section } }));
       } catch(e) {
         window.ReactNativeWebView.postMessage(JSON.stringify({ 
           type: 'SCRAPE_RESULT', step: 'subjects', 
-          data: [] 
+          data: { list: [], section: '' } 
         }));
       }
       true;
@@ -297,6 +317,7 @@ export default function SyncScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
+  const { userId } = useAuth();
   const { setScrapedData } = useStudyOSStore();
   const { setSession } = useStudySessionStore();
   const webViewRef = useRef<WebView>(null);
@@ -346,7 +367,10 @@ export default function SyncScreen() {
           setCurrentStepIndex(currentStepIndex + 1);
         } else {
           // Merge attendance into subjects
-          const updatedSubjects = (newData.subjects || []).map((subj: any) => {
+          const subjList = newData.subjects?.list || [];
+          const section = newData.subjects?.section || '';
+          
+          const updatedSubjects = subjList.map((subj: any) => {
             let att = newData.attendance?.[subj.code];
             if (!att && subj.code) {
                // Try without prefix or exact match
@@ -365,12 +389,27 @@ export default function SyncScreen() {
             return subj;
           });
 
+          if (newData.profile) {
+             newData.profile.section = section;
+          }
+
           await setScrapedData({
             profile: newData.profile,
             subjects: updatedSubjects,
-            timetable: newData.timetable,
-            marks: newData.marks
+            timetable: newData.timetable || {},
+            marks: newData.marks || [],
+            isScrapedDataLoaded: true
           });
+          
+          if (userId && section) {
+            syncUserWithDB(
+              userId, 
+              undefined, 
+              section, 
+              newData.profile?.uid
+            ).catch(e => console.error('Failed to sync section to DB', e));
+          }
+
           await setSession('cu', 'culko-scraped', 0);
           // Save cookies for future refresh
           await SecureStore.setItemAsync('culko_cookies', newData._cookies || '');

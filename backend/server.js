@@ -12,9 +12,16 @@ const User = require('./models/User');
 const Assignment = require('./models/Assignment');
 const UserAssignment = require('./models/UserAssignment');
 const { Webhook } = require('svix');
-const { Expo } = require('expo-server-sdk');
 
-let expo = new Expo();
+// expo-server-sdk is ESM-only; use dynamic import lazily
+let _expo = null;
+async function getExpo() {
+  if (!_expo) {
+    const { Expo } = await import('expo-server-sdk');
+    _expo = new Expo();
+  }
+  return _expo;
+}
 const app = express();
 app.use(cors());
 
@@ -64,9 +71,33 @@ app.use(express.json());
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/studyos';
 
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('✅ Connected to MongoDB'))
-  .catch((err) => console.error('❌ MongoDB Connection Error:', err));
+let isConnected = false;
+const connectDB = async () => {
+  if (isConnected) {
+    return;
+  }
+  try {
+    const db = await mongoose.connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    isConnected = db.connections[0].readyState === 1;
+    console.log('✅ Connected to MongoDB');
+  } catch (error) {
+    console.error('❌ MongoDB Connection Error:', error);
+    throw error;
+  }
+};
+
+// Middleware to ensure DB connection
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: 'Database connection failed' });
+  }
+});
 
 // ─── Backblaze B2 (S3-compatible) ────────────────────────────────────────────
 const B2_ENDPOINT = process.env.B2_ENDPOINT || 'https://s3.us-east-005.backblazeb2.com';
@@ -156,12 +187,28 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       user = new User({
         clerkUserId: req.clerkUserId,
         email: req.body.email || '',
+        uid: req.body.uid || null,
+        section_code: req.body.section_code || null,
         app_first_opened_date: new Date(),
       });
       await user.save();
-    } else if (req.body.email && !user.email) {
-      user.email = req.body.email;
-      await user.save();
+    } else {
+      let changed = false;
+      if (req.body.email && !user.email) {
+        user.email = req.body.email;
+        changed = true;
+      }
+      if (req.body.uid && user.uid !== req.body.uid) {
+        user.uid = req.body.uid;
+        changed = true;
+      }
+      if (req.body.section_code && user.section_code !== req.body.section_code) {
+        user.section_code = req.body.section_code;
+        changed = true;
+      }
+      if (changed) {
+        await user.save();
+      }
     }
     res.json(user);
   } catch (error) {
@@ -169,7 +216,24 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
   }
 });
 
-// 2. Set Free AI Subject
+// 2. Save Push Token
+app.post('/api/user/push-token', getClerkId, async (req, res) => {
+  try {
+    const { expoPushToken } = req.body;
+    if (!expoPushToken) return res.status(400).json({ error: 'Missing token' });
+    
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (user) {
+      user.expoPushToken = expoPushToken;
+      await user.save();
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 3. Set Free AI Subject
 app.post('/api/user/set-free-subject', getClerkId, async (req, res) => {
   try {
     const { subjectId } = req.body;
@@ -251,6 +315,16 @@ app.get('/api/admin/crs', getClerkId, requireAdmin, async (req, res) => {
 // ASSIGNMENT ROUTES
 // ════════════════════════════════════════════════════════════════════════════
 
+// Get all unique sections that have CRs or assignments
+app.get('/api/sections', async (req, res) => {
+  try {
+    const sections = await User.distinct('section_code', { role: 'cr', section_code: { $ne: null } });
+    res.json(sections);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 7. Upload PDF to Cloudflare R2 (CR only)
 app.post('/api/assignments/upload-pdf', getClerkId, requireCR, upload.single('file'), async (req, res) => {
   try {
@@ -298,6 +372,8 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
       expoPushToken: { $ne: null }
     });
 
+    const expo = await getExpo();
+    const { Expo } = await import('expo-server-sdk');
     const messages = students
       .filter(s => Expo.isExpoPushToken(s.expoPushToken))
       .map(s => ({
@@ -324,10 +400,19 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
 // 9. Get Assignments for a section
 app.get('/api/assignments', getClerkId, async (req, res) => {
   try {
+    let targetSection = req.query.section;
     const user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user || !user.section_code) return res.json([]);
+    
+    // If no section provided in query, fallback to user's saved section (if any)
+    if (!targetSection) {
+      if (user && user.section_code) {
+        targetSection = user.section_code;
+      } else {
+        return res.json([]); // No section to fetch for
+      }
+    }
 
-    const assignments = await Assignment.find({ section_code: user.section_code })
+    const assignments = await Assignment.find({ section_code: targetSection })
       .sort({ dueDate: 1 });
 
     // Fetch completion status for this user
@@ -451,6 +536,11 @@ app.get('/api/users/count', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+// Export for Vercel serverless; also listen locally
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

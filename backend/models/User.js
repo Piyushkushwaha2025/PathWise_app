@@ -9,6 +9,9 @@ const UserSchema = new mongoose.Schema({
   email: {
     type: String
   },
+  uid: {
+    type: String
+  },
   app_first_opened_date: {
     type: Date,
     default: Date.now

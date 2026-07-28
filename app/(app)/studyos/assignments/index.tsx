@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Alert
+  ActivityIndicator, RefreshControl, Alert, Animated
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,8 @@ import * as Linking from 'expo-linking';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { fetchAssignments, toggleAssignment, deleteAssignment, useDBProfile, AssignmentData } from '../../../../lib/db';
+import { Modal } from 'react-native';
+import { useStudyOSStore } from '../../../../store/studyosStore';
 
 export default function AssignmentsScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -17,18 +19,27 @@ export default function AssignmentsScreen() {
   const router = useRouter();
   const { userId } = useAuth();
   const { dbUser } = useDBProfile();
+  const profile = useStudyOSStore((s) => s.profile);
 
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'submitted'>('pending');
 
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [assignmentToDelete, setAssignmentToDelete] = useState<AssignmentData | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const isCR = dbUser?.role === 'cr' || dbUser?.role === 'admin';
+  const isCSE = profile?.course?.toLowerCase().includes('cse') || profile?.course?.toLowerCase().includes('computer science');
+  
+  // Use CR's assigned section, or student's scraped section
+  const activeSection = dbUser?.section_code || profile?.section || null;
 
   const loadAssignments = useCallback(async () => {
     if (!userId) return;
     try {
-      const data = await fetchAssignments(userId);
+      const data = await fetchAssignments(userId, activeSection || undefined);
       setAssignments(data);
     } catch (e) {
       console.error('Failed to load assignments', e);
@@ -36,7 +47,7 @@ export default function AssignmentsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [userId]);
+  }, [userId, activeSection]);
 
   useEffect(() => { loadAssignments(); }, [loadAssignments]);
 
@@ -49,16 +60,23 @@ export default function AssignmentsScreen() {
   };
 
   const handleDelete = (assignment: AssignmentData) => {
-    Alert.alert('Delete Assignment', `Delete "${assignment.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          if (!userId) return;
-          await deleteAssignment(userId, assignment._id);
-          setAssignments(prev => prev.filter(a => a._id !== assignment._id));
-        }
-      }
-    ]);
+    setAssignmentToDelete(assignment);
+    setDeleteModalVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!userId || !assignmentToDelete) return;
+    try {
+      setDeleting(true);
+      await deleteAssignment(userId, assignmentToDelete._id);
+      setAssignments(prev => prev.filter(a => a._id !== assignmentToDelete._id));
+      setDeleteModalVisible(false);
+      setAssignmentToDelete(null);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to delete assignment');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const filteredAssignments = assignments.filter(a => a.status === activeTab);
@@ -72,21 +90,42 @@ export default function AssignmentsScreen() {
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
           headerShadowVisible: false,
+          headerRight: () => {
+            if (!activeSection) return null;
+            return (
+              <View style={{ backgroundColor: colors.primary + '15', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: colors.primary + '30' }}>
+                <Text style={{ color: colors.primary, fontFamily: Typography.h3.fontFamily, fontSize: 13 }}>
+                  Section {activeSection}
+                </Text>
+              </View>
+            )
+          }
         }}
       />
 
-      {/* No section_code — show prompt */}
-      {!loading && !dbUser?.section_code && (
+      {/* Show error if not CSE and not CR */}
+      {!loading && !isCSE && !isCR && !activeSection && (
         <View style={styles.emptyState}>
           <Ionicons name="people-outline" size={64} color={colors.textMuted} />
           <Text style={styles.emptyText}>Your class section hasn't been set up yet.</Text>
-          <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
-            Ask your CR or admin to add you.
+          <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }]}>
+            Assignments are currently only available for CSE students.
           </Text>
         </View>
       )}
 
-      {dbUser?.section_code && (
+      {/* No section scraped prompt for CSE students */}
+      {!loading && isCSE && !isCR && !activeSection && (
+        <View style={styles.emptyState}>
+          <Ionicons name="sync-outline" size={64} color={colors.textMuted} />
+          <Text style={styles.emptyText}>Section Not Found</Text>
+          <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4, textAlign: 'center', paddingHorizontal: 20 }]}>
+            We couldn't detect your section. Please logout and login again in StudyOS to fetch your section.
+          </Text>
+        </View>
+      )}
+
+      {activeSection && (isCSE || isCR) && (
         <>
           <View style={styles.tabContainer}>
             <TouchableOpacity
@@ -180,10 +219,10 @@ export default function AssignmentsScreen() {
               {/* Bottom Add Assignment Button for CR */}
               {isCR && activeTab === 'pending' && (
                 <TouchableOpacity
-                  style={[styles.submitBtn, { marginTop: 16, backgroundColor: colors.primary }]}
+                  style={[styles.submitBtn, { flex: 0, marginTop: 16, marginBottom: 24, paddingVertical: 14, backgroundColor: colors.primary, borderRadius: Radius.full, alignSelf: 'center', paddingHorizontal: 32 }]}
                   onPress={() => router.push('/studyos/assignments/create' as any)}
                 >
-                  <Ionicons name="add-circle-outline" size={22} color="#fff" />
+                  <Ionicons name="add-circle-outline" size={20} color="#fff" />
                   <Text style={[styles.submitBtnText, { color: '#fff' }]}>Add New Assignment</Text>
                 </TouchableOpacity>
               )}
@@ -191,6 +230,47 @@ export default function AssignmentsScreen() {
           )}
         </>
       )}
+
+      {/* Custom Delete Modal */}
+      <Modal visible={deleteModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { alignItems: 'center' }]}>
+            <View style={styles.warningIconBg}>
+              <Ionicons name="trash" size={40} color="#ef4444" />
+            </View>
+            <Text style={styles.modalTitle}>Delete Assignment?</Text>
+            <Text style={styles.modalSubText}>
+              Are you sure you want to delete "{assignmentToDelete?.title}"? This action cannot be undone.
+            </Text>
+            
+            <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
+              <TouchableOpacity 
+                style={[styles.modalBtn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
+                onPress={() => {
+                  setDeleteModalVisible(false);
+                  setAssignmentToDelete(null);
+                }}
+                disabled={deleting}
+              >
+                <Text style={[styles.modalBtnText, { color: colors.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalBtn, { backgroundColor: '#ef4444' }, deleting && { opacity: 0.6 }]}
+                onPress={confirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: '#fff' }]}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -206,7 +286,7 @@ function useStyles(colors: any) {
     activeTab: { backgroundColor: colors.surface },
     tabText: { fontFamily: Typography.label.fontFamily, color: colors.textMuted },
     activeTabText: { color: colors.primary, fontFamily: Typography.h3.fontFamily },
-    scrollContent: { padding: Spacing.md },
+    scrollContent: { padding: Spacing.md, flexGrow: 1 },
     card: {
       backgroundColor: colors.surface, padding: Spacing.md,
       borderRadius: Radius.md, marginBottom: Spacing.md,
@@ -252,6 +332,35 @@ function useStyles(colors: any) {
     emptyText: {
       fontFamily: Typography.label.fontFamily, color: colors.textMuted,
       fontSize: 16, marginTop: 16, textAlign: 'center',
+    },
+    modalOverlay: {
+      flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center', alignItems: 'center', padding: Spacing.xl,
+    },
+    modalContainer: {
+      backgroundColor: colors.surface, width: '100%',
+      borderRadius: Radius.lg, padding: Spacing.xl,
+      shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15, shadowRadius: 12, elevation: 5,
+    },
+    warningIconBg: {
+      backgroundColor: '#ef444415', borderRadius: 50, padding: 12,
+      marginBottom: Spacing.md,
+    },
+    modalTitle: {
+      fontFamily: Typography.h3.fontFamily, fontSize: 18, color: colors.text,
+      marginBottom: Spacing.xs, textAlign: 'center',
+    },
+    modalSubText: {
+      fontFamily: Typography.body.fontFamily, fontSize: 14, color: colors.textMuted,
+      textAlign: 'center', marginBottom: Spacing.xl,
+    },
+    modalBtn: {
+      flex: 1, paddingVertical: 12, borderRadius: Radius.full,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    modalBtnText: {
+      fontFamily: Typography.label.fontFamily, fontSize: 14,
     },
   });
 }
