@@ -103,7 +103,12 @@ export default {
 			}
 
 			const body = await request.json() as any;
-			const { messages, syllabusText, courseName, courseCode, action, userLearningProfile } = body;
+			const { messages, syllabusText, courseName, courseCode, action, userLearningProfile, engine } = body;
+
+			if (action === 'test-pool') {
+				const info = allPoolKeys.map((k, idx) => ({ provider: k.provider, prefix: k.key ? k.key.substring(0, 6) + '...' : 'none', length: k.key ? k.key.length : 0 }));
+				return new Response(JSON.stringify({ total: info.length, keys: info }), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+			}
 
 			// --- REFLECT API (Self Learning) ---
 			if (action === 'reflect') {
@@ -300,112 +305,124 @@ Do NOT output anything else except the bulleted list.`;
 			const systemContext = MASTER_PROMPT + `\n\nSYLLABUS CONTEXT FOR THIS SPECIFIC COURSE (${courseName || 'Unknown'}):\n---\n${syllabusText || 'No syllabus provided.'}\n${ragContext}\n---` + learningProfileStr;
 
             let lastError = null;
+            let targetProvider = 'openrouter';
+            let targetModel = 'nousresearch/hermes-3-llama-3.1-405b';
+            let engineBadge = '🟢 [Verified Engine: Hermes 3]';
+            
+            if (engine === 'gemini-flash') {
+                targetProvider = 'gemini';
+                targetModel = 'gemini-flash-latest';
+                engineBadge = '🟢 [Verified Engine: Gemini Flash Latest]';
+            } else if (engine === 'groq-llama') {
+                targetProvider = 'groq';
+                targetModel = 'llama-3.3-70b-versatile';
+                engineBadge = '🟢 [Verified Engine: Groq Llama 3.3]';
+            } else if (engine === 'claude-sonnet') {
+                targetProvider = 'openrouter';
+                targetModel = 'anthropic/claude-3.5-sonnet';
+                engineBadge = '🟢 [Verified Engine: Claude 3.5 Sonnet]';
+            } else if (engine === 'gpt-4o') {
+                targetProvider = 'openrouter';
+                targetModel = 'openai/gpt-4o-mini';
+                engineBadge = '🟢 [Verified Engine: GPT-4o Mini]';
+            }
 
-            // TRY PROVIDERS UNTIL ONE SUCCEEDS
-            for (const selectedProviderKey of shuffledKeys) {
-                try {
-        			const isOpenAICompatible = ['openrouter', 'groq', 'xai', 'glm'].includes(selectedProviderKey.provider);
+            // STRICT ROUTING: Only use the target provider, NO fallbacks
+            const targetKey = shuffledKeys.find(k => k.provider === targetProvider);
+            if (!targetKey) {
+                return new Response(JSON.stringify({ error: 'ENGINE_NOT_CONFIGURED', message: `No API key found for provider: ${targetProvider}. Please configure it in Cloudflare.` }), {
+                    status: 503,
+                    headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+                });
+            }
 
-        			if (isOpenAICompatible) {
-        			    // --- TRANSLATE TO OPENAI FORMAT ---
-        			    const orMessages = [
-        			        { role: 'system', content: systemContext },
-        			        ...messages.map((m: any) => ({
-        			            role: m.role === 'model' ? 'assistant' : 'user',
-        			            content: m.parts[0].text
-        			        }))
-        			    ];
-        			    
-        			    let url = "https://openrouter.ai/api/v1/chat/completions";
-        			    let model = "meta-llama/llama-3.1-8b-instruct:free"; // Safe free fallback for OR
-        			    
-        			    if (selectedProviderKey.provider === 'groq') {
-        			        url = "https://api.groq.com/openai/v1/chat/completions";
-        			        model = "llama-3.1-8b-instant"; // Much faster, higher rate limits than 70b
-        			    } else if (selectedProviderKey.provider === 'xai') {
-        			        url = "https://api.x.ai/v1/chat/completions";
-        			        model = "grok-beta";
-        			    } else if (selectedProviderKey.provider === 'glm') {
-        			        url = "https://integrate.api.nvidia.com/v1/chat/completions";
-        			        model = "z-ai/glm-5.2";
-        			    }
-        			    
-        			    const response = await fetch(url, {
-                            method: 'POST',
-                            headers: { 
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${selectedProviderKey.key}`,
-                                'HTTP-Referer': 'https://studyos.app',
-                                'X-Title': 'StudyOS AI Tutor'
-                            },
-                            body: JSON.stringify({ 
-                                model: model,
-                                messages: orMessages 
-                            }),
-                            signal: AbortSignal.timeout(10000)
-                        });
+            try {
+                const isOpenAICompatible = ['openrouter', 'groq', 'xai', 'glm'].includes(targetKey.provider);
 
-                        const data = await response.json() as any;
-                        if (!response.ok) {
-                            lastError = data;
-                            console.error(`Provider ${selectedProviderKey.provider} failed with status ${response.status}`);
-                            continue; // TRY NEXT PROVIDER
-                        }
-                        
-                        let text = data.choices?.[0]?.message?.content || "I'm sorry, I couldn't generate a response.";
-                        
-                        const dotMap: any = { 'gemini': '🔹', 'openrouter': '▫️', 'groq': '🔸', 'xai': '▪️', 'glm': '🔺' };
-                        const dot = dotMap[selectedProviderKey.provider] || '▫️';
-                        text += `\n\n${dot}`;
-                        
-                        return new Response(JSON.stringify({ text }), {
+                if (isOpenAICompatible) {
+                    // --- OPENAI-COMPATIBLE FORMAT ---
+                    const orMessages = [
+                        { role: 'system', content: systemContext },
+                        ...messages.map((m: any) => ({
+                            role: m.role === 'model' ? 'assistant' : 'user',
+                            content: m.parts[0].text
+                        }))
+                    ];
+
+                    let url = "https://openrouter.ai/api/v1/chat/completions";
+                    let model = targetModel;
+
+                    if (targetKey.provider === 'groq') {
+                        url = "https://api.groq.com/openai/v1/chat/completions";
+                    } else if (targetKey.provider === 'xai') {
+                        url = "https://api.x.ai/v1/chat/completions";
+                        model = "grok-beta";
+                    } else if (targetKey.provider === 'glm') {
+                        url = "https://integrate.api.nvidia.com/v1/chat/completions";
+                        model = "z-ai/glm-5.2";
+                    }
+
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${targetKey.key}`,
+                            'HTTP-Referer': 'https://studyos.app',
+                            'X-Title': 'StudyOS AI Tutor'
+                        },
+                        body: JSON.stringify({ model, messages: orMessages }),
+                        signal: AbortSignal.timeout(25000)
+                    });
+
+                    const data = await response.json() as any;
+                    if (!response.ok) {
+                        return new Response(JSON.stringify({ error: 'ENGINE_ERROR', message: `${targetProvider} failed with status ${response.status}`, details: data }), {
+                            status: 502,
                             headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
                         });
-                        
-        			} else {
-        			    // --- USE NATIVE GEMINI FORMAT ---
-        			    const contents = [
-                            { 
-                                role: 'user', 
-                                parts: [{ text: systemContext }] 
-                            },
-                            { 
-                                role: 'model', 
-                                parts: [{ text: "Understood. I will strictly follow your instructions and act as their helpful AI tutor for this course, prioritizing accuracy and using the provided syllabus extracts." }] 
-                            },
-                            ...messages
-                        ];
+                    }
 
-                        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${selectedProviderKey.key}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ contents }),
-                            signal: AbortSignal.timeout(10000)
-                        });
+                    const text = (data.choices?.[0]?.message?.content || "I'm sorry, I couldn't generate a response.") + `\n\n${engineBadge}`;
+                    return new Response(JSON.stringify({ text }), {
+                        headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+                    });
 
-                        const data = await response.json() as any;
+                } else {
+                    // --- NATIVE GEMINI FORMAT ---
+                    const contents = [
+                        { role: 'user', parts: [{ text: systemContext }] },
+                        { role: 'model', parts: [{ text: "Understood. I will strictly follow your instructions and act as their helpful AI tutor for this course, prioritizing accuracy and using the provided syllabus extracts." }] },
+                        ...messages
+                    ];
 
-                        if (!response.ok) {
-                            lastError = data;
-                            console.error(`Provider GEMINI failed with status ${response.status}`);
-                            continue; // TRY NEXT PROVIDER
-                        }
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${targetKey.key}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-goog-api-key': targetKey.key
+                        },
+                        body: JSON.stringify({ contents }),
+                        signal: AbortSignal.timeout(25000)
+                    });
 
-                        let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
-                        
-                        const dotMap: any = { 'gemini': '🔹', 'openrouter': '▫️', 'groq': '🔸', 'xai': '▪️', 'glm': '🔺' };
-                        const dot = dotMap[selectedProviderKey.provider] || '▫️';
-                        text += `\n\n${dot}`;
-
-                        return new Response(JSON.stringify({ text }), {
+                    const data = await response.json() as any;
+                    if (!response.ok) {
+                        return new Response(JSON.stringify({ error: 'ENGINE_ERROR', message: `Gemini failed with status ${response.status}`, details: data }), {
+                            status: 502,
                             headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
                         });
-        			}
-                } catch (e) {
-                    console.error("Fetch attempt failed:", e);
-                    lastError = e;
-                    continue; // TRY NEXT PROVIDER
+                    }
+
+                    const text = (data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.") + `\n\n${engineBadge}`;
+                    return new Response(JSON.stringify({ text }), {
+                        headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+                    });
                 }
+            } catch (e: any) {
+                return new Response(JSON.stringify({ error: 'ENGINE_TIMEOUT', message: `${targetProvider} timed out or threw an error: ${e.message}` }), {
+                    status: 504,
+                    headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+                });
             }
             
             // IF ALL PROVIDERS FAILED

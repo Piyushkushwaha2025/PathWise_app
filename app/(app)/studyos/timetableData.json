@@ -1,0 +1,71 @@
+{
+  "25BCS-1": {
+    "Monday": [
+      {"subjectName": "25CSH-214", "time": "9:30 - 10:20", "teacher": "Dr. Prateek Singhal", "room": ""},
+      {"subjectName": "25CST-208", "time": "10:25 - 11:15", "teacher": "Dr. Ritu Diwvedi", "room": ""},
+      {"subjectName": "25CSH-209", "time": "11:20 - 12:10", "teacher": "Dr. Vinayak", "room": ""},
+      {"subjectName": "25UCT-201", "time": "13:00 - 13:50", "teacher": "", "room": "NFENV-1"},
+      {"subjectName": "25DCP-211", "time": "13:55 - 14:45", "teacher": "", "room": "AT"},
+      {"subjectName": "25UCT-201", "time": "15:45 - 16:35", "teacher": "", "room": "NFENV-1"}
+    ],
+    "Tuesday": [
+      {"subjectName": "KGL-FS", "time": "10:25 - 12:10", "teacher": "", "room": ""},
+      {"subjectName": "25CSH-214", "time": "13:00 - 13:50", "teacher": "Dr. Prateek Singhal", "room": ""},
+      {"subjectName": "KGL-CC", "time": "13:55 - 16:35", "teacher": "", "room": ""}
+    ],
+    "Wednesday": [
+      {"subjectName": "25MTT-202", "time": "9:30 - 10:20", "teacher": "Sartaj", "room": ""},
+      {"subjectName": "25CSH-214", "time": "10:25 - 12:10", "teacher": "PS / NF10", "room": ""},
+      {"subjectName": "25CST-208", "time": "13:00 - 13:50", "teacher": "Dr. Ritu Diwvedi", "room": ""},
+      {"subjectName": "25CSH-211", "time": "13:55 - 14:45", "teacher": "Prince Pandey", "room": ""},
+      {"subjectName": "25DCP-211", "time": "14:50 - 16:35", "teacher": "AT", "room": ""}
+    ],
+    "Thursday": [
+      {"subjectName": "25CSH-211", "time": "9:30 - 10:20", "teacher": "Prince Pandey", "room": ""},
+      {"subjectName": "25CSH-209", "time": "10:25 - 11:15", "teacher": "Dr. Vinayak", "room": ""},
+      {"subjectName": "25CST-208", "time": "11:20 - 12:10", "teacher": "Dr. Ritu Diwvedi", "room": ""},
+      {"subjectName": "25MTT-202", "time": "13:00 - 13:50", "teacher": "Sartaj", "room": ""},
+      {"subjectName": "25CSH-211", "time": "13:55 - 14:45", "teacher": "Prince Pandey", "room": ""},
+      {"subjectName": "25CSH-209", "time": "14:50 - 16:35", "teacher": "AT / SN", "room": ""}
+    ],
+    "Friday": [
+      {"subjectName": "25CSH-214", "time": "9:30 - 11:15", "teacher": "PS / NF10", "room": ""},
+      {"subjectName": "25MTT-202", "time": "11:20 - 12:10", "teacher": "Sartaj", "room": ""},
+      {"subjectName": "25CSH-209", "time": "13:55 - 14:45", "teacher": "Dr. Vinayak", "room": ""},
+      {"subjectName": "25CSH-211", "time": "14:50 - 16:35", "teacher": "PP / V2", "room": ""}
+    ]
+  },
+  "25BCS-3": {
+    "Monday": [
+      {"subjectName": "25CSH-211", "time": "9:30 - 10:20", "teacher": "V2 / AT", "room": ""},
+      {"subjectName": "25MTT-202", "time": "11:20 - 12:10", "teacher": "Sartaj", "room": ""},
+      {"subjectName": "25CST-208", "time": "13:00 - 13:50", "teacher": "Dr. Ritu Diwvedi", "room": ""},
+      {"subjectName": "25CSH-211", "time": "13:55 - 14:45", "teacher": "Prince Pandey", "room": ""},
+      {"subjectName": "25CSH-209", "time": "14:50 - 15:40", "teacher": "Diksha Shukla", "room": ""}
+    ],
+    "Tuesday": [
+      {"subjectName": "25CSH-211", "time": "9:30 - 10:20", "teacher": "Prince Pandey", "room": ""},
+      {"subjectName": "25MTT-202", "time": "10:25 - 11:15", "teacher": "Sartaj", "room": ""},
+      {"subjectName": "25CST-208", "time": "11:20 - 12:10", "teacher": "Dr. Ritu Diwvedi", "room": ""},
+      {"subjectName": "25UCT-201", "time": "13:00 - 13:50", "teacher": "NFENV-1", "room": ""},
+      {"subjectName": "25CSH-214", "time": "13:55 - 14:45", "teacher": "Dr. Mandeep Kumar", "room": ""}
+    ],
+    "Wednesday": [
+      {"subjectName": "25CSH-214", "time": "9:30 - 10:20", "teacher": "Dr. Mandeep Kumar", "room": ""},
+      {"subjectName": "25CST-208", "time": "11:20 - 12:10", "teacher": "Dr. Ritu Diwvedi", "room": ""},
+      {"subjectName": "25CSH-214", "time": "13:00 - 14:45", "teacher": "MK / PS", "room": ""},
+      {"subjectName": "25UCT-201", "time": "14:50 - 15:40", "teacher": "NFENV-1", "room": ""}
+    ],
+    "Thursday": [
+      {"subjectName": "25CSH-209", "time": "9:30 - 10:20", "teacher": "Diksha Shukla", "room": ""},
+      {"subjectName": "25CSH-214", "time": "10:25 - 12:10", "teacher": "MK / PS", "room": ""},
+      {"subjectName": "25DCP-211", "time": "13:00 - 14:45", "teacher": "AT", "room": ""}
+    ],
+    "Friday": [
+      {"subjectName": "25CSH-209", "time": "9:30 - 11:15", "teacher": "SN / AKS", "room": ""},
+      {"subjectName": "25CSH-209", "time": "13:00 - 13:50", "teacher": "Diksha Shukla", "room": ""},
+      {"subjectName": "25CSH-211", "time": "13:55 - 14:45", "teacher": "Prince Pandey", "room": ""},
+      {"subjectName": "25MTT-202", "time": "14:50 - 15:40", "teacher": "Sartaj", "room": ""}
+    ]
+  }
+}

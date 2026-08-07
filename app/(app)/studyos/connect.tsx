@@ -1,9 +1,9 @@
 import { useThemeStore } from '../../../store/useThemeStore';
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler, Modal } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
-import { GraduationCap, ChevronRight, Search, X } from 'lucide-react-native';
+import { GraduationCap, ChevronRight, Search, X, ShieldAlert } from 'lucide-react-native';
 import { GlassCard } from '../../../components/ui/GlassCard';
 import { UNIVERSITIES, UniversityConfig } from '../../../constants/universities';
 
@@ -11,16 +11,21 @@ export default function ConnectScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
-  const { reset } = useLocalSearchParams<{ reset: string }>();
+  const { reset, error } = useLocalSearchParams<{ reset?: string; error?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUni, setSelectedUni] = useState<UniversityConfig | null>(null);
+  const [showErrorModal, setShowErrorModal] = useState(false);
 
   useEffect(() => {
     if (reset === 'true') {
       setSelectedUni(null);
       router.setParams({ reset: '' });
     }
-  }, [reset]);
+    if (error === 'account_linked') {
+      setShowErrorModal(true);
+      router.setParams({ error: '' });
+    }
+  }, [reset, error]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -125,6 +130,31 @@ export default function ConnectScreen() {
           </View>
         )}
       </View>
+
+      {/* Custom Account Already Linked Modal */}
+      <Modal visible={showErrorModal} transparent animationType="fade" onRequestClose={() => setShowErrorModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <ShieldAlert color="#ef4444" size={48} style={styles.modalIcon} />
+              <Text style={styles.modalTitle}>Account Already Linked</Text>
+              <Text style={styles.modalDesc}>
+                This PathWise account is already linked with a different university profile.
+              </Text>
+              <Text style={[styles.modalDesc, { marginTop: 12, color: colors.text }]}>
+                For maximum security and academic privacy, each university ID can only be bound to a single profile. Please log in using your original account or create a brand new PathWise profile.
+              </Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.modalBtn}
+              activeOpacity={0.8}
+              onPress={() => setShowErrorModal(false)}
+            >
+              <Text style={styles.modalBtnText}>I Understand</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -259,5 +289,58 @@ const useStyles = (colors: any) => StyleSheet.create({
     ...Typography.body,
     color: colors.textDim,
     fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.xl,
+  },
+  modalCard: {
+    width: '100%',
+    padding: Spacing.xl,
+    borderRadius: Radius.xl,
+    backgroundColor: colors.surfaceHigh || colors.surface || '#1e293b',
+    borderWidth: 1.5,
+    borderColor: '#ef4444',
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
+  modalIcon: {
+    marginBottom: Spacing.md,
+  },
+  modalTitle: {
+    ...Typography.h2,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
+  modalDesc: {
+    ...Typography.body,
+    color: colors.textDim,
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  modalBtn: {
+    backgroundColor: '#ef4444',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: Radius.full,
+    width: '100%',
+    alignItems: 'center',
+  },
+  modalBtnText: {
+    ...Typography.h3,
+    color: '#ffffff',
   },
 });

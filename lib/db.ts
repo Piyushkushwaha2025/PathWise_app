@@ -1,4 +1,4 @@
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
@@ -8,7 +8,6 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.100:5000/ap
 
 export interface UserData {
   clerkUserId: string;
-  email: string | null;
   uid?: string;
   app_first_opened_date: string;
   free_ai_subject_id: string | null;
@@ -33,8 +32,7 @@ export interface AssignmentData {
 }
 
 export async function syncUserWithDB(
-  clerkId: string, 
-  email?: string, 
+  clerkId: string,
   section_code?: string,
   uid?: string
 ): Promise<UserData> {
@@ -44,11 +42,34 @@ export async function syncUserWithDB(
       'Content-Type': 'application/json',
       'x-clerk-user-id': clerkId
     },
-    body: JSON.stringify({ email, section_code, uid })
+    body: JSON.stringify({ section_code, uid })
   });
   
   if (!res.ok) throw new Error('Failed to sync user');
   return res.json();
+}
+
+export async function deleteUserFromDB(clerkId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/user`, {
+    method: 'DELETE',
+    headers: { 'x-clerk-user-id': clerkId }
+  });
+  if (!res.ok) throw new Error('Failed to delete user from DB');
+}
+
+export async function updateUserSubscription(clerkId: string, is_premium: boolean, plan?: string): Promise<UserData> {
+  const res = await fetch(`${API_URL}/user/subscription`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-clerk-user-id': clerkId
+    },
+    body: JSON.stringify({ is_premium, plan })
+  });
+  
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update subscription in DB');
+  return data.user;
 }
 
 export async function setFreeAISubject(clerkId: string, subjectId: string): Promise<UserData> {
@@ -78,6 +99,55 @@ export async function createRazorpayOrder(clerkId: string): Promise<any> {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to create order');
   return data;
+}
+
+export interface NotificationData {
+  _id: string;
+  title: string;
+  message: string;
+  section_code: string;
+  created_by: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notification API
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function fetchNotifications(clerkId: string, section?: string): Promise<NotificationData[]> {
+  try {
+    const url = section ? `${API_URL}/notifications?section=${encodeURIComponent(section)}` : `${API_URL}/notifications`;
+    const res = await fetch(url, {
+      headers: { 'x-clerk-user-id': clerkId }
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createNotification(clerkId: string, title: string, message: string, expiresAt: string): Promise<NotificationData> {
+  const res = await fetch(`${API_URL}/notifications`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-clerk-user-id': clerkId
+    },
+    body: JSON.stringify({ title, message, expiresAt })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to create notification');
+  return data;
+}
+
+export async function deleteNotification(clerkId: string, id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/notifications/${id}`, {
+    method: 'DELETE',
+    headers: { 'x-clerk-user-id': clerkId }
+  });
+  if (!res.ok) throw new Error('Failed to delete notification');
 }
 
 // ─── Assignment API ──────────────────────────────────────────────────────────
@@ -176,23 +246,28 @@ export async function deleteAssignment(clerkId: string, assignmentId: string): P
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
-// Hook to get the user's DB profile
+// Hook to get the user's DB profile and automatically keep DB subscription in sync with Clerk
 export function useDBProfile() {
   const { userId } = useAuth();
+  const { user } = useUser();
   const [dbUser, setDbUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (userId) {
-      syncUserWithDB(userId)
+    if (userId && user) {
+      syncUserWithDB(
+        userId,
+        undefined,
+        user.unsafeMetadata?.studyOsId as string
+      )
         .then(setDbUser)
         .catch((e) => console.log('DB Sync failed, backend might be offline:', e.message))
         .finally(() => setLoading(false));
-    } else {
+    } else if (!userId) {
       setDbUser(null);
       setLoading(false);
     }
-  }, [userId]);
+  }, [userId, user?.unsafeMetadata?.studyOsId]);
 
   return { dbUser, loading, setDbUser };
 }

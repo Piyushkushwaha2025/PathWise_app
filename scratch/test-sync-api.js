@@ -1,11 +1,10 @@
 const fetch = require('node-fetch');
 
 async function testSync() {
-  const url = 'https://backend-zeta-two-93.vercel.app/api/user/sync';
+  const url = 'https://backend-zeta-two-93.vercel.app/api/user/push-token';
   
   const payload = {
-    section_code: 'TEST-SECTION',
-    uid: 'TEST-UID-123'
+    token: 'test-token'
   };
 
   const res = await fetch(url, {

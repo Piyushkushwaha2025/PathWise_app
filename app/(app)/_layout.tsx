@@ -1,4 +1,4 @@
-import { Tabs } from "expo-router";
+import { Tabs, usePathname, useRouter } from "expo-router";
 import { TabBar } from "../../components/layout/TabBar";
 import { useEffect } from "react";
 import { useUpdateStore } from "../../store/useUpdateStore";
@@ -7,11 +7,12 @@ import { useThemeStore } from "../../store/useThemeStore";
 import { useStudySessionStore } from "../../store/studySessionStore";
 import { useStudyOSStore } from "../../store/studyosStore";
 import { useBackgroundSync } from "../../hooks/useBackgroundSync";
-import { KeyboardAvoidingView, Platform } from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, View, BackHandler } from "react-native";
+import AppLoading from "../../components/AppLoading";
 
 export default function AppLayout() {
   const { checkForUpdates } = useUpdateStore();
-  const { checkConnection } = useStudySessionStore();
+  const { checkConnection, isSwitchingMode } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
   
   // Initialize background sync and polling
@@ -30,6 +31,44 @@ export default function AppLayout() {
     }, 2000);
     return () => clearTimeout(timer);
   }, []);
+
+  const pathname = usePathname();
+  const router = useRouter();
+  const { isStudyOSMode } = useStudySessionStore();
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    const onBackPress = () => {
+      if (!isStudyOSMode) return false;
+
+      const currentPath = pathname ? pathname.replace(/\/$/, '') : '';
+      
+      const isHomeTab = currentPath === '/dashboard' || currentPath === '/(app)/dashboard' || currentPath === '' || currentPath === '/(app)';
+      const isOtherRootTab = 
+        currentPath === '/roadmaps' || currentPath === '/(app)/roadmaps' ||
+        currentPath === '/studyos' || currentPath === '/(app)/studyos' ||
+        currentPath === '/subscription' || currentPath === '/(app)/subscription' ||
+        currentPath === '/profile' || currentPath === '/(app)/profile';
+
+      // If user is on any other StudyOS root tab, back navigates to StudyOS Home
+      if (isOtherRootTab) {
+        router.navigate('/dashboard' as any);
+        return true;
+      }
+
+      // If user is on StudyOS Home tab, trap back button so they never exit StudyOS or see outside tabs
+      if (isHomeTab) {
+        return true;
+      }
+
+      // Let normal back navigation happen on nested pages (e.g. chat, attendance, marks details)
+      return false;
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [isStudyOSMode, pathname, router]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -54,6 +93,11 @@ export default function AppLayout() {
         <Tabs.Screen name="profile" options={{ title: "Profile" }} />
         </Tabs>
       </KeyboardAvoidingView>
+      {isSwitchingMode && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
+          <AppLoading />
+        </View>
+      )}
     </SafeAreaView>
   );
 }

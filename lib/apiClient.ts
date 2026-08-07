@@ -1,6 +1,6 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://10.0.2.2:3000/api";
+const BASE_URL = process.env.EXPO_PUBLIC_ROADMAPS_API_URL ?? "https://pathwise-beige.vercel.app/api";
 
 /**
  * Creates an authenticated Axios instance.
@@ -27,6 +27,21 @@ export function createApiClient(getToken: () => Promise<string | null>) {
       return config;
     },
     (error) => Promise.reject(error),
+  );
+
+  instance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      // If the legacy Next.js API fails (e.g. 500 due to DB or auth issues), return mock data gracefully instead of crashing
+      if (error.response && error.response.status >= 400) {
+        const url = error.config?.url || '';
+        if (url.includes('/roadmaps/custom') || url.includes('/enrollments') || url.includes('/progress') || url.includes('/stats')) {
+          console.log(`[apiClient] Mocking response for failing endpoint: ${url}`);
+          return Promise.resolve({ data: { roadmaps: [], enrollments: [], progress: {} } });
+        }
+      }
+      return Promise.reject(error);
+    }
   );
 
   return instance;

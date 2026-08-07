@@ -11,6 +11,7 @@ const { GetObjectCommand } = require('@aws-sdk/client-s3');
 const User = require('./models/User');
 const Assignment = require('./models/Assignment');
 const UserAssignment = require('./models/UserAssignment');
+const Notification = require('./models/Notification');
 const { Webhook } = require('svix');
 
 // expo-server-sdk is ESM-only; use dynamic import lazily
@@ -51,14 +52,60 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
     return res.status(400).json({ error: 'Error verifying webhook' });
   }
 
-  // Handle the user.deleted event
+  // ─── user.created: Auto-create user record in MongoDB ─────────────────────
+  if (evt.type === 'user.created') {
+    const clerkId = evt.data.id;
+    try {
+      const exists = await User.findOne({ clerkUserId: clerkId });
+      if (!exists) {
+        await User.create({
+          clerkUserId: clerkId,
+          app_first_opened_date: new Date(),
+        });
+        console.log(`✅ Webhook: Created user ${clerkId} in MongoDB`);
+      }
+    } catch (err) {
+      console.error(`❌ Webhook Error creating user:`, err);
+    }
+  }
+
+  // ─── user.deleted: CASCADE delete ALL data for that user ──────────────────
   if (evt.type === 'user.deleted') {
     const clerkId = evt.data.id;
     try {
-      await User.findOneAndDelete({ clerkUserId: clerkId });
-      console.log(`✅ Webhook: Deleted user ${clerkId} from MongoDB`);
-    } catch (err) {
-      console.error(`❌ Webhook Error deleting user:`, err);
+      await connectDB();
+
+      // 1. Delete User profile
+      const deletedUser = await User.findOneAndDelete({ clerkUserId: clerkId });
+
+      // 2. Delete all UserAssignment tracking records for this user
+      const userAssignmentsResult = await UserAssignment.deleteMany({ clerkUserId: clerkId });
+
+      // 3. If the user was a CR, delete all Assignments they created
+      //    and also clean up associated B2 PDFs if any
+      const createdAssignments = await Assignment.find({ created_by: clerkId });
+      let deletedPdfs = 0;
+      for (const assignment of createdAssignments) {
+        if (assignment.pdf_key) {
+          try {
+            await b2.send(new DeleteObjectCommand({ Bucket: B2_BUCKET, Key: assignment.pdf_key }));
+            deletedPdfs++;
+          } catch (s3err) {
+            console.warn(`⚠️ Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
+          }
+        }
+      }
+      try {
+        const assignmentsResult = await Assignment.deleteMany({ created_by: clerkId });
+        const notificationsResult = await Notification.deleteMany({ created_by: clerkId });
+        console.log(`[Webhook] Cleanup complete for user ${clerkId}:\n` + 
+        `     User doc deleted\n` +
+        `     UserAssignment records: ${userAssignmentsResult.deletedCount} deleted\n` +
+        `     Assignments created by user: ${assignmentsResult.deletedCount} deleted\n` +
+        `     Notifications created by user: ${notificationsResult.deletedCount} deleted\n` +
+        `     PDFs checked: ${createdAssignments.length}`);
+      } catch (err) {
+      console.error(`❌ Webhook CASCADE DELETE Error for ${clerkId}:`, err);
     }
   }
 
@@ -176,7 +223,6 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
     if (!user) {
       user = new User({
         clerkUserId: req.clerkUserId,
-        email: req.body.email || '',
         uid: req.body.uid || null,
         section_code: req.body.section_code || null,
         app_first_opened_date: new Date(),
@@ -184,10 +230,6 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       await user.save();
     } else {
       let changed = false;
-      if (req.body.email && !user.email) {
-        user.email = req.body.email;
-        changed = true;
-      }
       if (req.body.uid && user.uid !== req.body.uid) {
         user.uid = req.body.uid;
         changed = true;
@@ -240,12 +282,41 @@ app.post('/api/user/set-free-subject', getClerkId, async (req, res) => {
   }
 });
 
-// 3. Upgrade to Premium
+// 4. Update or Remove Subscription Status in DB
+app.post('/api/user/subscription', getClerkId, async (req, res) => {
+  try {
+    const { is_premium, plan } = req.body;
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) {
+      user = new User({
+        clerkUserId: req.clerkUserId,
+        is_premium: Boolean(is_premium),
+        subscription_plan: plan || (is_premium ? 'pro' : 'free'),
+        subscription_updated_at: new Date()
+      });
+    } else {
+      user.is_premium = Boolean(is_premium);
+      user.subscription_plan = plan || (is_premium ? 'pro' : 'free');
+      user.subscription_updated_at = new Date();
+    }
+    await user.save();
+
+    console.log(`✅ Subscription synced in DB for ${req.clerkUserId}: is_premium=${user.is_premium}, plan=${user.subscription_plan}`);
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('❌ Error saving subscription to DB:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 5. Upgrade to Premium (Legacy Fallback)
 app.post('/api/user/upgrade', getClerkId, async (req, res) => {
   try {
     let user = await User.findOne({ clerkUserId: req.clerkUserId });
     if (!user) return res.status(404).json({ error: 'User not found' });
     user.is_premium = true;
+    user.subscription_plan = 'pro';
+    user.subscription_updated_at = new Date();
     await user.save();
     res.json({ success: true, user });
   } catch (error) {
@@ -300,15 +371,20 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
     const { title, subject, description, dueDate, pdf_key, pdf_filename } = req.body;
     if (!title || !subject || !dueDate) return res.status(400).json({ error: 'title, subject, dueDate required' });
 
+    const dueDateObj = new Date(dueDate);
+    const expiresAt = new Date(dueDateObj);
+    expiresAt.setDate(expiresAt.getDate() + 2); // Auto-delete 2 days after due date
+
     const assignment = new Assignment({
       title,
       subject,
       description: description || '',
-      dueDate: new Date(dueDate),
+      dueDate: dueDateObj,
       created_by: req.clerkUserId,
       section_code: req.crUser.section_code,
       pdf_key: pdf_key || null,
       pdf_filename: pdf_filename || null,
+      expiresAt: expiresAt,
     });
     await assignment.save();
 
@@ -430,9 +506,76 @@ app.delete('/api/assignments/:id', getClerkId, async (req, res) => {
   }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATION ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Get notifications for a section
+app.get('/api/notifications', getClerkId, async (req, res) => {
+  try {
+    let targetSection = req.query.section;
+    if (!targetSection) {
+      const user = await User.findOne({ clerkUserId: req.clerkUserId });
+      if (user) targetSection = user.section_code;
+    }
+    if (!targetSection) return res.status(400).json({ error: 'Section code required' });
+
+    const notifications = await Notification.find({ section_code: targetSection })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json(notifications);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Create a new notification (CR only)
+app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
+  try {
+    const { title, message, expiresAt } = req.body;
+    if (!title || !message || !expiresAt) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const notification = new Notification({
+      title,
+      message,
+      created_by: req.clerkUserId,
+      section_code: req.crUser.section_code,
+      expiresAt: new Date(expiresAt)
+    });
+
+    await notification.save();
+    res.json(notification);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete a notification
+app.delete('/api/notifications/:id', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user || !['cr', 'admin'].includes(user.role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const notification = await Notification.findById(req.params.id);
+    if (!notification) return res.status(404).json({ error: 'Not found' });
+
+    if (notification.created_by !== req.clerkUserId && user.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only delete your own notifications' });
+    }
+
+    await notification.deleteOne();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PAYMENT ROUTES
-// ════════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.post('/api/payment/create-order', getClerkId, async (req, res) => {
   try {
@@ -480,6 +623,21 @@ app.get('/api/users/count', async (req, res) => {
     res.json({ count });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete User Profile
+app.delete('/api/user', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOneAndDelete({ clerkUserId: req.clerkUserId });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    // Optional: Delete related data
+    res.json({ success: true, message: 'User deleted from DB' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

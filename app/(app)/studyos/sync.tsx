@@ -7,8 +7,9 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import { useStudyOSStore } from '../../../store/studyosStore';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import * as SecureStore from 'expo-secure-store';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-expo';
 import { syncUserWithDB } from '../../../lib/db';
+import timetableData from './timetableData.json';
 
 const SCRAPE_STEPS = [
   {
@@ -73,11 +74,23 @@ const SCRAPE_STEPS = [
              if (id.includes('semester')) semester = val;
            }
         }
+        var photoUrl = '';
+        var imgs = document.querySelectorAll('img');
+        for (var m = 0; m < imgs.length; m++) {
+           var imgId = imgs[m].id.toLowerCase();
+           var imgSrc = imgs[m].src;
+           if (imgId.includes('photo') || imgId.includes('student') || imgId.includes('profile') || imgId.includes('img')) {
+              if (imgSrc && !imgSrc.toLowerCase().includes('logo') && !imgSrc.toLowerCase().includes('header')) {
+                 photoUrl = imgSrc;
+                 break;
+              }
+           }
+        }
         
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'SCRAPE_RESULT',
           step: 'profile',
-          data: { name, uid, course, cgpa: 'N/A', semester }
+          data: { name, uid, course, cgpa: 'N/A', semester, photoUrl }
         }));
       } catch(e) {
          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'profile', data: { name: 'Error', uid: '', course: '', cgpa: '' } }));
@@ -159,55 +172,6 @@ const SCRAPE_STEPS = [
     `
   },
   {
-    id: 'timetable',
-    url: 'https://student.culko.in/frmMyTimeTable.aspx',
-    msg: 'Extracting Timetable...',
-    script: `
-      try {
-        var timetable = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] };
-        var daysMap = [null, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        var rows = document.querySelectorAll('#ContentPlaceHolder1_grdMain tr');
-        for (var i = 1; i < rows.length; i++) {
-          var cells = rows[i].querySelectorAll('td');
-          if (cells.length >= 7) {
-            var time = cells[0].innerText.trim();
-            for (var j = 1; j < cells.length; j++) {
-               var text = cells[j].innerText.trim();
-               if (text && text.length > 5 && text !== '&nbsp;') {
-                 var parts = text.split('By');
-                 var leftPart = parts[0];
-                 var rightPart = parts[1] || '';
-                 
-                 var leftSplit = leftPart.split(':');
-                 var subjectName = leftSplit[0] ? leftSplit[0].trim() : '';
-                 if (leftSplit[1] === 'P') subjectName += ' (Lab)';
-                 var group = leftSplit[3] ? leftSplit[3].trim() : '';
-                 
-                 var rightSplit = rightPart.split('at');
-                 var teacher = rightSplit[0] ? rightSplit[0].trim() : '';
-                 var room = rightSplit[1] ? rightSplit[1].trim() : '';
-                 
-                 if (daysMap[j] && timetable[daysMap[j]]) {
-                    timetable[daysMap[j]].push({
-                       subjectName: subjectName,
-                       teacher: teacher,
-                       time: time,
-                       room: room,
-                       group: group
-                    });
-                 }
-               }
-            }
-          }
-        }
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: timetable }));
-      } catch(e) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: {} }));
-      }
-      true;
-    `
-  },
-  {
     id: 'attendance',
     url: 'https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx?type=etgkYfqBdH1fSfc255iYGw==',
     msg: 'Extracting Attendance...',
@@ -268,7 +232,7 @@ const SCRAPE_STEPS = [
         var marksData = [];
         var rows = document.querySelectorAll('table tr');
         
-        // Find header indices
+        
         var mstIndex = -1;
         var pracIndex = -1;
         var subIndex = -1;
@@ -281,7 +245,7 @@ const SCRAPE_STEPS = [
               if (headers[h].includes('prac') || headers[h].includes('lab')) pracIndex = h;
            }
            
-           // If we couldn't find headers, try fallback indices (common ERP layout)
+           
            if (subIndex === -1) subIndex = 1;
            if (mstIndex === -1) mstIndex = 3; 
            if (pracIndex === -1) pracIndex = 4;
@@ -329,21 +293,20 @@ export default function SyncScreen() {
 
   const handleNavigationStateChange = (navState: WebViewNavigation) => {
     if (!navState.loading && navState.url.includes(currentStep.url.split('?')[0])) {
-      // Inject script when page is fully loaded
+      // Inject script shortly after page is fully loaded
       setTimeout(() => {
-        // First capture cookies, then run step script
-        const cookieScript = `
+        // Run cookie capture and scrape script simultaneously to save time
+        const combinedScript = `
           (function() {
-            var c = document.cookie;
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOKIES', data: c }));
+            try {
+              var c = document.cookie;
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOKIES', data: c }));
+            } catch(e) {}
           })();
-          true;
+          ${currentStep.script}
         `;
-        webViewRef.current?.injectJavaScript(cookieScript);
-        setTimeout(() => {
-          webViewRef.current?.injectJavaScript(currentStep.script);
-        }, 500);
-      }, 2000); // 2 second delay to let dynamic ASP.NET scripts run
+        webViewRef.current?.injectJavaScript(combinedScript);
+      }, 100); // Drastically reduced delay since ASP.NET WebForms render on server
     }
   };
 
@@ -393,10 +356,15 @@ export default function SyncScreen() {
              newData.profile.section = section;
           }
 
+          let finalTimetable = {};
+          if (section && (timetableData as any)[section]) {
+             finalTimetable = (timetableData as any)[section];
+          }
+
           await setScrapedData({
             profile: newData.profile,
             subjects: updatedSubjects,
-            timetable: newData.timetable || {},
+            timetable: finalTimetable,
             marks: newData.marks || [],
             isScrapedDataLoaded: true
           });
@@ -404,7 +372,6 @@ export default function SyncScreen() {
           if (userId && section) {
             syncUserWithDB(
               userId, 
-              undefined, 
               section, 
               newData.profile?.uid
             ).catch(e => console.error('Failed to sync section to DB', e));

@@ -16,6 +16,7 @@ interface CulkoProfile {
   cgpa: string;
   semester?: string;
   section?: string;
+  photoUrl?: string;
 }
 
 interface CulkoSubject {
@@ -62,11 +63,12 @@ interface StudyOSState {
   // Detailed Attendance Cache
   detailedAttendanceCache: Record<string, any[]>;
   
-  addXP: (amount: number) => void;
+  addXP: (amount: number) => Promise<void>;
   recordActivity: () => Promise<void>;
   loadGamification: () => Promise<void>;
   addRoadmap: (roadmap: Omit<Roadmap, 'id' | 'createdAt'>) => Promise<void>;
   setScrapedData: (data: Partial<StudyOSState>) => Promise<void>;
+  resetScrapedData: () => Promise<void>;
 }
 
 export const useStudyOSStore = create<StudyOSState>((set, get) => ({
@@ -114,12 +116,10 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
     const { lastActivityDate, streak } = get();
 
     if (lastActivityDate === today) {
-      // Already recorded today
       return;
     }
 
     let newStreak = streak;
-    
     if (lastActivityDate) {
       const lastDate = new Date(lastActivityDate);
       const currentDate = new Date(today);
@@ -129,15 +129,13 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
       if (diffDays === 1) {
         newStreak += 1;
       } else {
-        newStreak = 1; // reset streak if they missed a day
+        newStreak = 1;
       }
     } else {
       newStreak = 1;
     }
 
     set({ streak: newStreak, lastActivityDate: today });
-    
-    // Save to persistence
     await AsyncStorage.setItem('studyos_streak', newStreak.toString());
     await AsyncStorage.setItem('studyos_last_activity', today);
   },
@@ -165,8 +163,23 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
       marks: data.marks || get().marks,
       semesterOptionsCache: data.semesterOptionsCache || get().semesterOptionsCache,
       resultCache: data.resultCache || get().resultCache,
+      detailedAttendanceCache: data.detailedAttendanceCache || get().detailedAttendanceCache,
       isScrapedDataLoaded: true
     };
     await AsyncStorage.setItem('studyos_scraped_data', JSON.stringify(stateToSave));
+  },
+
+  resetScrapedData: async () => {
+    set({
+      profile: null,
+      subjects: [],
+      timetable: {},
+      marks: [],
+      semesterOptionsCache: [],
+      resultCache: {},
+      detailedAttendanceCache: {},
+      isScrapedDataLoaded: false,
+    });
+    await AsyncStorage.removeItem('studyos_scraped_data');
   }
 }));

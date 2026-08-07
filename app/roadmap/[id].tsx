@@ -62,7 +62,9 @@ export default function RoadmapDetailScreen() {
   const catalogFallback = catalogRoadmaps.find((r: any) => r.id === id);
   const roadmap = liveRoadmap ?? customRoadmap ?? catalogFallback;
   const isDSA = roadmap?.title?.toLowerCase().includes("dsa") || roadmap?.title?.toLowerCase().includes("data structure") || roadmap?.title?.toLowerCase().includes("data-structure");
-  const actualRoadmapId = (roadmap?._id || roadmap?.id || id) as string;
+  // Always use the URL param `id` as the key — it's consistent with enrollment and progress storage.
+  // roadmap._id would only exist for old MongoDB data; local catalog only has roadmap.id.
+  const actualRoadmapId = id as string;
   const completedTopics = progress[actualRoadmapId] ?? [];
   const completedSet = new Set(completedTopics);
   const isEnrolled = enrolledIds.includes(actualRoadmapId);

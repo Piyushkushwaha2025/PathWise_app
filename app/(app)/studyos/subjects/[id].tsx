@@ -1,19 +1,33 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
+import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
 export default function CourseDetailsScreen() {
   const { id, name } = useLocalSearchParams();
   const router = useRouter();
+  useHardwareBack('/studyos/subjects');
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const webViewRef = useRef<WebView>(null);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isLoading && !isError) {
+      timer = setTimeout(() => {
+        setIsError(true);
+        setIsLoading(false);
+      }, 15000);
+    }
+    return () => clearTimeout(timer);
+  }, [isLoading, isError]);
 
   // Magic script to hide Moodle's native headers, footers, and sidebars
   // so it looks like part of our app!
@@ -71,7 +85,7 @@ export default function CourseDetailsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.push('/studyos/subjects' as any)}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
@@ -102,10 +116,26 @@ export default function CourseDetailsScreen() {
           onLoadEnd={() => setIsLoading(false)}
         />
         
-        {isLoading && (
+        {isLoading && !isError && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={styles.loadingText}>Loading Course Content...</Text>
+          </View>
+        )}
+
+        {isError && (
+          <View style={[styles.loadingOverlay, { backgroundColor: colors.background }]}>
+            <Ionicons name="cloud-offline-outline" size={48} color={colors.error} />
+            <Text style={[styles.loadingText, { color: colors.error, fontSize: 18, marginTop: 12 }]}>LMS server is Down</Text>
+            <Text style={{ color: colors.textMuted, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>
+              The university LMS portal took too long to respond. Please try again later.
+            </Text>
+            <TouchableOpacity 
+              style={{ marginTop: 24, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 }}
+              onPress={() => router.push('/studyos/subjects' as any)}
+            >
+              <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold' }}>Go Back</Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>

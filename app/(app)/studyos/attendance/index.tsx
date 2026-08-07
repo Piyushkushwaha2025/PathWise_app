@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAttendance } from '../../../../hooks/useAttendance';
@@ -15,8 +15,16 @@ export default function AttendanceScreen() {
   const router = useRouter();
   const { clearSession } = useStudySessionStore();
 
-  // No more useFocusEffect — staleTime handles background refresh automatically.
-  // User now sees cached data instantly without waiting.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -118,8 +126,8 @@ export default function AttendanceScreen() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={isFetching}
-            onRefresh={refetch}
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
             colors={[colors.primary]}
             tintColor={colors.primary}
           />
@@ -161,7 +169,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: Spacing.md,
-    paddingTop: 40,
+    paddingTop: 20,
     backgroundColor: colors.surface,
   },
   headerTitle: {

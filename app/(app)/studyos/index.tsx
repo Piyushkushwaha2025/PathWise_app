@@ -9,24 +9,9 @@ import { GradientButton } from '../../../components/ui/GradientButton';
 import SubjectsScreen from './subjects';
 
 export default function StudyOSIndex() {
-  const { isConnected, isStudyOSMode, setStudyOSMode, checkConnection, universityId } = useStudySessionStore();
+  const { isConnected, isStudyOSMode, setStudyOSMode, universityId } = useStudySessionStore();
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
-  const [isReady, setIsReady] = useState(false);
-
-  useEffect(() => {
-    checkConnection().then(() => {
-      setIsReady(true);
-    });
-  }, []);
-
-  if (!isReady) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
 
   // Not connected -> Go to connect page
   if (!isConnected) {

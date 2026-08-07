@@ -12,11 +12,13 @@ import { Calendar } from 'react-native-calendars';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { uploadPdf, createAssignment } from '../../../../lib/db';
+import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
 export default function CreateAssignmentScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
+  useHardwareBack('/studyos/assignments');
   const { userId } = useAuth();
 
   const [title, setTitle] = useState('');
@@ -163,6 +165,11 @@ export default function CreateAssignmentScreen() {
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
           headerShadowVisible: false,
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => router.push('/studyos/assignments' as any)} style={{ marginLeft: 14 }}>
+              <Ionicons name="arrow-back" size={24} color={colors.text} />
+            </TouchableOpacity>
+          ),
         }}
       />
       <KeyboardAvoidingView 
@@ -268,7 +275,7 @@ export default function CreateAssignmentScreen() {
               style={[styles.submitBtn, { width: '100%', marginTop: 0 }]}
               onPress={() => {
                 setShowSuccessModal(false);
-                router.back();
+                router.push('/studyos/assignments' as any);
               }}
             >
               <Text style={styles.submitBtnText}>Done</Text>

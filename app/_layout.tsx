@@ -13,6 +13,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NewAssignmentNotification from "../components/studyos/NewAssignmentNotification";
+import { GlobalPaywallModal } from "../components/ui/GlobalPaywallModal";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -42,8 +43,9 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Setup Android notification channel once at startup
-if (Platform.OS === "android") {
+// Setup Android notification channel once, deferred so it doesn't block startup
+function setupAndroidChannels() {
+  if (Platform.OS !== "android") return;
   // Delete old channels with wrong sound settings
   Notifications.deleteNotificationChannelAsync("pathwise-default");
   Notifications.deleteNotificationChannelAsync("pathwise-coin");
@@ -99,7 +101,7 @@ const queryClient = new QueryClient({
 
 const CLERK_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 
-function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
+function RootLayoutInner() {
   const { isLoaded } = useAuth();
   const { user } = useUser();
   const colors = useThemeStore((state) => state.colors);
@@ -107,44 +109,44 @@ function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
   const theme = useThemeStore((state) => state.theme);
 
   useEffect(() => {
-    // Request notification permission and register token
-    (async () => {
-      const { status: existing } = await Notifications.getPermissionsAsync();
-      let finalStatus = existing;
-      if (existing !== "granted") {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      
-      // If granted and user logged in, get token and save to DB
-      if (finalStatus === "granted" && user?.id && Platform.OS !== 'web') {
-        try {
-          // projectId is required in Expo SDK 50+
-          // The Project ID from app.json (EAS Project ID)
-          const projectId = "6ec620f1-e4e6-4862-8223-6418976b86e4";
-          
-          const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-          const API_URL = process.env.EXPO_PUBLIC_API_URL;
-          
-          if (API_URL && tokenData?.data) {
-             fetch(`${API_URL}/api/user/push-token`, {
-                method: 'POST',
-                headers: {
-                   'Content-Type': 'application/json',
-                   'x-clerk-user-id': user.id
-                },
-                body: JSON.stringify({ expoPushToken: tokenData.data })
-             }).catch(e => console.error("Error saving token:", e));
-          }
-        } catch (error: any) {
-          // It's normal for push tokens to fail on emulators or without Google Play Services
-          console.warn("⚠️ Push token generation skipped (likely on emulator):", error?.message);
+    if (!user?.id) return;
+    // Defer heavy startup tasks so app UI renders first
+    const timer = setTimeout(() => {
+      (async () => {
+        const { status: existing } = await Notifications.getPermissionsAsync();
+        let finalStatus = existing;
+        if (existing !== "granted") {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
         }
-      }
-      
-      // Register our headless background sync task
-      await registerBackgroundSync();
-    })();
+        
+        // If granted and user logged in, get token and save to DB
+        if (finalStatus === "granted" && user?.id && Platform.OS !== 'web') {
+          try {
+            const projectId = "6ec620f1-e4e6-4862-8223-6418976b86e4";
+            const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+            const API_URL = process.env.EXPO_PUBLIC_API_URL;
+            
+            if (API_URL && tokenData?.data) {
+               fetch(`${API_URL}/api/user/push-token`, {
+                  method: 'POST',
+                  headers: {
+                     'Content-Type': 'application/json',
+                     'x-clerk-user-id': user.id
+                  },
+                  body: JSON.stringify({ expoPushToken: tokenData.data })
+               }).catch(e => console.error("Error saving token:", e));
+            }
+          } catch (error: any) {
+            console.warn("⚠️ Push token generation skipped:", error?.message);
+          }
+        }
+        
+        // Register background sync task
+        await registerBackgroundSync();
+      })();
+    }, 3000); // 3s delay so the main UI renders first
+    return () => clearTimeout(timer);
   }, [user?.id]);
 
   useEffect(() => {
@@ -157,24 +159,22 @@ function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
   }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
 
   useEffect(() => {
-    if (isLoaded && fontsLoaded) {
+    if (isLoaded) {
       SplashScreen.hideAsync().catch(() => {});
-      
-      // Request notification permissions
-      const requestPermissions = async () => {
-         const { status } = await Notifications.getPermissionsAsync();
-         if (status !== 'granted') {
-            await Notifications.requestPermissionsAsync();
-         }
-      };
-      requestPermissions();
+      // Setup Android notification channels after app has rendered
+      setupAndroidChannels();
     }
-  }, [isLoaded, fontsLoaded]);
+  }, [isLoaded]);
 
-  if (!isLoaded || !fontsLoaded) return null;
+  // NOTE: we intentionally do NOT block the first paint on `fontsLoaded`.
+  // Fonts load in the background and swap in once ready (they are cached after
+  // first launch, so subsequent opens are instant). Gating the splash on fonts
+  // was the main cause of the slow app-open time.
+  if (!isLoaded) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar style={theme === "white" || theme === "cream" ? "dark" : "light"} />
       <NewAssignmentNotification />
       <Stack
         screenOptions={{
@@ -187,18 +187,17 @@ function RootLayoutInner({ fontsLoaded }: { fontsLoaded: boolean }) {
         <Stack.Screen name="(app)" />
         <Stack.Screen name="roadmap/[id]" />
       </Stack>
+      <GlobalPaywallModal />
     </View>
   );
 }
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
+  const [, fontError] = useFonts({
     SpaceGrotesk_400Regular,
-    SpaceGrotesk_500Medium,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
     Inter_400Regular,
-    Inter_500Medium,
     Inter_600SemiBold,
     JetBrainsMono_400Regular,
   });
@@ -211,9 +210,8 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <BottomSheetModalProvider>
-              <StatusBar style="light" />
               <ErrorBoundary>
-                <RootLayoutInner fontsLoaded={fontsLoaded || !!fontError} />
+                <RootLayoutInner />
               </ErrorBoundary>
             </BottomSheetModalProvider>
           </GestureHandlerRootView>

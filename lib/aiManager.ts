@@ -160,35 +160,66 @@ export async function generateAiResponse(
   syllabusText: string, 
   courseName: string,
   courseCode?: string,
-  userLearningProfile?: string
+  userLearningProfile?: string,
+  activeProvider?: string
 ): Promise<string> {
-  // 1. Check if user has a personal VIP key
-  const personalKey = await SecureStore.getItemAsync('gemini_api_key');
+  // 1. Check active BYOK provider key or fallback to available connected key
+  let personalKey: string | null = null;
+  if (activeProvider === 'groq') {
+      personalKey = await SecureStore.getItemAsync('byok_key_groq');
+  } else if (activeProvider === 'openrouter') {
+      personalKey = await SecureStore.getItemAsync('byok_key_openrouter');
+  } else if (activeProvider === 'claude') {
+      personalKey = await SecureStore.getItemAsync('byok_key_claude');
+  } else if (activeProvider === 'openai') {
+      personalKey = await SecureStore.getItemAsync('byok_key_openai');
+  } else if (activeProvider === 'nvidia') {
+      personalKey = await SecureStore.getItemAsync('byok_key_nvidia');
+  } else if (activeProvider === 'gemini') {
+      personalKey = await SecureStore.getItemAsync('byok_key_gemini') || await SecureStore.getItemAsync('gemini_api_key');
+  }
   
-  if (personalKey && personalKey.trim().length > 10) {
-    // USE PERSONAL KEY DIRECTLY (Unlimited)
+  if (!personalKey) {
+      personalKey = await SecureStore.getItemAsync('byok_key_gemini') ||
+                    await SecureStore.getItemAsync('gemini_api_key') ||
+                    await SecureStore.getItemAsync('byok_key_groq') ||
+                    await SecureStore.getItemAsync('byok_key_openrouter') ||
+                    await SecureStore.getItemAsync('byok_key_claude') ||
+                    await SecureStore.getItemAsync('byok_key_openai') ||
+                    await SecureStore.getItemAsync('byok_key_nvidia');
+  }
+  
+  if (!personalKey || personalKey.trim().length <= 10) {
+     throw new Error('NO_PERSONAL_KEY');
+  }
+
+  // USE PERSONAL KEY DIRECTLY (BYOK Mode)
     
     // RAG SYSTEM: Query Pinecone for relevant PPT knowledge
     let ragContext = "";
-    const PINECONE_HOST = process.env.EXPO_PUBLIC_PINECONE_HOST;
-    const PINECONE_KEY = process.env.EXPO_PUBLIC_PINECONE_API_KEY;
+    const PINECONE_HOST = (process.env.EXPO_PUBLIC_PINECONE_HOST || '').replace(/['"]/g, '').trim();
+    const PINECONE_KEY = (process.env.EXPO_PUBLIC_PINECONE_API_KEY || '').replace(/['"]/g, '').trim();
     
     if (PINECONE_HOST && PINECONE_KEY && messages.length > 0) {
        try {
           let lastMsg = messages[messages.length - 1].parts[0].text;
           
           let requestedFiles: string[] = [];
-          const instructionMarker = '[USER INSTRUCTION: ONLY focus your answer strictly on the following files: ';
-          const markerIdx = lastMsg.indexOf(instructionMarker);
-          if (markerIdx !== -1) {
-              const afterMarker = lastMsg.substring(markerIdx + instructionMarker.length);
-              const endMarkerIdx = afterMarker.indexOf('. Do not use');
-              if (endMarkerIdx !== -1) {
-                  const filesStr = afterMarker.substring(0, endMarkerIdx);
-                  requestedFiles = filesStr.split(', ').map((f: string) => f.trim());
+          const markers = ['[TOPIC FOCUS: ', '[USER INSTRUCTION: ONLY focus your answer strictly on the following files: '];
+          for (const instructionMarker of markers) {
+              const markerIdx = lastMsg.indexOf(instructionMarker);
+              if (markerIdx !== -1) {
+                  const afterMarker = lastMsg.substring(markerIdx + instructionMarker.length);
+                  let endMarkerIdx = afterMarker.indexOf('].');
+                  if (endMarkerIdx === -1) endMarkerIdx = afterMarker.indexOf('. ');
+                  if (endMarkerIdx !== -1) {
+                      const filesStr = afterMarker.substring(0, endMarkerIdx);
+                      requestedFiles = filesStr.split(/\|\|\||, /).map((f: string) => f.trim()).filter(Boolean);
+                  }
+                  // Clean the prompt for embedding so it doesn't skew vector search
+                  lastMsg = lastMsg.substring(0, markerIdx).trim();
+                  break;
               }
-              // Clean the prompt for embedding so it doesn't skew vector search
-              lastMsg = lastMsg.substring(0, markerIdx).trim();
           }
 
           let embedText = lastMsg || 'Explain the topic';
@@ -198,30 +229,32 @@ export async function generateAiResponse(
           }
 
           let vector: number[] = [];
-          const isGemini = personalKey.startsWith('AIza');
-          const isClaude = personalKey.startsWith('sk-ant-');
-          const isGroq = personalKey.startsWith('gsk_');
-          const isNvidia = personalKey.startsWith('nvapi-');
-          const isOpenAI = personalKey.startsWith('sk-') && !isClaude;
-
-          if (isGemini) {
-             const client = new GoogleGenAI({ apiKey: personalKey });
-             const embedRes = await client.models.embedContent({
-                model: 'text-embedding-004',
-                contents: embedText
-             });
-             vector = embedRes.embeddings?.[0]?.values?.slice(0, 768) || [];
+          let embeddingKey: string | null = null;
+          if (personalKey && (personalKey.startsWith('AIza') || personalKey.startsWith('AQ.'))) {
+             embeddingKey = personalKey;
           } else {
-             // For non-Gemini keys, hit the Proxy for embeddings
-             if (!PROXY_URL) throw new Error("NO_PROXY_URL");
-             const proxyRes = await fetch(PROXY_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'embed', text: embedText })
-             });
-             if (proxyRes.ok) {
-                const proxyData = await proxyRes.json();
-                vector = proxyData.vector || [];
+             embeddingKey = await SecureStore.getItemAsync('byok_key_gemini') || await SecureStore.getItemAsync('gemini_api_key');
+          }
+
+          if (embeddingKey && (embeddingKey.startsWith('AIza') || embeddingKey.startsWith('AQ.'))) {
+             try {
+               const client = new GoogleGenAI({ apiKey: embeddingKey });
+               let embedRes: any;
+               try {
+                   embedRes = await client.models.embedContent({
+                      model: 'gemini-embedding-2',
+                      contents: embedText
+                   });
+               } catch (fallbackErr) {
+                   embedRes = await client.models.embedContent({
+                      model: 'text-embedding-004',
+                      contents: embedText
+                   });
+               }
+               vector = embedRes?.embedding?.values?.slice(0, 768) || embedRes?.embeddings?.[0]?.values?.slice(0, 768) || [];
+             } catch (embErr) {
+               console.warn("[aiManager] Embedding failed gracefully:", embErr);
+               vector = [];
              }
           }
           
@@ -244,32 +277,56 @@ export async function generateAiResponse(
              if (pineconeRes.ok) {
                  const pcData = await pineconeRes.json();
                  if (pcData.matches && pcData.matches.length > 0) {
-                     let matches = pcData.matches;
-                     
-                     if (courseCode || courseName) {
-                         matches = matches.filter((m: any) => {
-                             if (!m.metadata?.subject) return false;
-                             const dbSubject = m.metadata.subject.toLowerCase();
-                             let searchCode = (courseCode || '').toLowerCase();
-                             searchCode = searchCode.replace('cont_', '');
-                             const searchName = (courseName || '').toLowerCase();
-                             
-                             let isMatch = searchCode && dbSubject.includes(searchCode);
-                             if (!isMatch && (searchCode === "25csh-211" || searchName.includes("database") || searchName.includes("dbms"))) {
-                                 isMatch = dbSubject.includes("dbms");
-                             }
-                             return isMatch;
-                         });
-                     }
+                      let matches = pcData.matches;
+                      
+                      // 1. STRICT SUBJECT ISOLATION: First filter by current course code/name to prevent cross-subject contamination
+                      if (courseCode || courseName) {
+                          const subjectFiltered = matches.filter((m: any) => {
+                              if (!m.metadata?.subject) return false;
+                              const dbSubject = m.metadata.subject.toLowerCase();
+                              let searchCode = (courseCode || '').toLowerCase().replace('cont_', '').trim();
+                              const searchName = (courseName || '').toLowerCase().trim();
+                              
+                              let targetKey = searchCode;
+                              if (searchName.includes('database') || searchName.includes('dbms') || searchCode.includes('25csh-211') || searchCode.includes('25csh211')) targetKey = 'dbms';
+                              else if (searchName.includes('data structure') || searchName.includes('dsa') || searchName.includes('algorithm') || searchCode.includes('25csh-209') || searchCode.includes('25csh209')) targetKey = '25csh-209';
+                              else if (searchName.includes('architecture') || searchName.includes('organization') || searchName.includes('coa') || searchCode.includes('25cst-208') || searchCode.includes('25cst208')) targetKey = '25cst-208';
+                              else if (searchName.includes('python') || searchName.includes('gui') || searchCode.includes('25csh-214') || searchCode.includes('25csh214')) targetKey = '25csh-214';
+                              else if (searchName.includes('discrete') || searchName.includes('mathematics') || searchCode.includes('25mtt-202') || searchCode.includes('25mtt202')) targetKey = '25mtt-202';
+                              else if (searchName.includes('environmental') || searchName.includes('evs') || searchName.includes('ecology') || searchCode.includes('25uct-201') || searchCode.includes('25uct201')) targetKey = '25uct-201';
 
-                     if (requestedFiles.length > 0) {
-                         matches = matches.filter((m: any) => {
-                             if (!m.metadata?.source) return false;
-                             return requestedFiles.some(f => m.metadata.source.endsWith(f));
-                         });
-                     }
-                     // Use top 15 relevant chunks as per Efficient Retrieval Strategy
-                     matches = matches.slice(0, 15);
+                              let isMatch = targetKey && dbSubject.includes(targetKey);
+                              if (!isMatch && searchCode) isMatch = dbSubject.includes(searchCode);
+                              if (!isMatch && searchName) {
+                                  const nameWords = searchName.split(/\s+/).filter((w: string) => w.length >= 4);
+                                  isMatch = nameWords.some((word: string) => dbSubject.includes(word));
+                              }
+                              return isMatch;
+                          });
+                          
+                          if (subjectFiltered.length > 0) {
+                              matches = subjectFiltered;
+                          }
+                      }
+                      
+                      // 2. FILE FILTERING WITHIN ISOLATED SUBJECT: Match against the user's selected PPTs
+                      if (requestedFiles.length > 0) {
+                          const fileFiltered = matches.filter((m: any) => {
+                              if (!m.metadata?.source) return false;
+                              const sourceLower = m.metadata.source.toLowerCase().replace(/\.(pptx|pdf|docx|txt|ppt)$/i, '').trim();
+                              return requestedFiles.some(f => {
+                                  const fClean = f.toLowerCase().replace(/\.(pptx|pdf|docx|txt|ppt)$/i, '').trim();
+                                  if (!fClean) return false;
+                                  return sourceLower === fClean || sourceLower.includes(fClean) || fClean.includes(sourceLower);
+                              });
+                          });
+                          if (fileFiltered.length > 0) {
+                              matches = fileFiltered;
+                          }
+                      }
+                      
+                      // Use top 20 relevant chunks from this subject as per Efficient Retrieval Strategy
+                      matches = matches.slice(0, 20);
                      
                      const uniqueSources = [...new Set(matches.map((m: any) => m.metadata?.source).filter(Boolean).map((s: string) => s.split('/').pop()))] as string[];
                      ragContext = "\n\nFILES DETECTED IN KNOWLEDGE BASE:\n" + uniqueSources.map((s, i) => `${i+1}. ${s}`).join('\n') + 
@@ -284,29 +341,50 @@ export async function generateAiResponse(
     }
     
     const TOKEN_SAVER_SKILL = "[TOKEN SAVING MODE]: Please provide direct, concise answers without any pleasantries, conversational filler, or verbose explanations. Prioritize brevity to minimize token usage while answering the core question.";
-    const systemContext = TOKEN_SAVER_SKILL + `\n\nSYLLABUS CONTEXT FOR THIS SPECIFIC COURSE (${courseName || 'Unknown'}):\n---\n${syllabusText || 'No syllabus provided.'}\n${ragContext}\n---`;
+    const systemContext = TOKEN_SAVER_SKILL + `\n\n[CRITICAL RULE]: You are strictly an AI Tutor for the subject "${courseName || courseCode || 'Selected Subject'}". NEVER discuss concepts or explain slides from unrelated subjects or other courses.\n\nSYLLABUS CONTEXT FOR THIS SPECIFIC COURSE (${courseName || 'Unknown'}):\n---\n${syllabusText || 'No syllabus provided.'}\n${ragContext}\n---`;
     
-    const isGemini = personalKey.startsWith('AIza');
-    const isClaude = personalKey.startsWith('sk-ant-');
-    const isGroq = personalKey.startsWith('gsk_');
-    const isNvidia = personalKey.startsWith('nvapi-');
-    const isOpenAI = personalKey.startsWith('sk-') && !isClaude;
+    const isGemini = personalKey && (personalKey.startsWith('AIza') || personalKey.startsWith('AQ.'));
+    const isClaude = personalKey && personalKey.startsWith('sk-ant-');
+    const isGroq = personalKey && personalKey.startsWith('gsk_');
+    const isNvidia = personalKey && personalKey.startsWith('nvapi-');
+    const isOpenRouter = personalKey && personalKey.startsWith('sk-or-');
+    const isOpenAI = personalKey && (personalKey.startsWith('sk-') && !isClaude && !isOpenRouter);
 
-    let aiResponseText = "Sorry, no response generated.";
+    if (!personalKey || personalKey.trim().length < 10) {
+        throw new Error("NO_PERSONAL_KEY");
+    }
+
+    let engineTag = "Gemini Flash Latest";
+    if (isOpenRouter) engineTag = "Hermes 3 (Free)";
+    else if (isGroq) engineTag = "Groq Llama 3.3";
+    else if (isClaude) engineTag = "Claude 3.5 Sonnet";
+    else if (isOpenAI) engineTag = "OpenAI GPT-4o-mini";
+    else if (isNvidia) engineTag = "Nvidia Llama";
+
+    let aiResponseText = "I'm sorry, I couldn't generate a response. Please try again.";
 
     try {
         if (isGemini) {
-           const client = new GoogleGenAI({ apiKey: personalKey });
            const contents = [
               { role: 'user', parts: [{ text: systemContext }] },
               { role: 'model', parts: [{ text: "Understood. I will strictly follow your instructions and act as their helpful AI tutor for this course, using the exact extracts from the syllabus." }] },
-              ...messages
+              ...messages.map((m: any) => ({
+                  role: m.role === 'model' ? 'model' : 'user',
+                  parts: [{ text: m.parts[0].text }]
+              }))
            ];
-           const response = await client.models.generateContent({
-             model: 'gemini-1.5-flash',
-             contents: contents
+           const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${personalKey}`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json', 'X-goog-api-key': personalKey },
+               body: JSON.stringify({ contents }),
+               signal: AbortSignal.timeout(25000)
            });
-           aiResponseText = response.text || aiResponseText;
+           const data = await response.json();
+           if (!response.ok) {
+               console.error("[aiManager] Gemini API Error:", data);
+               throw new Error(data.error?.message || 'Gemini API Error');
+           }
+           aiResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || aiResponseText;
         } else if (isClaude) {
            const anthropicMessages = messages.map(m => ({
               role: m.role === 'model' ? 'assistant' : 'user',
@@ -324,8 +402,11 @@ export async function generateAiResponse(
            });
            const data = await res.json();
            if (data.content && data.content.length > 0) aiResponseText = data.content[0].text;
-           else console.error("Claude error:", data);
-        } else if (isOpenAI || isGroq || isNvidia) {
+           else {
+               console.error("Claude error:", data);
+               throw new Error(data.error?.message || 'Claude API Error');
+           }
+        } else if (isOpenAI || isGroq || isNvidia || isOpenRouter) {
            const openAIMessages = [
               { role: 'system', content: systemContext + "\nUnderstood. I will strictly follow your instructions and act as their helpful AI tutor for this course, using the exact extracts from the syllabus." },
               ...messages.map(m => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.parts[0].text }))
@@ -333,8 +414,16 @@ export async function generateAiResponse(
            
            let endpoint = 'https://api.openai.com/v1/chat/completions';
            let model = 'gpt-4o-mini';
+           let customHeaders: Record<string, string> = {};
            
-           if (isGroq) {
+           if (isOpenRouter) {
+               endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+               model = 'nousresearch/hermes-3-llama-3.1-405b:free';
+               customHeaders = {
+                   'HTTP-Referer': 'https://studyos.app',
+                   'X-Title': 'StudyOS AI Tutor'
+               };
+           } else if (isGroq) {
                endpoint = 'https://api.groq.com/openai/v1/chat/completions';
                model = 'llama-3.3-70b-versatile';
            } else if (isNvidia) {
@@ -344,17 +433,14 @@ export async function generateAiResponse(
 
            const res = await fetch(endpoint, {
               method: 'POST',
-              headers: { 'Authorization': `Bearer ${personalKey}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                 model: model,
-                 messages: openAIMessages
-              })
+              headers: { 'Authorization': `Bearer ${personalKey}`, 'Content-Type': 'application/json', ...customHeaders },
+              body: JSON.stringify({ model: model, messages: openAIMessages })
            });
            
            if (!res.ok) {
               const errText = await res.text();
               console.error(`[aiManager] API Error ${res.status}:`, errText);
-              aiResponseText = `Error from AI Provider (${res.status}): ${errText.substring(0, 100)}... Please check your API key.`;
+              throw new Error(`AI Provider Error (${res.status})`);
            } else {
               const data = await res.json();
               if (data.choices && data.choices.length > 0) aiResponseText = data.choices[0].message.content;
@@ -363,87 +449,15 @@ export async function generateAiResponse(
         }
     } catch (e: any) {
         console.error("Multi-provider generation failed:", e);
-        aiResponseText = `Network or Parse Error: ${e.message}`;
+        throw e;
     }
 
-    return aiResponseText + " 🟢";
-  }
-
-  // 2. NO PERSONAL KEY: USE CLOUDFLARE PROXY (Shared Pool)
-  console.log("[aiManager] PROXY_URL is:", PROXY_URL);
-  if (!PROXY_URL) {
-      console.error("[aiManager] Error: NO_PROXY_URL");
-      throw new Error("NO_PROXY_URL");
-  }
-
-  // Check Daily Limit for Shared Pool
-  const today = new Date().toISOString().split('T')[0];
-  const usageRaw = await AsyncStorage.getItem('ai_daily_usage');
-  let usage = usageRaw ? JSON.parse(usageRaw) : { date: today, count: 0 };
-  
-  if (usage.date !== today) {
-    usage = { date: today, count: 0 };
-  }
-
-  console.log("[aiManager] Daily usage:", usage.count);
-  if (usage.count >= 100) {
-    console.error("[aiManager] Error: DAILY_LIMIT_REACHED");
-    throw new Error('DAILY_LIMIT_REACHED');
-  }
-
-  try {
-    const response = await fetch(PROXY_URL, {
-       method: 'POST',
-       headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify({
-          messages,
-          syllabusText,
-          courseName,
-          courseCode,
-          userLearningProfile
-       })
-    });
-
-    console.log("[aiManager] Proxy response status:", response.status);
-    const data = await response.json();
-    console.log("[aiManager] Proxy response data:", data);
-
-    if (!response.ok) {
-       console.error("[aiManager] Proxy returned not OK:", data);
-       if (data.error === 'NO_POOL_KEYS') throw new Error('NO_POOL_KEYS');
-       throw new Error('PROXY_ERROR');
-    }
-
-    // Increment usage count on success
-    usage.count += 1;
-    await AsyncStorage.setItem('ai_daily_usage', JSON.stringify(usage));
-    
-    return validateAndSanitizeOutput(data.text);
-  } catch (error) {
-    console.error("[aiManager] Final Catch:", error);
-    throw error;
-  }
+    return validateAndSanitizeOutput(aiResponseText);
 }
 
-// Extra Practical Layer: Output Scanning
+// Output validation — just sanitize empty responses
 function validateAndSanitizeOutput(text: string): string {
-  let finalResponse = text || "I'm sorry, I couldn't generate a response.";
-  
-  // Output scanning: check if there's a big code block violating the 2-3 line rule
-  const codeBlockRegex = /```[\s\S]*?```/g;
-  const matches = finalResponse.match(codeBlockRegex);
-  if (matches) {
-     for (const match of matches) {
-        const lines = match.split('\n').length;
-        // Allowing ~7 lines total (``` language \n code \n code \n code \n ```)
-        if (lines > 8) {
-           finalResponse = "⚠️ **Security Flag:** The AI attempted to generate a large functional code block, which is restricted in StudyOS. As an academic tutor, I can only explain theoretical concepts or show tiny pseudocode snippets. Please refine your question to focus on the concepts rather than implementation.";
-           break;
-        }
-     }
-  }
-  
-  return finalResponse;
+  return text || "I'm sorry, I couldn't generate a response. Please try again.";
 }
 
 export async function reflectAndLearn(messages: any[], currentProfile: string): Promise<string | null> {

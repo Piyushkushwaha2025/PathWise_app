@@ -7,6 +7,8 @@ import { GlassCard } from '../../../../../components/ui/GlassCard';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { useDoubt } from '../../../../../hooks/useDoubt';
 import { useStudyOSStore } from '../../../../../store/studyosStore';
+import { useSubscription } from '../../../../../hooks/useSubscription';
+import { usePaywallStore } from '../../../../../store/usePaywallStore';
 
 export default function TopicScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -18,6 +20,7 @@ export default function TopicScreen() {
   const [doubtText, setDoubtText] = useState('');
   const { mutate: askDoubt, data: doubtAnswer, isPending } = useDoubt();
   const { recordActivity, addXP } = useStudyOSStore();
+  const { isSubscriptionRequired } = useSubscription();
 
   const handleComplete = async () => {
     await recordActivity();
@@ -27,6 +30,12 @@ export default function TopicScreen() {
   };
 
   const handleAskDoubt = () => {
+    if (isSubscriptionRequired) {
+      doubtSheetRef.current?.close();
+      usePaywallStore.getState().showPaywall("AI Doubt Solver is a Pro feature. Upgrade to ask unlimited questions and clear your concepts instantly.");
+      return;
+    }
+    
     if (!doubtText.trim()) return;
     askDoubt({
       question: doubtText,

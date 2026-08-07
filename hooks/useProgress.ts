@@ -1,18 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@clerk/clerk-expo";
-import { createApiClient } from "../lib/apiClient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { UserProgress, ProgressResponse } from "../types";
 
-export function useProgress() {
-  const { getToken } = useAuth();
+const PROGRESS_KEY = "@studyos_progress";
 
+export function useProgress() {
   return useQuery<UserProgress>({
     queryKey: ["progress"],
     queryFn: async () => {
-      const api = createApiClient(getToken);
       try {
-        const res = await api.get<any>("/progress");
-        return res.data?.progress ?? res.data ?? {};
+        const stored = await AsyncStorage.getItem(PROGRESS_KEY);
+        if (stored) {
+          return JSON.parse(stored);
+        }
+        return {};
       } catch (e) {
         return {};
       }
@@ -23,7 +24,6 @@ export function useProgress() {
 }
 
 export function useSaveProgress() {
-  const { getToken } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation<
@@ -33,12 +33,13 @@ export function useSaveProgress() {
     { previousProgress: UserProgress | undefined }
   >({
     mutationFn: async ({ roadmapId, completedTopics }) => {
-      const api = createApiClient(getToken);
-      const res = await api.post<{ success: boolean }>("/progress", {
-        roadmapId,
-        completedTopics,
-      });
-      return res.data;
+      const stored = await AsyncStorage.getItem(PROGRESS_KEY);
+      let progressObj: UserProgress = stored ? JSON.parse(stored) : {};
+      
+      progressObj[roadmapId] = completedTopics;
+      
+      await AsyncStorage.setItem(PROGRESS_KEY, JSON.stringify(progressObj));
+      return { success: true };
     },
     onMutate: async ({ roadmapId, completedTopics }) => {
       await queryClient.cancelQueries({ queryKey: ["progress"] });

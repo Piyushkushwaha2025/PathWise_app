@@ -12,11 +12,24 @@ import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { fetchAssignments, toggleAssignment, deleteAssignment, useDBProfile, AssignmentData } from '../../../../lib/db';
 import { Modal } from 'react-native';
 import { useStudyOSStore } from '../../../../store/studyosStore';
+import { useHardwareBack } from '../../../../hooks/useHardwareBack';
+
+const stripAllWord = (text?: string) => {
+  if (!text) return '';
+  return text
+    .replace(/\bALL\b/gi, '')
+    .replace(/[-_([/ ]*ALL[-_)/\] ]*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[_-]+$/, '')
+    .replace(/^[_-]+/, '')
+    .trim();
+};
 
 export default function AssignmentsScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
+  useHardwareBack('/studyos/subjects');
   const { userId } = useAuth();
   const { dbUser } = useDBProfile();
   const profile = useStudyOSStore((s) => s.profile);
@@ -90,6 +103,11 @@ export default function AssignmentsScreen() {
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
           headerShadowVisible: false,
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 14 }}>
+              <Ionicons name="arrow-back" size={24} color={colors.text} />
+            </TouchableOpacity>
+          ),
           headerRight: () => {
             if (!activeSection) return null;
             return (
@@ -143,7 +161,7 @@ export default function AssignmentsScreen() {
           </View>
 
           {loading ? (
-            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 50 }} />
+            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
           ) : (
             <ScrollView
               contentContainerStyle={styles.scrollContent}
@@ -163,7 +181,7 @@ export default function AssignmentsScreen() {
                   return (
                     <View key={item._id} style={styles.card}>
                       <View style={styles.cardHeader}>
-                        <Text style={styles.subjectBadge}>{item.subject}</Text>
+                        <Text style={styles.subjectBadge}>{stripAllWord(item.subject)}</Text>
                         <Text style={[styles.dateText, isOverdue && { color: '#ef4444' }]}>
                           {isOverdue ? 'Overdue: ' : 'Due: '}{dueDate.toLocaleDateString()}
                         </Text>
@@ -286,7 +304,7 @@ function useStyles(colors: any) {
     activeTab: { backgroundColor: colors.surface },
     tabText: { fontFamily: Typography.label.fontFamily, color: colors.textMuted },
     activeTabText: { color: colors.primary, fontFamily: Typography.h3.fontFamily },
-    scrollContent: { padding: Spacing.md, flexGrow: 1 },
+    scrollContent: { paddingHorizontal: Spacing.md, paddingTop: 10, paddingBottom: Spacing.xl, flexGrow: 1 },
     card: {
       backgroundColor: colors.surface, padding: Spacing.md,
       borderRadius: Radius.md, marginBottom: Spacing.md,
@@ -328,7 +346,7 @@ function useStyles(colors: any) {
       padding: 10, borderRadius: Radius.sm,
       backgroundColor: '#ef444415', borderWidth: 1, borderColor: '#ef444430',
     },
-    emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 80 },
+    emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 20 },
     emptyText: {
       fontFamily: Typography.label.fontFamily, color: colors.textMuted,
       fontSize: 16, marginTop: 16, textAlign: 'center',

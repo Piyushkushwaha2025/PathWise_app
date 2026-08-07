@@ -184,8 +184,8 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
          const storedCountStr = await AsyncStorage.getItem("pathwise_assignments_count");
          const storedCount = storedCountStr ? parseInt(storedCountStr, 10) : 0;
          
-         if (assignments.length > storedCount) {
-            const newAsg = assignments[assignments.length - 1]; // Assume latest is at the end
+         if (storedCountStr !== null && storedCount > 0 && assignments.length > storedCount) {
+            const newAsg = assignments[assignments.length - 1];
             await Notifications.scheduleNotificationAsync({
                content: {
                   title: 'New Assignment Added!',
@@ -195,8 +195,8 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                trigger: null,
             });
             notificationsSent++;
-            await AsyncStorage.setItem("pathwise_assignments_count", assignments.length.toString());
          }
+         await AsyncStorage.setItem("pathwise_assignments_count", assignments.length.toString());
       }
     } catch(e) { console.error('BG Sync Assignments Err:', e); }
 

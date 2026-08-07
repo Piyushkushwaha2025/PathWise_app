@@ -12,49 +12,80 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useRouter, Link } from "expo-router";
-import { useSignUp, useOAuth } from "@clerk/clerk-expo";
+import { useSignUp, useOAuth, useAuth } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import { MotiView } from "moti";
+import * as Linking from "expo-linking";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { GradientButton } from "../../components/ui/GradientButton";
 import { Colors, Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
+import AppLoading from "../../components/AppLoading";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
   const colors = useThemeStore((s) => s.colors);
+  const theme = useThemeStore((s) => s.theme);
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
+  const { signOut } = useAuth();
   const router = useRouter();
+
+  const logoSource = theme === "white" || theme === "cream"
+    ? require("../../assets/logo-light.png")
+    : require("../../assets/logo-dark.png");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // OAuth-specific loading — shows full-screen AppLoading overlay
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   // Verification state
   const [pendingVerification, setPendingVerification] = useState(false);
   const [code, setCode] = useState("");
 
+
   const handleOAuth = async () => {
     try {
-      setLoading(true);
+      setOauthLoading(true);
       setError("");
-      const { createdSessionId, setActive: setOAuthActive } = await startOAuthFlow();
+      const { createdSessionId, setActive: setOAuthActive, authSessionResult } = await startOAuthFlow({
+        redirectUrl: Linking.createURL("/(auth)/sign-up", { scheme: "pathwise" })
+      });
+
+      // User cancelled or dismissed the browser — clear any partial session and stay on sign-up
+      if (
+        !authSessionResult ||
+        authSessionResult.type === "cancel" ||
+        authSessionResult.type === "dismiss"
+      ) {
+        await signOut().catch(() => {});
+        setOauthLoading(false);
+        return;
+      }
+
       if (createdSessionId && setOAuthActive) {
         await setOAuthActive({ session: createdSessionId });
+        // Don't turn off loading on success so the loading screen covers the navigation delay
         router.replace("/(app)/dashboard");
+      } else {
+        setOauthLoading(false);
       }
     } catch (err: any) {
       console.error("OAuth error", err);
-      setError(err?.errors?.[0]?.message ?? "Google Sign Up failed.");
-    } finally {
-      setLoading(false);
+      await signOut().catch(() => {});
+      if (err?.code !== "session_exists" && !err?.message?.toLowerCase().includes("cancel")) {
+        setError(err?.errors?.[0]?.message ?? "Google Sign Up failed.");
+      }
+      setOauthLoading(false);
     }
   };
+
 
   const handleSignUp = async () => {
     if (!isLoaded) return;
@@ -106,6 +137,9 @@ export default function SignUpScreen() {
     }
   };
 
+  // Show branded loading screen while Google OAuth is processing
+  if (oauthLoading) return <AppLoading />;
+
   return (
     <KeyboardAwareScrollView
       style={styles.root}
@@ -114,20 +148,7 @@ export default function SignUpScreen() {
       extraScrollHeight={20}
       keyboardShouldPersistTaps="handled"
     >
-      {/* Gradient Orb */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.6 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: "timing", duration: 900 }}
-          style={styles.orbContainer}
-        >
-          <LinearGradient
-            colors={[colors.primary, colors.accent]}
-            style={styles.orb}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
-        </MotiView>
+
 
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
@@ -135,13 +156,12 @@ export default function SignUpScreen() {
           transition={{ type: "timing", duration: 500, delay: 200 }}
           style={styles.header}
         >
-          <Image 
-            source={require('../../assets/logo.png')} 
-            style={{ width: 220, height: 60, resizeMode: 'contain', marginBottom: 8 }} 
-          />
-          <Text style={styles.tagline}>
-            {"Your AI Learning Journey Starts Here"}
+          <Image source={logoSource} style={styles.appLogo} resizeMode="contain" />
+          <Text style={styles.logoText}>
+            <Text style={styles.logoBold}>PATH</Text>
+            <Text style={styles.logoItalic}>wise</Text>
           </Text>
+          <Text style={styles.tagline}>Learn Smarter. Level Up Faster.</Text>
         </MotiView>
 
         <MotiView
@@ -257,11 +277,12 @@ const styles = StyleSheet.create({
   orbContainer: { alignItems: "center", marginBottom: -40 },
   orb: { width: 200, height: 200, borderRadius: 100, opacity: 0.3 },
   header: { alignItems: "center", marginBottom: Spacing.xl },
-  logo: { fontSize: 40 },
-  logoBold: { ...Typography.h1, fontSize: 40, color: Colors.text },
+  appLogo: { width: 120, height: 120, borderRadius: 28, marginBottom: 12 },
+  logoText: { fontSize: 32, textAlign: "center" },
+  logoBold: { ...Typography.h1, fontSize: 32, color: Colors.text },
   logoItalic: {
     ...Typography.h1,
-    fontSize: 40,
+    fontSize: 32,
     color: Colors.primary,
     fontStyle: "italic",
   },

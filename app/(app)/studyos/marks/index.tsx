@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polygon, Line, Text as SvgText, Circle } from 'react-native-svg';
 import { WebView, WebViewNavigation } from 'react-native-webview';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { useThemeStore } from '../../../../store/useThemeStore';
@@ -14,6 +15,43 @@ const { width } = Dimensions.get('window');
 const RADAR_SIZE = width - 180; // Adjusted size to make circle smaller
 const CENTER = RADAR_SIZE / 2;
 const RADIUS = (RADAR_SIZE / 2) - 35;
+
+type RawSemester = { text: string; value: string };
+type SemesterItem = { label: string; value: string | null; originalText: string };
+
+// Pull a year + month out of a portal session label (e.g. "May 2024",
+// "Dec 2023", "Winter 2024") so we can order sessions chronologically and
+// number them Semester 1, 2, 3... from the oldest.
+function parseSession(text: string): { year: number; month: number } {
+  const y = text.match(/(20\d{2})/);
+  const year = y ? parseInt(y[1], 10) : 0;
+  const lower = text.toLowerCase();
+  let month = 6;
+  if (lower.includes('may') || lower.includes('summer') || lower.includes('odd')) month = 5;
+  else if (lower.includes('dec') || lower.includes('nov') || lower.includes('winter') || lower.includes('even')) month = 12;
+  else if (lower.includes('jan')) month = 1;
+  else if (lower.includes('jul')) month = 7;
+  return { year, month };
+}
+
+// Build the semester picker list from the portal's real sessions only.
+// Each session is relabelled "Semester N" in chronological order (oldest = 1).
+// Semesters whose results are not yet uploaded by the portal are simply absent
+// — we never show a semester the user cannot actually select.
+function buildSemesterList(raw: RawSemester[]): SemesterItem[] {
+  const sorted = [...raw].sort((a, b) => {
+    const A = parseSession(a.text);
+    const B = parseSession(b.text);
+    if (A.year !== B.year) return A.year - B.year;
+    return A.month - B.month;
+  });
+
+  return sorted.map((opt, i) => ({
+    label: `Semester ${i + 1}`,
+    value: opt.value,
+    originalText: opt.text,
+  }));
+}
 
 export default function MarksScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -30,10 +68,44 @@ export default function MarksScreen() {
   const [resultData, setResultData] = useState<{sgpa: string, subjects: any[]} | null>(null);
   const [isLoading, setIsLoading] = useState(semesterOptionsCache?.length ? false : true);
 
+  // Semester picker list: real portal sessions only, relabelled "Semester N"
+  // in chronological order. Unuploaded (future) semesters are not shown.
+  const derivedSemesters = useMemo(
+    () => buildSemesterList(semesterOptions),
+    [semesterOptions]
+  );
+  const selectedSemLabel = derivedSemesters.find(
+    (d) => d.value === selectedSemester || d.label === selectedSemester
+  )?.label;
+
   useFocusEffect(
     React.useCallback(() => {
-      // Reset to Internal Marks whenever the user leaves and comes back to this tab
+      // First mount: the two hidden WebViews below already load their portal
+      // pages and scrape once, so we just ensure a clean state and skip a
+      // redundant re-scrape here.
+      if (!didMountRef.current) {
+        didMountRef.current = true;
+        return () => {
+          setSelectedSemester('');
+          setResultData(null);
+        };
+      }
+
+      // Returning to this tab (app open / tab switch / foreground): re-scrape
+      // fresh internal marks + final results automatically — mirrors the
+      // attendance tab behaviour so the performance radar is never stale.
+      setSelectedSemester('');
+      setResultData(null);
+      setRefreshing(false);
+      setIsLoading(true);
+
+      const t = setTimeout(() => {
+        webViewRef.current?.reload();
+        marksWebViewRef.current?.reload();
+      }, 300);
+
       return () => {
+        clearTimeout(t);
         setSelectedSemester('');
         setResultData(null);
       };
@@ -45,6 +117,9 @@ export default function MarksScreen() {
   const [isSessionModalVisible, setIsSessionModalVisible] = useState(false);
   const cookieScript = useRef<string>('');
   const injectAndScrapeRef = useRef<() => void>(() => {});
+  const injectAndScrapeMarksRef = useRef<() => void>(() => {});
+  const marksWebViewRef = useRef<WebView>(null);
+  const didMountRef = useRef(false);
 
   // Load saved cookies once on mount
   useEffect(() => {
@@ -62,6 +137,7 @@ export default function MarksScreen() {
     setIsLoading(true);
     setResultData(null);
     webViewRef.current?.reload();
+    marksWebViewRef.current?.reload();
   }, []);
 
   // Prioritize subjects from dashboard to ensure all are shown, even if they don't have internal marks yet
@@ -267,6 +343,64 @@ export default function MarksScreen() {
     true;
   `;
 
+  const extractMarksScript = `
+    try {
+      if (window.location.href.toLowerCase().includes('login.aspx') || window.location.href.toLowerCase().includes('login')) {
+         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INTERNAL_MARKS', error: 'SESSION_EXPIRED' }));
+      } else {
+         var marksData = [];
+         var rows = document.querySelectorAll('table tr');
+         
+         var mstIndex = -1;
+         var pracIndex = -1;
+         var subIndex = -1;
+         
+         if (rows.length > 0) {
+            var headers = Array.from(rows[0].querySelectorAll('th, td')).map(h => h.innerText.trim().toLowerCase());
+            for (var h = 0; h < headers.length; h++) {
+               if (headers[h].includes('subject') || headers[h].includes('course')) subIndex = h;
+               if (headers[h].includes('mst') || headers[h].includes('mid')) mstIndex = h;
+               if (headers[h].includes('prac') || headers[h].includes('lab')) pracIndex = h;
+            }
+            
+            if (subIndex === -1) subIndex = 1;
+            if (mstIndex === -1) mstIndex = 3; 
+            if (pracIndex === -1) pracIndex = 4;
+            
+            for(var i=1; i<rows.length; i++) {
+               var cells = rows[i].querySelectorAll('td');
+               if (cells.length > subIndex) {
+                  var subjectName = cells[subIndex].innerText.trim();
+                  var mstMarks = cells.length > mstIndex ? cells[mstIndex].innerText.trim() : 'N/A';
+                  var practicalMarks = cells.length > pracIndex ? cells[pracIndex].innerText.trim() : 'N/A';
+                  
+                  if (subjectName && subjectName !== '') {
+                     marksData.push({
+                        subjectName: subjectName,
+                        mstMarks: mstMarks,
+                        practicalMarks: practicalMarks
+                     });
+                  }
+               }
+            }
+         }
+         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INTERNAL_MARKS', data: marksData }));
+      }
+    } catch(e) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INTERNAL_MARKS', error: e.toString() }));
+    }
+    true;
+  `;
+
+  injectAndScrapeMarksRef.current = () => {
+    if (cookieScript.current) {
+      marksWebViewRef.current?.injectJavaScript(cookieScript.current);
+      setTimeout(() => marksWebViewRef.current?.injectJavaScript(extractMarksScript), 500);
+    } else {
+      marksWebViewRef.current?.injectJavaScript(extractMarksScript);
+    }
+  };
+
   injectAndScrapeRef.current = () => {
     if (cookieScript.current) {
       webViewRef.current?.injectJavaScript(cookieScript.current);
@@ -332,6 +466,15 @@ export default function MarksScreen() {
         }
         setIsLoading(false);
         setRefreshing(false);
+      } else if (data.type === 'INTERNAL_MARKS') {
+        if (data.error) {
+           console.log("INTERNAL MARKS SCRIPT ERROR:", data.error);
+        }
+        if (data.data && Array.isArray(data.data)) {
+           setScrapedData({ marks: data.data });
+        }
+        setIsLoading(false);
+        setRefreshing(false);
       }
     } catch (e) {}
   };
@@ -350,14 +493,32 @@ export default function MarksScreen() {
     }
   };
 
-  const selectSemester = (value: string) => {
-    if (value === 'RECONNECT') {
+  const handleMarksNavigationStateChange = (navState: WebViewNavigation) => {
+    if (!navState.loading) {
+      setTimeout(() => injectAndScrapeMarksRef.current(), 2000);
+    }
+  };
+
+  const selectSemester = (item: SemesterItem) => {
+    // Upcoming semester that has no portal data yet — just show it as selected
+    // with an empty result, no postback needed.
+    if (item.value === null) {
+      setIsModalVisible(false);
+      setSelectedSemester(item.label);
+      setResultData(null);
+      setIsLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    if (item.value === 'RECONNECT') {
        setIsModalVisible(false);
        clearSession();
        router.replace('/(app)' as any);
        return;
     }
 
+    const value = item.value;
     setIsModalVisible(false);
     setSelectedSemester(value);
     
@@ -386,8 +547,16 @@ export default function MarksScreen() {
           }
         }
       } catch(e) {}
-      true;
+        true;
     `);
+
+    // Re-scrape the result table after the postback updates the DOM.
+    // AJAX/__doPostBack updates often do NOT trigger onNavigationStateChange,
+    // so without this the new semester's result would only appear after a
+    // manual pull-to-refresh. We run the extract script after a short delay.
+    if (!resultCache || !resultCache[value]) {
+      setTimeout(() => injectAndScrapeRef.current(), 2500);
+    }
   };
 
   let grandTotalObtained = 0;
@@ -454,7 +623,7 @@ export default function MarksScreen() {
           <TouchableOpacity style={styles.semesterBtn} onPress={() => setIsModalVisible(true)}>
             <Ionicons name="trophy-outline" size={14} color={colors.primary} />
             <Text style={styles.semesterBtnText}>
-              {selectedSemester ? (semesterOptions.find(opt => opt.value === selectedSemester)?.text || 'Final Results') : 'View Final Results'}
+              {selectedSemLabel ? selectedSemLabel : 'View Final Results'}
             </Text>
             <Ionicons name="chevron-down" size={14} color={colors.primary} />
           </TouchableOpacity>
@@ -574,7 +743,7 @@ export default function MarksScreen() {
       </ScrollView>
 
       <Modal visible={isModalVisible} animationType="fade" transparent={true}>
-        <View style={styles.modalOverlay}>
+        <SafeAreaView style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Semester</Text>
@@ -583,10 +752,10 @@ export default function MarksScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView>
-              {semesterOptions.map((opt, i) => {
-                const isSel = selectedSemester === opt.value;
-                const isMay = opt.text.toLowerCase().includes('may') || opt.text.toLowerCase().includes('odd');
-                const isDec = opt.text.toLowerCase().includes('dec') || opt.text.toLowerCase().includes('even') || opt.text.toLowerCase().includes('nov');
+              {derivedSemesters.map((opt, i) => {
+                const isSel = selectedSemLabel === opt.label;
+                const isMay = opt.originalText.toLowerCase().includes('may') || opt.originalText.toLowerCase().includes('odd');
+                const isDec = opt.originalText.toLowerCase().includes('dec') || opt.originalText.toLowerCase().includes('even') || opt.originalText.toLowerCase().includes('nov');
                 const accentColor = isMay ? '#f59e0b' : isDec ? '#3b82f6' : colors.primary;
                 return (
                   <TouchableOpacity
@@ -595,7 +764,7 @@ export default function MarksScreen() {
                       styles.modalOption,
                       isSel && { backgroundColor: accentColor + '22', borderRadius: 12, borderBottomWidth: 0, borderWidth: 1, borderColor: accentColor + '60' }
                     ]}
-                    onPress={() => selectSemester(opt.value)}
+                    onPress={() => selectSemester(opt)}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                       <View style={[styles.sessionDot, { backgroundColor: accentColor + '30', borderColor: accentColor }]}>
@@ -607,7 +776,7 @@ export default function MarksScreen() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.modalOptionText, isSel && { color: accentColor, fontFamily: 'Inter_700Bold' }]}>
-                          {opt.text}
+                          {opt.label}
                         </Text>
                         {(isMay || isDec) && (
                           <Text style={{ color: isMay ? '#f59e0b80' : '#3b82f680', fontSize: 11, marginTop: 2 }}>
@@ -629,7 +798,7 @@ export default function MarksScreen() {
               )}
             </ScrollView>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       <Modal visible={isSessionModalVisible} transparent animationType="fade">
@@ -675,6 +844,17 @@ export default function MarksScreen() {
            onMessage={handleMessage}
            onError={(e) => console.log('WEBVIEW ERROR:', e.nativeEvent.description)}
            onHttpError={(e) => console.log('WEBVIEW HTTP ERROR:', e.nativeEvent.statusCode)}
+           javaScriptEnabled={true}
+           domStorageEnabled={true}
+           sharedCookiesEnabled={true}
+         />
+         <WebView
+           ref={marksWebViewRef}
+           source={{ uri: 'https://student.culko.in/frmStudentMarksView.aspx' }}
+           onNavigationStateChange={handleMarksNavigationStateChange}
+           onMessage={handleMessage}
+           onError={(e) => console.log('MARKS WEBVIEW ERROR:', e.nativeEvent.description)}
+           onHttpError={(e) => console.log('MARKS WEBVIEW HTTP ERROR:', e.nativeEvent.statusCode)}
            javaScriptEnabled={true}
            domStorageEnabled={true}
            sharedCookiesEnabled={true}
@@ -756,7 +936,7 @@ function RadarChart({ data }: { data: { subject: string, score: number, hasMarks
 
 const useStyles = (colors: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: Spacing.lg, paddingTop: 50, paddingBottom: 100 },
+  content: { padding: Spacing.lg, paddingTop: 20, paddingBottom: 100 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl },
   headerTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
   headerSubtitle: { color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_400Regular' },
@@ -801,7 +981,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   gradeText: { color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.xl, maxHeight: '60%' },
+  modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.xl, paddingBottom: Spacing.xl + 8, maxHeight: '70%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
   modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
   modalOption: { paddingVertical: Spacing.md, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.border },

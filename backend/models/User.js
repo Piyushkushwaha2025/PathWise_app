@@ -6,9 +6,7 @@ const UserSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
-  email: {
-    type: String
-  },
+
   uid: {
     type: String
   },
@@ -23,6 +21,14 @@ const UserSchema = new mongoose.Schema({
   is_premium: {
     type: Boolean,
     default: false
+  },
+  subscription_plan: {
+    type: String,
+    default: 'free'
+  },
+  subscription_updated_at: {
+    type: Date,
+    default: Date.now
   },
   expoPushToken: {
     type: String,

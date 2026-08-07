@@ -5,11 +5,13 @@ import { useSubjects } from '../../../../hooks/useSubjects';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { GlassCard } from '../../../../components/ui/GlassCard';
+import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
 export default function CGPABacktrackerScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
+  useHardwareBack('/studyos/marks');
   const { data: subjects } = useSubjects();
   const [targetCGPA, setTargetCGPA] = useState('8.0');
 
@@ -20,7 +22,7 @@ export default function CGPABacktrackerScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => router.push('/studyos/marks' as any)} style={styles.backBtn}>
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>CGPA Target</Text>

@@ -12,8 +12,10 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useRouter, Link } from "expo-router";
-import { useSignIn, useOAuth } from "@clerk/clerk-expo";
+import { useSignIn, useOAuth, useAuth } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import { BlurView } from "expo-blur";
+import * as Linking from "expo-linking";
 import { MotiView } from "moti";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,12 +23,14 @@ import { GradientButton } from "../../components/ui/GradientButton";
 import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import { GlassCard } from "../../components/ui/GlassCard";
+import AppLoading from "../../components/AppLoading";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
+  const { signOut } = useAuth();
   const router = useRouter();
 
   const colors = useThemeStore((s) => s.colors);
@@ -42,6 +46,8 @@ export default function SignInScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // OAuth-specific loading — shows full-screen AppLoading overlay
+  const [oauthLoading, setOauthLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 
@@ -52,18 +58,38 @@ export default function SignInScreen() {
 
   const handleOAuth = async () => {
     try {
-      setLoading(true);
+      setOauthLoading(true);
       setError("");
-      const { createdSessionId, setActive: setOAuthActive } = await startOAuthFlow();
+      const { createdSessionId, setActive: setOAuthActive, authSessionResult } = await startOAuthFlow({
+        redirectUrl: Linking.createURL("/(auth)/sign-in", { scheme: "pathwise" })
+      });
+
+      // User cancelled or dismissed the browser — clear any partial session and stay on sign-in
+      if (
+        !authSessionResult ||
+        authSessionResult.type === "cancel" ||
+        authSessionResult.type === "dismiss"
+      ) {
+        await signOut().catch(() => {});
+        setOauthLoading(false);
+        return;
+      }
+
       if (createdSessionId && setOAuthActive) {
         await setOAuthActive({ session: createdSessionId });
+        // Don't turn off loading on success so the loading screen covers the navigation delay
         router.replace("/(app)/dashboard");
+      } else {
+        setOauthLoading(false);
       }
     } catch (err: any) {
       console.error("OAuth error", err);
-      setError(err?.errors?.[0]?.message ?? "Google Sign In failed.");
-    } finally {
-      setLoading(false);
+      // Sign out any partial session on error too
+      await signOut().catch(() => {});
+      if (err?.code !== "session_exists" && !err?.message?.toLowerCase().includes("cancel")) {
+        setError(err?.errors?.[0]?.message ?? "Google Sign In failed.");
+      }
+      setOauthLoading(false);
     }
   };
 
@@ -158,6 +184,9 @@ export default function SignInScreen() {
       setLoading(false);
     }
   };
+
+  // Show branded loading screen while Google OAuth is processing
+  if (oauthLoading) return <AppLoading />;
 
   return (
     <KeyboardAwareScrollView

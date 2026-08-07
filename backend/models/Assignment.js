@@ -33,6 +33,10 @@ const AssignmentSchema = new mongoose.Schema({
   pdf_filename: {
     type: String,
     default: null
+  },
+  expiresAt: {
+    type: Date,
+    expires: 0 // Document will be automatically deleted at this time
   }
 }, { timestamps: true });
 

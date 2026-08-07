@@ -14,27 +14,28 @@ export function useRoadmaps() {
   return useQuery<CustomRoadmap[]>({
     queryKey: ["roadmaps"],
     queryFn: async () => {
-      const api = createApiClient(getToken);
-      const res = await api.get<RoadmapsResponse>("/roadmaps/custom");
-      return res.data.roadmaps ?? [];
+      // API is deprecated, return empty array immediately to save network latency
+      return [];
     },
     staleTime: 2 * 60 * 1000,
   });
 }
 
-// Fetches the list of all roadmaps (id, title, color, isPro) from live API
+// Fetches the list of all roadmaps (id, title, color, isPro) locally to avoid slow network requests
 export function useRoadmapsCatalog() {
-  const { getToken } = useAuth();
-
   return useQuery<CustomRoadmap[]>({
     queryKey: ["roadmapsCatalog"],
     queryFn: async () => {
-      const api = createApiClient(getToken);
-      const res = await api.get<any>("/roadmaps/catalog");
-      if (Array.isArray(res.data)) return res.data;
-      return res.data.roadmaps ?? [];
+      try {
+        const catalogData = require("../catalog_mini.json");
+        if (Array.isArray(catalogData)) return catalogData;
+        return catalogData.roadmaps ?? [];
+      } catch (error) {
+        console.error("Failed to load local catalog:", error);
+        return [];
+      }
     },
-    staleTime: 30 * 60 * 1000, // 30 min — catalog doesn't change often
+    staleTime: Infinity, // local data never goes stale
   });
 }
 
@@ -56,18 +57,8 @@ export function useRoadmapDetail(id: string) {
           }
           
           // Background fetch to update the cache silently for next time
-          const api = createApiClient(getToken);
-          const ID_MAP: Record<string, string> = {
-            "fullstack": "full-stack",
-            "open-claw": "openclaw",
-            "postgresql": "postgresql-dba",
-            "ruby-on-rails": "rails",
-          };
-          const fetchId = ID_MAP[id] || id;
-          api.get<any>(`/roadmaps/${fetchId}`).then((res) => {
-             const dataToCache = res.data.roadmap ? res.data.roadmap : res.data;
-             AsyncStorage.setItem(cacheKey, JSON.stringify(dataToCache)).catch(()=>{});
-          }).catch(()=>{});
+          // Disabled because API is deprecated and we are using local catalog
+          // const api = createApiClient(getToken);
 
           return cachedData;
         }
@@ -75,8 +66,7 @@ export function useRoadmapDetail(id: string) {
         // ignore cache errors
       }
 
-      // If no cache exists, fetch from network
-      const api = createApiClient(getToken);
+      // If no cache exists, load from local bundled full catalog
       const ID_MAP: Record<string, string> = {
         "fullstack": "full-stack",
         "open-claw": "openclaw",
@@ -84,10 +74,20 @@ export function useRoadmapDetail(id: string) {
         "ruby-on-rails": "rails",
       };
       const fetchId = ID_MAP[id] || id;
-      const res = await api.get<any>(`/roadmaps/${fetchId}`);
-      const dataToCache = res.data.roadmap ? res.data.roadmap : res.data;
-      AsyncStorage.setItem(cacheKey, JSON.stringify(dataToCache)).catch(()=>{});
-      return dataToCache;
+      
+      try {
+        // We require it here so it's only parsed when a roadmap is opened
+        const fullData = require("../catalog_utf8.json");
+        const roadmaps = Array.isArray(fullData) ? fullData : (fullData.roadmaps || []);
+        const found = roadmaps.find((r: any) => r.id === fetchId);
+        if (found) {
+          AsyncStorage.setItem(cacheKey, JSON.stringify(found)).catch(()=>{});
+          return found;
+        }
+      } catch (err) {
+        console.log("Failed to load local roadmap detail", err);
+      }
+      return null;
     },
     enabled: !!id,
     staleTime: 10 * 60 * 1000,

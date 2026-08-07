@@ -2,14 +2,16 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import React, { useState, useRef, useEffect } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, BackHandler } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Typography, Spacing } from '../../../constants/theme';
 import * as SecureStore from 'expo-secure-store';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import { UNIVERSITIES } from '../../../constants/universities';
 import { useLocalSearchParams } from 'expo-router';
+import { useUser } from '@clerk/clerk-expo';
 
 export default function WebViewLoginScreen() {
+  const { user } = useUser();
   const { uniId } = useLocalSearchParams<{ uniId: string }>();
   const activeUni = UNIVERSITIES[uniId || 'cu'];
   const colors = useThemeStore((s) => s.colors);
@@ -23,18 +25,28 @@ export default function WebViewLoginScreen() {
 
   const [isOnLms, setIsOnLms] = useState(false);
   const [autoCreds, setAutoCreds] = useState<{u?: string, p?: string} | null>(null);
+  const [webviewKey, setWebviewKey] = useState(Date.now());
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const u = await SecureStore.getItemAsync('culko_u');
-        const p = await SecureStore.getItemAsync('culko_p');
-        if (u && p) setAutoCreds({u, p});
-        // Clear old cookies so stale session doesn't auto-redirect
-        await SecureStore.deleteItemAsync('culko_cookies');
-      } catch(e){}
-    })();
-  }, []);
+  useFocusEffect(
+    React.useCallback(() => {
+      let isMounted = true;
+      (async () => {
+        setIsProcessing(false);
+        setLoadingMsg('');
+        if (isMounted) setWebviewKey(Date.now());
+        try {
+          const u = await SecureStore.getItemAsync('culko_u');
+          const p = await SecureStore.getItemAsync('culko_p');
+          if (isMounted) {
+            if (u && p) setAutoCreds({u, p});
+            else setAutoCreds(null);
+          }
+          await SecureStore.deleteItemAsync('culko_cookies');
+        } catch(e){}
+      })();
+      return () => { isMounted = false; };
+    }, [])
+  );
 
   const handleCancel = () => {
     router.replace({ pathname: '/(app)/studyos/connect', params: { reset: 'true' } } as any);
@@ -161,6 +173,7 @@ export default function WebViewLoginScreen() {
 
       {/* Always render WebView so injectJavaScript continues running */}
       <WebView
+        key={webviewKey}
         ref={webViewRef}
         source={{ uri: activeUni.loginUrl }}
         style={[styles.webview, isProcessing && styles.hiddenWebview]}

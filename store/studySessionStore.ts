@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { useStudyOSStore } from './studyosStore';
 
 interface StudySessionState {
   isConnected: boolean;
   isStudyOSMode: boolean;
+  isSwitchingMode: boolean;
   universityId: string | null;
   lmsSesskey: string | null;
   lmsUserId: number | null;
@@ -12,11 +14,13 @@ interface StudySessionState {
   clearSession: () => Promise<void>;
   setSession: (universityId: string, sesskey: string, userId: number) => Promise<void>;
   setStudyOSMode: (mode: boolean) => void;
+  setSwitchingMode: (switching: boolean) => void;
 }
 
 export const useStudySessionStore = create<StudySessionState>((set) => ({
   isConnected: false,
   isStudyOSMode: false,
+  isSwitchingMode: false,
   universityId: null,
   lmsSesskey: null,
   lmsUserId: null,
@@ -27,20 +31,17 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
       const sesskey = await SecureStore.getItemAsync('lms_sesskey');
       const userIdStr = await SecureStore.getItemAsync('lms_userid');
       
-      if (uniId && sesskey && userIdStr) {
+      if (uniId) {
         set({ 
           isConnected: true,
-          isStudyOSMode: true, // Default to true on boot if connected
+          isStudyOSMode: true,
           universityId: uniId,
           lmsSesskey: sesskey, 
-          lmsUserId: parseInt(userIdStr, 10) 
+          lmsUserId: userIdStr ? parseInt(userIdStr, 10) : null
         });
-      } else {
-        set({ isConnected: false, isStudyOSMode: false, universityId: null, lmsSesskey: null, lmsUserId: null });
       }
     } catch (error) {
-      console.error('Error checking connection:', error);
-      set({ isConnected: false, isStudyOSMode: false, universityId: null, lmsSesskey: null, lmsUserId: null });
+      console.error('Error reading session:', error);
     }
   },
 
@@ -58,11 +59,25 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
       await SecureStore.deleteItemAsync('lms_cookie');
       await SecureStore.deleteItemAsync('lms_sesskey');
       await SecureStore.deleteItemAsync('lms_userid');
+      await SecureStore.deleteItemAsync('culko_u');
+      await SecureStore.deleteItemAsync('culko_p');
+      await SecureStore.deleteItemAsync('culko_cookies');
+      await useStudyOSStore.getState().resetScrapedData();
       set({ isConnected: false, isStudyOSMode: false, universityId: null, lmsSesskey: null, lmsUserId: null });
     } catch (error) {
       console.error('Error clearing session:', error);
     }
   },
   
-  setStudyOSMode: (mode: boolean) => set({ isStudyOSMode: mode })
+  setStudyOSMode: (mode: boolean) => {
+    set({ isSwitchingMode: true });
+    // Switch the actual mode immediately
+    set({ isStudyOSMode: mode });
+    // Turn off the loading screen after a short delay (e.g. 1500ms) to allow chunks to load
+    setTimeout(() => {
+      set({ isSwitchingMode: false });
+    }, 1500);
+  },
+  
+  setSwitchingMode: (switching: boolean) => set({ isSwitchingMode: switching })
 }));

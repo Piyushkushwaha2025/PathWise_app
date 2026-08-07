@@ -6,32 +6,81 @@ import { Spacing, Radius } from '../../../../constants/theme';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { useStudyOSStore } from '../../../../store/studyosStore';
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const getCurrentDay = () => {
   const dayIndex = new Date().getDay();
   const daysMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const today = daysMap[dayIndex];
-  return DAYS.includes(today) ? today : 'Monday'; // Fallback to Monday on Sunday
+  return daysMap[dayIndex];
 };
 
 const getFormattedDate = () => {
   return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 };
 
-const parseStartTime = (timeStr: string) => {
+const STANDARD_SLOTS = [
+  { time: '09:35 - 10:25', start: 9 * 60 + 35, end: 10 * 60 + 25 },
+  { time: '10:25 - 11:15', start: 10 * 60 + 25, end: 11 * 60 + 15 },
+  { time: '11:15 - 12:05', start: 11 * 60 + 15, end: 12 * 60 + 5 },
+  { time: '12:05 - 12:55', start: 12 * 60 + 5, end: 12 * 60 + 55 },
+  { time: '01:15 - 02:05', start: 13 * 60 + 15, end: 14 * 60 + 5 },
+  { time: '02:05 - 02:55', start: 14 * 60 + 5, end: 14 * 60 + 55 },
+  { time: '02:55 - 03:45', start: 14 * 60 + 55, end: 15 * 60 + 45 },
+  { time: '03:45 - 04:35', start: 15 * 60 + 45, end: 16 * 60 + 35 },
+];
+
+const parseTimeBounds = (timeStr: string) => {
   try {
-    const startTimeStr = timeStr.split('-')[0].trim();
-    let [hours, minutes] = startTimeStr.split(':').map(Number);
-    // College classes are typically between 8 AM and 6 PM.
-    // If hours is between 1 and 7, it's PM (13 to 19).
-    if (hours >= 1 && hours <= 7) {
-      hours += 12;
-    }
-    return hours * 60 + (minutes || 0);
+    if (!timeStr) return { start: 0, end: 0 };
+    const cleanStr = timeStr.replace(/AM|PM/gi, '').trim();
+    const parts = cleanStr.split('-').map(t => t.trim());
+    const parseSingle = (tStr: string) => {
+      if (!tStr) return 0;
+      let [hoursStr, minutesStr] = tStr.split(':');
+      let hours = parseInt((hoursStr || '').replace(/\D/g, ''), 10) || 0;
+      let minutes = parseInt((minutesStr || '').replace(/\D/g, ''), 10) || 0;
+      if (hours >= 1 && hours <= 7) {
+        hours += 12;
+      }
+      return hours * 60 + minutes;
+    };
+    const start = parseSingle(parts[0]);
+    let end = parts[1] ? parseSingle(parts[1]) : start + 50;
+    if (end < start && end !== 0) end += 12 * 60;
+    return { start: isNaN(start) ? 0 : start, end: isNaN(end) ? 0 : end };
   } catch (e) {
-    return 0;
+    return { start: 0, end: 0 };
   }
+};
+
+const parseStartTime = (timeStr: string) => parseTimeBounds(timeStr).start;
+
+const buildFullDayTimeline = (rawClasses: any[]) => {
+  if (!rawClasses || rawClasses.length === 0) return [];
+  
+  const mapped = rawClasses.map(c => ({
+    ...c,
+    bounds: parseTimeBounds(c.time),
+    isFree: false
+  }));
+  
+  const timeline: any[] = [...mapped];
+  
+  STANDARD_SLOTS.forEach(slot => {
+    const hasOverlap = mapped.some(c => c.bounds.start < slot.end && c.bounds.end > slot.start);
+    if (!hasOverlap) {
+      timeline.push({
+        time: slot.time,
+        subjectName: 'Free Slot',
+        teacher: 'Self Study / Break',
+        room: 'Campus / Library',
+        isFree: true,
+        bounds: { start: slot.start, end: slot.end }
+      });
+    }
+  });
+  
+  return timeline.sort((a, b) => a.bounds.start - b.bounds.start);
 };
 
 export default function TimetableScreen() {
@@ -47,7 +96,7 @@ export default function TimetableScreen() {
   );
 
   const rawClasses = timetable[selectedDay] || [];
-  const currentDayClasses = [...rawClasses].sort((a, b) => parseStartTime(a.time) - parseStartTime(b.time));
+  const currentDayClasses = buildFullDayTimeline(rawClasses);
 
   return (
     <View style={styles.container}>
@@ -61,7 +110,7 @@ export default function TimetableScreen() {
             </View>
           )}
         </View>
-        <Text style={styles.headerSubtitle}>{currentDayClasses.length} classes scheduled</Text>
+        <Text style={styles.headerSubtitle}>{rawClasses.length} classes scheduled (09:35 AM - 04:35 PM)</Text>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.daysScroll}>
           {DAYS.map((day) => (
@@ -74,20 +123,31 @@ export default function TimetableScreen() {
 
       <ScrollView contentContainerStyle={styles.timelineContent} showsVerticalScrollIndicator={false}>
         {currentDayClasses.length > 0 ? (
-          currentDayClasses.map((cls: any, index: number) => (
-            <TimelineCard
-              key={index.toString()}
-              time={cls.time.split('-')[0].trim()}
-              cardStart={cls.time}
-              title={cls.subjectName}
-              type={cls.subjectName.includes('Lab') ? 'Practical' : 'Lecture'}
-              teacher={cls.teacher}
-              location={cls.room}
-              gp={cls.group}
-              color={cls.subjectName.includes('Lab') ? colors.success : colors.primary}
-              isLast={index === currentDayClasses.length - 1}
-            />
-          ))
+          currentDayClasses.map((cls: any, index: number) => {
+            const isFree = cls.isFree;
+            const type = isFree ? 'Free' : (cls.subjectName.includes('Lab') ? 'Practical' : 'Lecture');
+            const cardColor = isFree ? '#64748b' : (cls.subjectName.includes('Lab') ? colors.success : colors.primary);
+            const timeParts = cls.time.split('-').map((t: string) => t.trim());
+            const startTime = timeParts[0] || '';
+            const endTime = timeParts[1] || '';
+
+            return (
+              <TimelineCard
+                key={index.toString()}
+                startTime={startTime}
+                endTime={endTime}
+                cardStart={cls.time}
+                title={cls.subjectName}
+                type={type}
+                teacher={cls.teacher}
+                location={cls.room}
+                gp={cls.group}
+                color={cardColor}
+                isFree={isFree}
+                isLast={index === currentDayClasses.length - 1}
+              />
+            );
+          })
         ) : (
           <View style={styles.emptyState}>
             <View style={[styles.emptyIconBg, { backgroundColor: colors.surfaceHigh }]}>
@@ -112,59 +172,70 @@ function DayPill({ day, active }: any) {
   );
 }
 
-function TimelineCard({ time, cardStart, title, type, teacher, location, gp, color, isLast }: any) {
+function TimelineCard({ startTime, endTime, cardStart, title, type, teacher, location, gp, color, isFree, isLast }: any) {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   
   return (
     <View style={styles.timeCardContainer}>
-      {/* Left side: Time & Timeline Graphic */}
-      <View style={styles.timelineLeft}>
-        <Text style={styles.timeLabel}>{time}</Text>
-        <View style={styles.timelineGraphic}>
-          <View style={[styles.timelineDot, { borderColor: color }]} />
-          {!isLast && <View style={styles.timelineLine} />}
-        </View>
+      {/* Left Column: Start & End Time */}
+      <View style={styles.timeColumn}>
+        <Text style={[styles.startTimeText, isFree && { color: colors.textMuted }]}>{startTime}</Text>
+        {!!endTime && <Text style={styles.endTimeText}>{endTime}</Text>}
+      </View>
+
+      {/* Center Axis: Dot & Line */}
+      <View style={styles.timelineAxis}>
+        <View style={[
+          styles.timelineNode, 
+          { borderColor: isFree ? colors.border : color },
+          isFree ? { backgroundColor: colors.surface, width: 12, height: 12, borderRadius: 6, borderWidth: 2 } : { backgroundColor: colors.background }
+        ]} />
+        {!isLast && <View style={[styles.timelineLine, { backgroundColor: isFree ? colors.border + '60' : color + '50' }]} />}
       </View>
       
-      {/* Right side: Card */}
-      <View style={[styles.card, { borderLeftColor: color }]}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>{title}</Text>
-          <View style={[styles.typeBadge, { backgroundColor: color + '15' }]}>
-            <Text style={[styles.typeText, { color: color }]}>{type}</Text>
-          </View>
-        </View>
-        
-        <View style={styles.teacherRow}>
-          <Ionicons name="person-circle-outline" size={16} color={colors.textMuted} />
-          <Text style={styles.teacherText}>{teacher}</Text>
-        </View>
-        
-        <View style={styles.cardFooter}>
-          <View style={styles.footerItem}>
-             <Ionicons name="time-outline" size={14} color={colors.textMuted} />
-             <Text style={styles.footerText}>{cardStart}</Text>
-          </View>
-          <View style={styles.footerItem}>
-             <Ionicons name="location-outline" size={14} color={colors.textMuted} />
-             <Text style={styles.footerText}>{location}</Text>
-          </View>
-          {gp && (
-            <View style={styles.footerItem}>
-               <Ionicons name="people-outline" size={14} color={colors.textMuted} />
-               <Text style={styles.footerText}>{gp}</Text>
+      {/* Right Column: Card or Blank Free Slot */}
+      {isFree ? (
+        <View style={styles.blankFreeSlot} />
+      ) : (
+        <View style={[styles.card, { borderLeftColor: color }]}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>{title}</Text>
+            <View style={[styles.typeBadge, { backgroundColor: color + '15' }]}>
+              <Text style={[styles.typeText, { color: color }]}>{type}</Text>
             </View>
-          )}
+          </View>
+          
+          <View style={styles.teacherRow}>
+            <Ionicons name="person-circle-outline" size={15} color={colors.textMuted} />
+            <Text style={styles.teacherText}>{teacher}</Text>
+          </View>
+          
+          <View style={styles.cardFooter}>
+            <View style={styles.footerItem}>
+               <Ionicons name="time-outline" size={13} color={colors.textMuted} />
+               <Text style={styles.footerText}>{cardStart}</Text>
+            </View>
+            <View style={styles.footerItem}>
+               <Ionicons name="location-outline" size={13} color={colors.textMuted} />
+               <Text style={styles.footerText}>{location}</Text>
+            </View>
+            {gp && (
+              <View style={styles.footerItem}>
+                 <Ionicons name="people-outline" size={13} color={colors.textMuted} />
+                 <Text style={styles.footerText}>{gp}</Text>
+              </View>
+            )}
+          </View>
         </View>
-      </View>
+      )}
     </View>
   );
 }
 
 const useStyles = (colors: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { paddingTop: 60, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
+  header: { paddingTop: 20, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
   headerDate: { color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold' },
   todayBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
@@ -194,59 +265,73 @@ const useStyles = (colors: any) => StyleSheet.create({
   timeCardContainer: { 
     flexDirection: 'row', 
     alignItems: 'stretch', 
-    marginBottom: Spacing.md 
+    marginBottom: 12 
   },
   
-  timelineLeft: {
-    width: 65,
-    alignItems: 'center',
-    marginRight: 12,
+  timeColumn: {
+    width: 58,
+    alignItems: 'flex-end',
+    paddingTop: 2,
+    marginRight: 10,
   },
-  timeLabel: { 
+  startTimeText: { 
     color: colors.text, 
-    fontSize: 13, 
-    fontFamily: 'SpaceGrotesk_600SemiBold', 
-    marginBottom: 8 
+    fontSize: 14, 
+    fontFamily: 'SpaceGrotesk_700Bold', 
+    lineHeight: 18,
   },
-  timelineGraphic: {
-    flex: 1,
+  endTimeText: {
+    color: colors.textDim,
+    fontSize: 11.5,
+    fontFamily: 'Inter_500Medium',
+    marginTop: 2,
+  },
+  timelineAxis: {
+    width: 20,
     alignItems: 'center',
+    marginRight: 10,
+    paddingTop: 4,
   },
-  timelineDot: {
+  timelineNode: {
     width: 14,
     height: 14,
     borderRadius: 7,
     borderWidth: 3,
-    backgroundColor: colors.background,
     zIndex: 2,
   },
   timelineLine: {
     width: 2,
     flex: 1,
-    backgroundColor: colors.border,
-    marginTop: -2,
-    marginBottom: -20,
+    marginTop: 4,
+    marginBottom: -16,
     zIndex: 1,
+  },
+
+  blankFreeSlot: {
+    flex: 1,
+    height: 40,
+    backgroundColor: 'transparent',
   },
 
   card: { 
     flex: 1, 
     backgroundColor: colors.surfaceHigh, 
     borderRadius: Radius.lg, 
-    padding: Spacing.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderLeftWidth: 4,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  cardTitle: { color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', flex: 1, paddingRight: 10 },
-  typeBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.full },
-  typeText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  cardTitle: { color: colors.text, fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', flex: 1, paddingRight: 10 },
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: Radius.full },
+  typeText: { fontSize: 10.5, fontFamily: 'Inter_700Bold' },
   
-  teacherRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  teacherText: { color: colors.textMuted, fontSize: 13, marginLeft: 6, fontFamily: 'Inter_500Medium' },
+  teacherRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  teacherText: { color: colors.textMuted, fontSize: 12, marginLeft: 5, fontFamily: 'Inter_500Medium' },
   
-  cardFooter: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 },
+  cardFooter: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 },
   footerItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  footerText: { color: colors.textDim, fontSize: 12, fontFamily: 'Inter_500Medium' },
+  footerText: { color: colors.textDim, fontSize: 11.5, fontFamily: 'Inter_500Medium' },
 });

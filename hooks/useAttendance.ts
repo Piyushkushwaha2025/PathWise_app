@@ -13,15 +13,19 @@ export function useAttendance() {
         const attendance = await fetchAttendance();
         await setCachedData(ATTENDANCE_CACHE_KEY, attendance);
         return attendance;
-      } catch (err) {
-        // Fallback to cache if API fails (even if session expired)
-        const cached = await getCachedData<AttendanceData[]>(ATTENDANCE_CACHE_KEY, 24 * 365); // 1 year fallback
+      } catch (err: any) {
+        // Do not suppress session expired errors so UI can prompt reconnection instead of serving dead cache
+        if (err?.name === 'SessionExpiredError' || err?.message?.toLowerCase()?.includes('expired') || err?.message?.toLowerCase()?.includes('login')) {
+          throw err;
+        }
+        // Fallback to cache only for ordinary network connectivity issues
+        const cached = await getCachedData<AttendanceData[]>(ATTENDANCE_CACHE_KEY, 24 * 365);
         if (cached) return cached;
         throw err;
       }
     },
-    // Show cached data instantly, refresh silently in background every 15 mins
-    staleTime: 15 * 60 * 1000,
+    // Keep data fresh for 1 minute, ensuring manual pull-to-refresh gets live numbers
+    staleTime: 60 * 1000,
     gcTime: 24 * 60 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnMount: true,

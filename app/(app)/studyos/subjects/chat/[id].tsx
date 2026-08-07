@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Modal } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Animated, BackHandler, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+
+const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
+
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -11,6 +14,8 @@ import { CenterPopModal } from '../../../../../components/ui/CenterPopModal';
 import Markdown from 'react-native-markdown-display';
 import { generateAiResponse, reflectAndLearn } from '../../../../../lib/aiManager';
 import { useAuth } from '@clerk/clerk-expo';
+import { useSubscription } from '../../../../../hooks/useSubscription';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Message {
   id: string;
@@ -51,20 +56,37 @@ const sortFilesByTopicNumbers = (files: string[]) => {
 };
 
 const renderUserMessage = (text: string) => {
-    const instructionMarker = '\n\n[USER INSTRUCTION: ONLY focus your answer strictly on the following files: ';
-    const instructionIndex = text.indexOf(instructionMarker);
-    if (instructionIndex === -1) {
-        return { displayText: text, hiddenFiles: [] };
-    }
-    
-    const displayText = text.substring(0, instructionIndex);
-    const afterMarker = text.substring(instructionIndex + instructionMarker.length);
-    const endMarkerIndex = afterMarker.indexOf('. Do not use general knowledge unless asked.]');
-    
+    let displayText = text;
     let hiddenFiles: string[] = [];
-    if (endMarkerIndex !== -1) {
-        const filesString = afterMarker.substring(0, endMarkerIndex);
-        hiddenFiles = filesString.split('|||');
+
+    const topicFocusMarker = '\n\n[TOPIC FOCUS: ';
+    const instructionMarker = '\n\n[USER INSTRUCTION: ONLY focus your answer strictly on the following files: ';
+
+    let markerIndex = -1;
+    let markerLength = 0;
+
+    if (text.indexOf(topicFocusMarker) !== -1) {
+        markerIndex = text.indexOf(topicFocusMarker);
+        markerLength = topicFocusMarker.length;
+    } else if (text.indexOf(instructionMarker) !== -1) {
+        markerIndex = text.indexOf(instructionMarker);
+        markerLength = instructionMarker.length;
+    }
+
+    if (markerIndex !== -1) {
+        displayText = text.substring(0, markerIndex).trim();
+        const afterMarker = text.substring(markerIndex + markerLength);
+        const endBracketIndex = afterMarker.indexOf(']');
+        const endDotIndex = afterMarker.indexOf('. Do not use general knowledge');
+        
+        let filesString = afterMarker;
+        if (endBracketIndex !== -1 && (endDotIndex === -1 || endBracketIndex < endDotIndex)) {
+            filesString = afterMarker.substring(0, endBracketIndex);
+        } else if (endDotIndex !== -1) {
+            filesString = afterMarker.substring(0, endDotIndex);
+        }
+
+        hiddenFiles = filesString.split('|||').map(f => f.trim()).filter(Boolean);
     }
     
     return { displayText, hiddenFiles };
@@ -75,8 +97,17 @@ export default function AITutorChatScreen() {
   const router = useRouter();
   const colors = useThemeStore((state) => state.colors);
   const { userId } = useAuth();
+  const insets = useSafeAreaInsets();
+  const kbOffset = insets.top;
 
-  const isAccessGranted = true;
+  const { isSubscriptionRequired } = useSubscription();
+  const isAccessGranted = !isSubscriptionRequired;
+  
+  useEffect(() => {
+    if (isSubscriptionRequired) {
+      router.replace("/(app)/_pathwise_subscription");
+    }
+  }, [isSubscriptionRequired]);
 
   const [apiKey, setApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -84,6 +115,15 @@ export default function AITutorChatScreen() {
   const [hasSavedKey, setHasSavedKey] = useState(false);
   const [keyError, setKeyError] = useState('');
   const [isValidatingKey, setIsValidatingKey] = useState(false);
+  interface ConnectedModel {
+    id: string;
+    name: string;
+    icon: string;
+    key: string;
+  }
+  const [connectedModels, setConnectedModels] = useState<ConnectedModel[]>([]);
+  const [activeProvider, setActiveProvider] = useState<string>('gemini');
+  const [showModelSwitcherModal, setShowModelSwitcherModal] = useState(false);
   const [syllabusScraped, setSyllabusScraped] = useState(false);
   const [syllabusText, setSyllabusText] = useState('');
   const [scrapingError, setScrapingError] = useState('');
@@ -93,8 +133,19 @@ export default function AITutorChatScreen() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   const [inputText, setInputText] = useState('');
+  const [inputHeight, setInputHeight] = useState(44);
+  const animatedHeight = useRef(new Animated.Value(44)).current;
   const [isTyping, setIsTyping] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    Animated.timing(animatedHeight, {
+      toValue: Math.max(44, inputHeight),
+      duration: 100, // fast & smooth transition
+      useNativeDriver: false,
+    }).start();
+  }, [inputHeight]);
+
   
   // File Selection State
   const [showFileModal, setShowFileModal] = useState(false);
@@ -121,6 +172,28 @@ export default function AITutorChatScreen() {
     setIsLoadingFiles(true);
     setFetchError(null);
     try {
+       // Decode URL-encoded id and name
+       const rawId = decodeURIComponent(id?.toString() || '');
+       const rawName = decodeURIComponent(name?.toString() || '').toLowerCase();
+       // Extract core code like 25CSH-214 from CONT_25CSH-214
+       const coreCodeMatch = rawId.match(/([0-9]{2}[A-Z]{2,3}-[0-9]{3})/i);
+       let courseCode = (coreCodeMatch ? coreCodeMatch[1] : rawId).toUpperCase();
+       
+       // Intelligent Subject Mappings to match Backend Index Names
+       if (rawName.includes('database') || rawName.includes('dbms') || courseCode.includes('25CSH-211') || courseCode.includes('25CSH211')) {
+          courseCode = 'DBMS';
+       } else if (rawName.includes('data structure') || rawName.includes('dsa') || rawName.includes('algorithm') || courseCode.includes('25CSH-209') || courseCode.includes('25CSH209')) {
+          courseCode = '25CSH-209';
+       } else if (rawName.includes('architecture') || rawName.includes('organization') || rawName.includes('coa') || courseCode.includes('25CST-208') || courseCode.includes('25CST208')) {
+          courseCode = '25CST-208';
+       } else if (rawName.includes('python') || rawName.includes('gui') || courseCode.includes('25CSH-214') || courseCode.includes('25CSH214')) {
+          courseCode = '25CSH-214';
+       } else if (rawName.includes('discrete') || rawName.includes('mathematics') || courseCode.includes('25MTT-202') || courseCode.includes('25MTT202')) {
+          courseCode = '25MTT-202';
+       } else if (rawName.includes('environmental') || rawName.includes('evs') || rawName.includes('ecology') || courseCode.includes('25UCT-201') || courseCode.includes('25UCT201')) {
+          courseCode = '25UCT-201';
+       }
+       
        const res = await fetch('https://studyos-ai-proxy.piyushkushwaha2520.workers.dev', {
           method: 'POST',
           headers: { 
@@ -129,7 +202,7 @@ export default function AITutorChatScreen() {
              'Pragma': 'no-cache',
              'Expires': '0'
           },
-          body: JSON.stringify({ action: 'list-files', courseCode: id?.toString() || '', _t: Date.now() })
+          body: JSON.stringify({ action: 'list-files', courseCode: courseCode, _t: Date.now() })
        });
        
        if (!res.ok) {
@@ -145,28 +218,21 @@ export default function AITutorChatScreen() {
        }
 
        if (data.success && data.data) {
-          const valuesArray = Object.values(data.data) as string[][];
-          let allFiles: string[] = [];
-          valuesArray.forEach(arr => {
-             if (Array.isArray(arr)) allFiles = allFiles.concat(arr);
-          });
-          const uniqueFiles = [...new Set(allFiles)].filter(Boolean);
-          const groupedByUnit: Record<string, string[]> = {
-             "Unit 1": [], "Unit 2": [], "Unit 3": [], "Unit 4": [], "Unit 5": [], "Other Files": []
-          };
+          // API already returns data grouped by unit keys like "25CSH-214 Unit 1"
+          // Just use the data directly — don't re-group into hardcoded Unit 1..5 buckets
+          const grouped: Record<string, string[]> = {};
           
-          uniqueFiles.forEach(file => {
-             if (!file) return;
-             // Look for patterns like "1.1", "topic 1.1", "2.1.4"
-             const match = file.match(/(?:topic\s*|-|^|\s|\b)([1-5])\.\d/i);
-             if (match) {
-                 groupedByUnit[`Unit ${match[1]}`].push(file);
-             } else {
-                 groupedByUnit["Other Files"].push(file);
+          Object.entries(data.data as Record<string, string[]>).forEach(([unitKey, files]) => {
+             if (!Array.isArray(files) || files.length === 0) return;
+             // Clean up the key to show a nicer label e.g. "25CSH-214 Unit 1" -> "Unit 1"
+             const cleanKey = unitKey.replace(/^[A-Z0-9_\-]+\s*/i, '').trim() || unitKey;
+             const uniqueFiles = [...new Set(files)].filter(f => f && f !== 'System Overview');
+             if (uniqueFiles.length > 0) {
+                grouped[cleanKey] = uniqueFiles;
              }
           });
           
-          setAvailableFiles(groupedByUnit);
+          setAvailableFiles(grouped);
        } else {
           setFetchError(data.error || "Unknown API Error");
        }
@@ -220,23 +286,62 @@ export default function AITutorChatScreen() {
     });
   };
 
+  const getModelInfo = (key: string, overrideId?: string) => {
+    if (key.startsWith('AIza') || key.startsWith('AQ.')) return { id: 'gemini', name: 'Gemini Flash', icon: '⚡', key };
+    if (key.startsWith('gsk_')) return { id: 'groq', name: 'Groq Llama 3.3', icon: '🔥', key };
+    if (key.startsWith('sk-ant-')) return { id: 'claude', name: 'Claude 3.5 Sonnet', icon: '🧠', key };
+    if (key.startsWith('sk-or-')) return { id: 'openrouter', name: 'Hermes 3 (Free)', icon: '🚀', key };
+    if (key.startsWith('nvapi-')) return { id: 'nvidia', name: 'Nvidia Llama', icon: '💻', key };
+    return { id: overrideId || 'openai', name: 'OpenAI GPT-4o', icon: '🤖', key };
+  };
+
   const loadApiKey = async () => {
-    let key = await SecureStore.getItemAsync('gemini_api_key');
-    if (!key) {
-      const oldKey = await AsyncStorage.getItem('gemini_api_key');
-      if (oldKey) {
-        key = oldKey;
-        await SecureStore.setItemAsync('gemini_api_key', oldKey);
-        await AsyncStorage.removeItem('gemini_api_key');
-      }
+    const geminiKey = await SecureStore.getItemAsync('byok_key_gemini') || await SecureStore.getItemAsync('gemini_api_key') || await AsyncStorage.getItem('gemini_api_key');
+    const groqKey = await SecureStore.getItemAsync('byok_key_groq');
+    const claudeKey = await SecureStore.getItemAsync('byok_key_claude');
+    const openRouterKey = await SecureStore.getItemAsync('byok_key_openrouter');
+    const openAiKey = await SecureStore.getItemAsync('byok_key_openai');
+    const nvidiaKey = await SecureStore.getItemAsync('byok_key_nvidia');
+
+    const loadedModels: ConnectedModel[] = [];
+    if (geminiKey && geminiKey.length > 10) {
+       const info = getModelInfo(geminiKey, 'gemini');
+       if (!loadedModels.some(m => m.id === info.id)) loadedModels.push(info);
     }
-    if (key) {
-      setApiKey(key);
-      setHasSavedKey(true);
-      setIsEditingKey(false);
+    if (groqKey && groqKey.length > 10) {
+       const info = getModelInfo(groqKey, 'groq');
+       if (!loadedModels.some(m => m.id === info.id)) loadedModels.push(info);
+    }
+    if (claudeKey && claudeKey.length > 10) {
+       const info = getModelInfo(claudeKey, 'claude');
+       if (!loadedModels.some(m => m.id === info.id)) loadedModels.push(info);
+    }
+    if (openRouterKey && openRouterKey.length > 10) {
+       const info = getModelInfo(openRouterKey, 'openrouter');
+       if (!loadedModels.some(m => m.id === info.id)) loadedModels.push(info);
+    }
+    if (openAiKey && openAiKey.length > 10) {
+       const info = getModelInfo(openAiKey, 'openai');
+       if (!loadedModels.some(m => m.id === info.id)) loadedModels.push(info);
+    }
+    if (nvidiaKey && nvidiaKey.length > 10) {
+       const info = getModelInfo(nvidiaKey, 'nvidia');
+       if (!loadedModels.some(m => m.id === info.id)) loadedModels.push(info);
+    }
+
+    setConnectedModels(loadedModels);
+
+    if (loadedModels.length > 0) {
+       setHasSavedKey(true);
+       setIsEditingKey(false);
+       const savedActive = await AsyncStorage.getItem('active_byok_provider');
+       const activeM = loadedModels.find(m => m.id === savedActive) || loadedModels[0];
+       setActiveProvider(activeM.id);
+       setApiKey(activeM.key);
     } else {
-      setHasSavedKey(false);
-      setIsEditingKey(true);
+       setHasSavedKey(false);
+       setIsEditingKey(true);
+       setShowSettings(true);
     }
   };
 
@@ -250,12 +355,10 @@ export default function AITutorChatScreen() {
     
     setIsValidatingKey(true);
     try {
-      if (key.startsWith('AIza')) {
-        // Gemini Validation
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+      if (key.startsWith('AIza') || key.startsWith('AQ.')) {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, { headers: { 'X-goog-api-key': key } });
         if (!res.ok) throw new Error('Invalid Gemini key');
       } else if (key.startsWith('sk-ant-')) {
-        // Anthropic Validation (POST to /messages with max_tokens: 1 to ensure key is fully active)
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
@@ -264,19 +367,15 @@ export default function AITutorChatScreen() {
         const data = await res.json();
         if (data.type === 'error') throw new Error(data.error.message);
       } else if (key.startsWith('gsk_')) {
-        // Groq Validation
-        const res = await fetch('https://api.groq.com/openai/v1/models', {
-          headers: { 'Authorization': `Bearer ${key}` }
-        });
+        const res = await fetch('https://api.groq.com/openai/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
         if (!res.ok) throw new Error('Invalid Groq key');
+      } else if (key.startsWith('sk-or-')) {
+        const res = await fetch('https://openrouter.ai/api/v1/auth/key', { headers: { 'Authorization': `Bearer ${key}` } });
+        if (!res.ok) throw new Error('Invalid OpenRouter / Hermes AI key');
       } else if (key.startsWith('sk-')) {
-        // OpenAI Validation
-        const res = await fetch('https://api.openai.com/v1/models', {
-          headers: { 'Authorization': `Bearer ${key}` }
-        });
+        const res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
         if (!res.ok) throw new Error('Invalid OpenAI key');
       } else if (key.startsWith('nvapi-')) {
-        // Nvidia Validation
         const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -284,12 +383,27 @@ export default function AITutorChatScreen() {
         });
         if (!res.ok) throw new Error('Invalid Nvidia key');
       } else {
-        throw new Error('Unsupported key format. Must start with AIza, sk-ant-, sk-, gsk_, or nvapi-');
+        throw new Error('Unsupported key format. Must start with sk-or-, AIza, sk-ant-, sk-, gsk_, or nvapi-');
       }
       
-      await SecureStore.setItemAsync('gemini_api_key', key);
-      setHasSavedKey(true);
-      setIsEditingKey(false);
+      const info = getModelInfo(key);
+      if (info.id === 'gemini') {
+         await SecureStore.setItemAsync('byok_key_gemini', key);
+         await SecureStore.setItemAsync('gemini_api_key', key);
+      } else if (info.id === 'groq') {
+         await SecureStore.setItemAsync('byok_key_groq', key);
+      } else if (info.id === 'claude') {
+         await SecureStore.setItemAsync('byok_key_claude', key);
+      } else if (info.id === 'openrouter') {
+         await SecureStore.setItemAsync('byok_key_openrouter', key);
+      } else if (info.id === 'nvidia') {
+         await SecureStore.setItemAsync('byok_key_nvidia', key);
+      } else {
+         await SecureStore.setItemAsync('byok_key_openai', key);
+      }
+
+      await AsyncStorage.setItem('active_byok_provider', info.id);
+      await loadApiKey();
       setShowSettings(false);
     } catch (e: any) {
       console.error("[API Key Validation Failed]:", e.message);
@@ -301,14 +415,50 @@ export default function AITutorChatScreen() {
   };
 
   const removeApiKey = async () => {
-    await SecureStore.deleteItemAsync('gemini_api_key');
-    setApiKey('');
-    setHasSavedKey(false);
-    setIsEditingKey(true);
+    if (activeProvider === 'gemini') {
+       await SecureStore.deleteItemAsync('byok_key_gemini');
+       await SecureStore.deleteItemAsync('gemini_api_key');
+       await AsyncStorage.removeItem('gemini_api_key');
+    } else if (activeProvider === 'groq') {
+       await SecureStore.deleteItemAsync('byok_key_groq');
+    } else if (activeProvider === 'claude') {
+       await SecureStore.deleteItemAsync('byok_key_claude');
+    } else if (activeProvider === 'openrouter') {
+       await SecureStore.deleteItemAsync('byok_key_openrouter');
+    } else if (activeProvider === 'openai') {
+       await SecureStore.deleteItemAsync('byok_key_openai');
+    } else if (activeProvider === 'nvidia') {
+       await SecureStore.deleteItemAsync('byok_key_nvidia');
+    }
+    await loadApiKey();
   };
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearSuccess, setClearSuccess] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showSettings) {
+        if (!hasSavedKey) {
+          router.navigate('/(app)/studyos' as any);
+          return true;
+        }
+        setShowSettings(false);
+        return true;
+      }
+      if (showHistoryModal || showFileModal || showClearConfirm || showModelSwitcherModal) {
+        setShowHistoryModal(false);
+        setShowFileModal(false);
+        setShowClearConfirm(false);
+        setShowModelSwitcherModal(false);
+        return true;
+      }
+      router.navigate('/(app)/studyos' as any);
+      return true;
+    });
+    return () => sub.remove();
+  }, [showSettings, showHistoryModal, showFileModal, showClearConfirm, showModelSwitcherModal, router]);
 
   const clearAllChats = async () => {
     try {
@@ -349,11 +499,12 @@ export default function AITutorChatScreen() {
 
     let currentText = inputText.trim();
     if (selectedFiles.length > 0) {
-       currentText += `\n\n[USER INSTRUCTION: ONLY focus your answer strictly on the following files: ${selectedFiles.join('|||')}. Do not use general knowledge unless asked.]`;
+       currentText += `\n\n[TOPIC FOCUS: ${selectedFiles.join('|||')}]. Please explain this subject comprehensively using the course syllabus and educational concepts. Even if specific extracts are not attached, provide a complete, exam-focused professor explanation of this topic.`;
     }
 
     const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text: currentText };
     setInputText('');
+    setInputHeight(44);
     setIsTyping(true);
     setSelectedFiles([]);
     
@@ -385,10 +536,10 @@ export default function AITutorChatScreen() {
       history.push({ role: 'user', parts: [{ text: newUserMsg.text }] });
 
       const learningProfile = await AsyncStorage.getItem('ai_learning_profile') || undefined;
-      const aiText = await generateAiResponse(history, syllabusText, name as string, id as string, learningProfile);
+      const aiText = await generateAiResponse(history, syllabusText, name as string, id as string, learningProfile, activeProvider);
 
       // Trigger self-learning in the background
-      if (!apiKey) {
+      if (apiKey) {
          const fullHistory = [...history, { role: 'model' as const, parts: [{ text: aiText }] }];
          reflectAndLearn(fullHistory, learningProfile || "").then(newProfile => {
              if (newProfile && newProfile.length > 5) {
@@ -413,13 +564,11 @@ export default function AITutorChatScreen() {
       console.error("Gemini API Error:", error);
       let errMsg = "Failed to get a response. Please check your internet connection.";
       
-      if (error.message?.includes('DAILY_LIMIT_REACHED')) {
-         errMsg = "You have reached your free daily limit for the shared AI pool. Please wait until tomorrow, or tap the Settings gear icon at the top right to enter your own free Gemini API Key for unlimited access!";
-      } else if (error.message?.includes('NO_POOL_KEYS') || error.message?.includes('PROXY_ERROR')) {
-         errMsg = "The shared AI servers are currently busy or unavailable. Please tap the Settings gear icon at the top right to enter your own free Gemini API Key.";
+      if (error.message?.includes('DAILY_LIMIT_REACHED') || error.message?.includes('NO_PERSONAL_KEY')) {
+         errMsg = "To chat with your AI Tutor without limits, please save your free personal API Key!";
          setShowSettings(true);
-      } else if (error.message?.includes('NO_PROXY_URL')) {
-         errMsg = "Backend proxy is not configured yet. Please enter your Personal API Key in settings.";
+      } else if (error.message?.includes('NO_POOL_KEYS') || error.message?.includes('PROXY_ERROR') || error.message?.includes('NO_PROXY_URL')) {
+         errMsg = "Please tap the Settings gear icon at the top right to enter your own free API Key.";
          setShowSettings(true);
       }
       
@@ -439,7 +588,7 @@ export default function AITutorChatScreen() {
     }
   };
 
-  const styles = StyleSheet.create({
+  const styles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, padding: 20 },
     setupContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, padding: 24 },
@@ -458,20 +607,20 @@ export default function AITutorChatScreen() {
     userText: { color: 'white', fontFamily: 'Inter_400Regular', fontSize: 15 },
     
     inputArea: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'flex-end' },
-    chatInput: { flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, minHeight: 40, maxHeight: 100, color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15 },
+    chatInput: { flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, textAlignVertical: 'top', lineHeight: 20 },
     historyButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, justifyContent: 'center', alignItems: 'center', marginRight: 8, alignSelf: 'flex-end' },
     sendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center', marginLeft: 8, alignSelf: 'flex-end' },
     sendButtonDisabled: { backgroundColor: colors.border },
     
     // Modal Mechanics styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-    modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '60%' },
+    modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: (insets.bottom || 20) + 70, maxHeight: '75%' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
     modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
     modalOption: { paddingVertical: 16, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.border },
     modalOptionText: { color: '#d1d5db', fontSize: 15, fontFamily: 'Inter_500Medium' },
     modalOptionTextSelected: { color: colors.primary, fontFamily: 'Inter_700Bold' },
-  });
+  }), [colors]);
 
   const markdownStyles = {
     body: { color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 22 },
@@ -493,37 +642,66 @@ export default function AITutorChatScreen() {
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
             <Ionicons name="key" size={24} color={colors.primary} />
           </View>
-          <Text style={styles.title}>Personal API Key</Text>
-          <Text style={styles.subtitle}>Enter your own API Key (Gemini, Claude, OpenAI, or Groq) for unlimited, fast responses. Leave blank to use the shared pool.</Text>
+          <Text style={styles.title}>Setup AI Tutor (BYOK)</Text>
+          <Text style={styles.subtitle}>To get unlimited daily tutoring without server rate limits, paste your free personal API Key below.</Text>
+          
+          {(!hasSavedKey || isEditingKey) && (
+              <View style={{ width: '100%', marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity 
+                    style={{ flex: 1, backgroundColor: colors.primary + '20', borderWidth: 1, borderColor: colors.primary, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' }}
+                    onPress={() => Linking.openURL('https://aistudio.google.com/app/apikey')}
+                  >
+                    <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>⚡ Free Gemini Key</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={{ flex: 1, backgroundColor: '#f59e0b20', borderWidth: 1, borderColor: '#f59e0b', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' }}
+                    onPress={() => Linking.openURL('https://console.groq.com/keys')}
+                  >
+                    <Text style={{ color: '#f59e0b', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>🔥 Free Groq Key</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+          )}
           
           {hasSavedKey && !isEditingKey ? (
              <View style={{ width: '100%' }}>
                 <View style={{ backgroundColor: colors.background, padding: 16, borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <Ionicons name="lock-closed" size={16} color={colors.success} style={{ marginRight: 8 }} />
-                      <Text style={{ color: colors.text, fontFamily: 'JetBrainsMono_400Regular' }}>{apiKey.substring(0, 8)}••••••••••</Text>
+                      <Text style={{ color: colors.text, fontFamily: 'JetBrainsMono_400Regular' }}>{(apiKey || '').substring(0, 8)}••••••••••</Text>
                    </View>
                    <View style={{ backgroundColor: colors.success + '20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
                       <Text style={{ color: colors.success, fontSize: 10, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>
-                         {apiKey.startsWith('AIza') ? 'Gemini' : apiKey.startsWith('sk-ant-') ? 'Claude' : apiKey.startsWith('gsk_') ? 'Groq' : apiKey.startsWith('nvapi-') ? 'Nvidia' : apiKey.startsWith('sk-') ? 'OpenAI' : 'Valid'}
+                         {(apiKey || '').startsWith('AIza') || (apiKey || '').startsWith('AQ.') ? 'Gemini Flash' : (apiKey || '').startsWith('sk-ant-') ? 'Claude 3.5' : (apiKey || '').startsWith('gsk_') ? 'Groq Llama 3.3' : (apiKey || '').startsWith('nvapi-') ? 'Nvidia' : (apiKey || '').startsWith('sk-or-') ? 'Hermes 3 (Free)' : (apiKey || '').startsWith('sk-') ? 'OpenAI GPT-4o' : 'Valid Key'}
                       </Text>
                    </View>
                 </View>
-                <TouchableOpacity style={styles.button} onPress={() => setIsEditingKey(true)}>
-                   <Text style={styles.buttonText}>Change API Key</Text>
+
+                <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]} onPress={() => setIsEditingKey(true)}>
+                   <Text style={[styles.buttonText, { color: colors.text }]}>Change API Key</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.error, marginTop: 12 }]} onPress={removeApiKey}>
                    <Text style={[styles.buttonText, { color: colors.error }]}>Remove API Key</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.button, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginTop: 12 }]} onPress={() => setShowSettings(false)}>
-                   <Text style={[styles.buttonText, { color: colors.text }]}>Back to Chat</Text>
+
+                <TouchableOpacity 
+                  style={[styles.button, { backgroundColor: colors.primary, marginTop: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]} 
+                  onPress={() => { setShowSettings(false); setShowHistoryModal(true); }}
+                >
+                   <Ionicons name="chatbubbles-outline" size={18} color="white" />
+                   <Text style={styles.buttonText}>Chat History</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', marginTop: 12 }]} onPress={() => setShowSettings(false)}>
+                   <Text style={[styles.buttonText, { color: colors.textDim }]}>Back to Chat</Text>
                 </TouchableOpacity>
              </View>
           ) : (
              <View style={{ width: '100%' }}>
                 <TextInput 
                   style={[styles.input, keyError ? { borderColor: colors.error } : null]}
-                  placeholder="Paste your API Key here (Gemini, Claude, etc)"
+                  placeholder="Paste sk-or-... (Free Hermes AI), Gemini, Groq..."
                   placeholderTextColor={colors.textMuted}
                   value={apiKey}
                   onChangeText={(txt) => { setApiKey(txt); setKeyError(''); }}
@@ -537,18 +715,20 @@ export default function AITutorChatScreen() {
                    {isValidatingKey ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Save Key</Text>}
                 </TouchableOpacity>
                 
-                <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', marginTop: 12 }]} onPress={() => { setIsEditingKey(false); if(!hasSavedKey) setShowSettings(false); }}>
-                   <Text style={[styles.buttonText, { color: colors.text }]}>Cancel</Text>
+                <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', marginTop: 12 }]} onPress={() => { 
+                   if (!hasSavedKey || connectedModels.length === 0) {
+                      router.navigate('/(app)/studyos' as any);
+                   } else {
+                      const activeM = connectedModels.find(m => m.id === activeProvider) || connectedModels[0];
+                      if (activeM) setApiKey(activeM.key);
+                      setIsEditingKey(false);
+                      setShowSettings(false);
+                   }
+                }}>
+                   <Text style={[styles.buttonText, { color: colors.text }]}>{!hasSavedKey ? 'Exit to Dashboard' : 'Cancel'}</Text>
                 </TouchableOpacity>
              </View>
           )}
-          
-          <TouchableOpacity 
-            style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.error, marginTop: 16 }]} 
-            onPress={() => setShowClearConfirm(true)}
-          >
-             <Text style={[styles.buttonText, { color: colors.error }]}>Delete All Chat History</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Confirmation Modal */}
@@ -589,19 +769,51 @@ export default function AITutorChatScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ 
-          title: "AI Tutor", 
-          headerShadowVisible: false, 
-          headerStyle: { backgroundColor: colors.background },
-          headerRight: () => (
-             <TouchableOpacity onPress={() => setShowSettings(true)}>
-                <Ionicons name="settings-outline" size={22} color={colors.text} />
-             </TouchableOpacity>
-          )
-      }} />
+      <Stack.Screen options={{ headerShown: false }} />
       
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={kbOffset}>
         
+        {/* Clean Fixed Top Controls Bar (No Tile, No Text Overlap) */}
+        <View style={{ 
+          flexDirection: 'row', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          paddingHorizontal: 16, 
+          paddingVertical: 10, 
+          backgroundColor: colors.background,
+          zIndex: 10
+        }}>
+          {/* Left: Back to LMS */}
+          <TouchableOpacity
+            style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface + '80', justifyContent: 'center', alignItems: 'center' }}
+            onPress={() => router.navigate('/(app)/studyos' as any)}
+          >
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+
+          {/* Right: Active Model Selector & Settings */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {hasSavedKey && (
+              <TouchableOpacity 
+                style={{ backgroundColor: colors.primary + '15', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18, borderWidth: 1, borderColor: colors.primary + '40', flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                onPress={() => setShowModelSwitcherModal(true)}
+              >
+                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold' }}>
+                  {connectedModels.find(m => m.id === activeProvider)?.icon || '⚡'} {connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color={colors.primary} />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface + '80', justifyContent: 'center', alignItems: 'center' }}
+              onPress={() => setShowSettings(true)}
+            >
+              <Ionicons name="settings-outline" size={20} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <ScrollView 
           style={styles.chatContainer} 
           contentContainerStyle={styles.messagesList}
@@ -618,12 +830,11 @@ export default function AITutorChatScreen() {
                        {hiddenFiles.length > 0 && (
                           <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
                              {hiddenFiles.map((f, i) => {
-                                const match = f.match(/(?:topic\s*|-|^|\s|\b)(\d+(?:\.\d+)*)/i);
-                                const displayName = match ? `Topic ${match[1]}` : (f.length > 25 ? f.substring(0, 25) + '...' : f);
+                                const displayName = f.trim().split('/').pop() || f;
                                 return (
-                                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                      <Ionicons name="document-text" size={14} color="rgba(255,255,255,0.8)" style={{ marginRight: 6 }} />
-                                      <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'Inter_500Medium' }}>{displayName}</Text>
+                                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                                      <Ionicons name="document-attach" size={15} color="rgba(255,255,255,0.9)" style={{ marginRight: 6 }} />
+                                      <Text style={{ color: 'rgba(255,255,255,0.95)', fontSize: 13, fontFamily: 'Inter_600SemiBold', flex: 1 }} numberOfLines={2}>{displayName}</Text>
                                    </View>
                                 );
                              })}
@@ -647,20 +858,6 @@ export default function AITutorChatScreen() {
         <View style={styles.inputArea}>
            <TouchableOpacity 
              style={[styles.historyButton, { marginRight: 8 }]} 
-             onPress={() => setShowSettings(true)}
-           >
-              <Ionicons name="settings-outline" size={20} color={colors.text} />
-           </TouchableOpacity>
-
-           <TouchableOpacity 
-             style={[styles.historyButton, { marginRight: 8 }]} 
-             onPress={() => setShowHistoryModal(true)}
-           >
-              <Ionicons name="chatbubbles-outline" size={20} color={colors.text} />
-           </TouchableOpacity>
-
-           <TouchableOpacity 
-             style={[styles.historyButton, { marginRight: 8 }]} 
              onPress={() => {
                 setShowFileModal(true);
                 const totalFiles = Object.values(availableFiles).flat().length;
@@ -679,17 +876,22 @@ export default function AITutorChatScreen() {
               </View>
            </TouchableOpacity>
 
-           <View style={{ flex: 1 }}>
-               <TextInput 
-                  style={[styles.chatInput, { marginBottom: 0 }]}
-                  placeholder="Ask about a topic..."
-                  placeholderTextColor={colors.textMuted}
-                  value={inputText}
-                  onChangeText={setInputText}
-                  multiline
-                  maxLength={1000}
-               />
-           </View>
+            <AnimatedTextInput 
+               style={[styles.chatInput, { height: animatedHeight }]}
+               placeholder="Ask about a topic..."
+               placeholderTextColor={colors.textMuted}
+               value={inputText}
+               onChangeText={setInputText}
+               multiline={true}
+               scrollEnabled={true}
+               textAlignVertical="top"
+               maxLength={1000}
+               onContentSizeChange={(e) => {
+                 if (!inputText) return;
+                 const h = e.nativeEvent.contentSize.height;
+                 setInputHeight(Math.min(Math.max(h, 44), 104));
+               }}
+            />
            <TouchableOpacity 
              style={[styles.sendButton, (!inputText.trim() || isTyping) && styles.sendButtonDisabled]} 
              onPress={sendMessage}
@@ -802,16 +1004,78 @@ export default function AITutorChatScreen() {
               
               {sessions.length < 5 && (
                 <TouchableOpacity 
-                  style={[styles.modalOption, { borderBottomWidth: 0, marginTop: 8 }]} 
+                  style={[styles.modalOption, { borderBottomWidth: 0, marginTop: 12, paddingVertical: 14, backgroundColor: colors.primary + '15', borderRadius: 12, alignItems: 'center' }]} 
                   onPress={() => createNewSession()}
                 >
-                   <Text style={{ color: colors.primary, fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>+ Create New Chat</Text>
+                   <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>+ Create New Chat</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
           </View>
         </View>
       </Modal>
+
+      {/* Connected Models Switcher Modal */}
+      <Modal visible={showModelSwitcherModal} animationType="fade" transparent={true} onRequestClose={() => setShowModelSwitcherModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '70%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>⚡ Connected AI Models</Text>
+              <TouchableOpacity onPress={() => setShowModelSwitcherModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: 13, marginBottom: 16, fontFamily: 'Inter_400Regular' }}>
+               Switch instantly between your connected BYOK AI models, or connect additional keys:
+            </Text>
+            
+            <ScrollView showsVerticalScrollIndicator={false}>
+               {connectedModels.map((model) => (
+                 <TouchableOpacity
+                    key={model.id}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                    onPress={() => {
+                       setActiveProvider(model.id);
+                       setApiKey(model.key);
+                       AsyncStorage.setItem('active_byok_provider', model.id);
+                       setShowModelSwitcherModal(false);
+                    }}
+                 >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                       <Text style={{ fontSize: 20 }}>{model.icon}</Text>
+                       <View>
+                          <Text style={{ color: activeProvider === model.id ? colors.primary : colors.text, fontSize: 16, fontFamily: activeProvider === model.id ? 'SpaceGrotesk_700Bold' : 'Inter_500Medium' }}>
+                             {model.name}
+                          </Text>
+                          <Text style={{ color: colors.success, fontSize: 11, fontFamily: 'Inter_600SemiBold', marginTop: 2, textTransform: 'uppercase' }}>
+                             Active BYOK Key ({model.key.substring(0, 6)}•••)
+                          </Text>
+                       </View>
+                    </View>
+                    <Ionicons name={activeProvider === model.id ? "radio-button-on" : "radio-button-off"} size={22} color={activeProvider === model.id ? colors.primary : colors.textDim} />
+                 </TouchableOpacity>
+               ))}
+
+               <TouchableOpacity 
+                 style={{ marginTop: 20, paddingVertical: 14, backgroundColor: colors.primary + '15', borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.primary + '40', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                 onPress={() => {
+                    setShowModelSwitcherModal(false);
+                    setTimeout(() => {
+                       setIsEditingKey(true);
+                       setApiKey('');
+                       setKeyError('');
+                       setShowSettings(true);
+                    }, 300);
+                 }}
+               >
+                 <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+                 <Text style={{ color: colors.primary, fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold' }}>+ Connect Another AI Model</Text>
+               </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
