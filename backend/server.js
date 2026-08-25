@@ -533,16 +533,21 @@ app.get('/api/notifications', getClerkId, async (req, res) => {
 // Create a new notification (CR only)
 app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
   try {
-    const { title, message, expiresAt } = req.body;
+    const { title, message, expiresAt, section_code } = req.body;
     if (!title || !message || !expiresAt) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const finalSection = section_code || req.crUser.section_code;
+    if (!finalSection) {
+      return res.status(400).json({ error: 'Section code is missing. Please sync your profile.' });
     }
 
     const notification = new Notification({
       title,
       message,
       created_by: req.clerkUserId,
-      section_code: req.crUser.section_code,
+      section_code: finalSection,
       expiresAt: new Date(expiresAt)
     });
 
