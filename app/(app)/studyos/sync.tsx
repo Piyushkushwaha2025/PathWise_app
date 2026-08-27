@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useRouter } from 'expo-router';
@@ -172,54 +172,163 @@ const SCRAPE_STEPS = [
     `
   },
   {
+    id: 'timetable',
+    url: 'https://student.culko.in/frmMyTimeTable.aspx',
+    msg: 'Extracting Timetable...',
+    script: `
+      try {
+        var timetable = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] };
+        var daysMap = [null, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        
+        // Send debug HTML first so we can diagnose selector mismatches
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'DEBUG_HTML', step: 'timetable',
+          htmlSnippet: document.body.innerHTML.substring(0, 6000)
+        }));
+
+        // Try multiple selectors — portal HTML may differ across sessions
+        var tableSelectors = [
+          '#ContentPlaceHolder1_grdMain tr',
+          'table[id*="grdMain"] tr',
+          'table[id*="TimeTable"] tr',
+          'table[id*="tblTimeTable"] tr',
+          '.table-responsive table tr',
+          'table.GridView tr',
+          'table tr'
+        ];
+        
+        var rows = [];
+        for (var s = 0; s < tableSelectors.length; s++) {
+          var found = document.querySelectorAll(tableSelectors[s]);
+          if (found.length > 2) { rows = Array.from(found); break; }
+        }
+        
+        for (var i = 1; i < rows.length; i++) {
+          var cells = rows[i].querySelectorAll('td');
+          if (cells.length >= 7) {
+            var time = cells[0].innerText.trim();
+            for (var j = 1; j < cells.length && j < daysMap.length; j++) {
+               var text = cells[j].innerText.trim();
+               if (text && text.length > 3 && text !== '\u00a0' && text !== '-') {
+                 var parts = text.split(/\bBy\b/);
+                 var leftPart = parts[0];
+                 var rightPart = parts[1] || '';
+                 
+                 var leftSplit = leftPart.split(':');
+                 var subjectName = leftSplit[0] ? leftSplit[0].trim() : '';
+                 if (leftSplit[1] && leftSplit[1].trim() === 'P') subjectName += ' (Lab)';
+                 var group = leftSplit[3] ? leftSplit[3].trim() : '';
+                 
+                 var rightSplit = rightPart.split(/\bat\b/);
+                 var teacher = rightSplit[0] ? rightSplit[0].trim() : '';
+                 var room = rightSplit[1] ? rightSplit[1].trim() : '';
+                 
+                 if (daysMap[j] && timetable[daysMap[j]]) {
+                    timetable[daysMap[j]].push({
+                       subjectName: subjectName,
+                       teacher: teacher,
+                       time: time,
+                       room: room,
+                       group: group
+                    });
+                 }
+               }
+            }
+          }
+        }
+        
+        // Try to detect section from page heading (e.g. "25BCS-3")
+        var detectedSection = '';
+        var headings = document.querySelectorAll('h1, h2, h3, h4, label, span, td');
+        for (var h = 0; h < headings.length; h++) {
+          var ht = headings[h].innerText || '';
+          var m = ht.match(/\\b(\\d{2}[A-Z]{2,5}-[A-Z]{0,6}-?\\d{1,2})\\b/);
+          if (m) { detectedSection = m[1]; break; }
+        }
+        
+        var hasClasses = Object.values(timetable).some(function(arr) { return arr.length > 0; });
+        if (!hasClasses) throw new Error('No classes found in any table');
+        
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: timetable, section: detectedSection }));
+      } catch(e) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: null, error: e.message }));
+      }
+      true;
+    `
+  },
+  {
     id: 'attendance',
     url: 'https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx?type=etgkYfqBdH1fSfc255iYGw==',
     msg: 'Extracting Attendance...',
     script: `
-      try {
-        var debugHtml = document.body.innerHTML;
-        var tablesHtml = Array.from(document.querySelectorAll('table')).map(t => t.outerHTML).join('\\n---TAB---\\n');
-        
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'DEBUG_HTML',
-          step: 'attendance',
-          htmlSnippet: tablesHtml.substring(0, 5000)
-        }));
-
-        var attendanceData = {};
-        var rows = document.querySelectorAll('table tr');
-        for (var i = 1; i < rows.length; i++) {
-          var cells = rows[i].querySelectorAll('td');
-          if (cells.length >= 4) {
-             var textArr = Array.from(cells).map(c => c.innerText.trim());
-             var code = textArr.find(t => /^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(t));
-             var altName = textArr[0] || '';
-             var altName2 = textArr[1] || '';
-             
-             var numArr = [];
-             for(var j=0; j<textArr.length; j++) {
-                var clean = textArr[j].replace('%', '').trim();
-                if(clean !== '' && !isNaN(Number(clean))) {
-                   numArr.push(Number(clean));
+      (function waitForData() {
+        try {
+          var attendanceData = {};
+          
+          // Portal renders attendance via AJAX — wait up to 8s for tbody to fill
+          var maxWait = 8000;
+          var interval = 500;
+          var elapsed = 0;
+          
+          var tryParse = function() {
+            // From debug logs: table id="SortTable", columns:
+            // 0=Course Code, 1=Title, 2=Total Delv, 3=Total Attd, 
+            // 4=IDL, 5=ADL, 6=VDL, 7=Medical Leave,
+            // 8=Eligible Delivered, 9=Eligible Attended, 10=Eligible Percentage, 11=View
+            var rows = document.querySelectorAll('#SortTable tbody tr');
+            
+            if (rows.length === 0 && elapsed < maxWait) {
+              elapsed += interval;
+              setTimeout(tryParse, interval);
+              return;
+            }
+            
+            for (var i = 0; i < rows.length; i++) {
+              var cells = rows[i].querySelectorAll('td');
+              if (cells.length < 10) continue;
+              
+              var code = cells[0].innerText.trim();
+              var title = cells[1].innerText.trim();
+              var eligDelivered = parseFloat(cells[8].innerText.trim()) || 0;
+              var eligAttended = parseFloat(cells[9].innerText.trim()) || 0;
+              var eligPercText = cells[10].innerText.trim().replace('%','');
+              var eligPerc = parseFloat(eligPercText) || 0;
+              
+              // Fallback to raw total/attended if eligible columns are 0
+              var totalDelv = parseFloat(cells[2].innerText.trim()) || 0;
+              var totalAttd = parseFloat(cells[3].innerText.trim()) || 0;
+              
+              var finalTotal = eligDelivered > 0 ? eligDelivered : totalDelv;
+              var finalAttended = eligAttended > 0 ? eligAttended : totalAttd;
+              var finalPerc = eligPerc > 0 ? eligPerc : (finalTotal > 0 ? Math.round((finalAttended/finalTotal)*100) : 0);
+              
+              // Try to get viewActionTarget from "View Attendance" button
+              var viewActionTarget = '';
+              if (cells[11]) {
+                var btn = cells[11].querySelector('input[type="submit"], button, a');
+                if (btn) {
+                  viewActionTarget = btn.name || btn.id || '';
+                  if (!viewActionTarget) {
+                    var oc = btn.getAttribute('onclick') || btn.href || '';
+                    var m = oc.match(/__doPostBack\\('([^']+)'/);
+                    if (m) viewActionTarget = m[1];
+                  }
                 }
-             }
-             
-             if (numArr.length >= 2) {
-                var percentage = numArr[numArr.length - 1];
-                var attended = numArr[numArr.length - 2] || 0;
-                var total = numArr[numArr.length - 3] || 0;
-                
-                var dataObj = { total: total, attended: attended, percentage: percentage };
-                if (code) attendanceData[code] = dataObj;
-                if (altName) attendanceData[altName] = dataObj;
-                if (altName2) attendanceData[altName2] = dataObj;
-             }
-          }
+              }
+              
+              var dataObj = { total: finalTotal, attended: finalAttended, percentage: finalPerc, viewActionTarget: viewActionTarget };
+              if (code) attendanceData[code] = dataObj;
+              if (title) attendanceData[title] = dataObj;
+            }
+            
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'attendance', data: attendanceData }));
+          };
+          
+          tryParse();
+        } catch(e) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'attendance', data: {} }));
         }
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'attendance', data: attendanceData }));
-      } catch(e) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'attendance', data: {} }));
-      }
+      })();
       true;
     `
   },
@@ -288,27 +397,155 @@ export default function SyncScreen() {
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [scrapedDataState, setScrapedDataState] = useState<any>({});
-  
+
   const currentStep = SCRAPE_STEPS[currentStepIndex];
 
+  // Refs mirror state so async callbacks / the safety timeout read fresh values
+  const scrapedDataRef = useRef<any>({});
+  const cookieRef = useRef<string>('');
+  const finishedRef = useRef(false);
+
+  const finalizeSync = async () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+
+    const existing = useStudyOSStore.getState();
+    const newData = scrapedDataRef.current;
+    const subjList = newData.subjects?.list || [];
+
+    // Detect section from multiple sources, best to worst
+    const section =
+      newData.subjects?.section ||          // scraper found it in subjects page
+      newData.timetable?.section ||          // scraper found it in timetable page (new field)
+      existing.profile?.section ||           // already stored from previous sync
+      (() => {
+        // Derive section from subject codes (e.g. "25BCS-3-CSE101" → "25BCS-3")
+        const codes: string[] = (subjList.length > 0 ? subjList : existing.subjects || [])
+          .map((s: any) => s.code || '');
+        for (const code of codes) {
+          const m = code.match(/^(\d{2}[A-Z]{2,5}-[A-Z]{0,6}-?\d{1,2})/);
+          if (m) return m[1];
+        }
+        return '';
+      })();
+
+    // If a step returned nothing (dead/unreachable link), fall back to whatever
+    // is already synced so we never wipe good data with an empty result.
+    const baseSubjects = subjList.length > 0 ? subjList : existing.subjects;
+
+    const updatedSubjects = (baseSubjects || []).map((subj: any) => {
+      let att = newData.attendance?.[subj.code];
+      if (!att && subj.code) {
+        const cleanCode = subj.code.replace(/^[A-Z]+_/, '').trim();
+        att = newData.attendance?.[cleanCode];
+        if (!att) {
+          const matchingKey = Object.keys(newData.attendance || {}).find(k => subj.code.includes(k) || k.includes(cleanCode));
+          if (matchingKey) att = newData.attendance[matchingKey];
+        }
+      }
+      if (att) {
+        return { ...subj, attendancePercentage: att.percentage, attendedClasses: att.attended, totalClasses: att.total };
+      }
+      return subj;
+    });
+
+    if (newData.profile) newData.profile.section = section;
+
+    const hasValidTimetable = (tt: any) => {
+      if (!tt) return false;
+      return Object.values(tt).some((day: any) => Array.isArray(day) && day.length > 0);
+    };
+
+    // Exact section match, then prefix match (e.g. "25BCS-3" → "25BCS-3"), then first available
+    const findBestTimetableSection = (sec: string) => {
+      const keys = Object.keys(timetableData as any);
+      if (!sec) return '';
+      if ((timetableData as any)[sec]) return sec;
+      // Try prefix match
+      const prefix = sec.replace(/-\d+$/, '');
+      const prefixMatch = keys.find(k => k.startsWith(prefix));
+      if (prefixMatch) return prefixMatch;
+      return '';
+    };
+
+    let finalTimetable: any = {};
+    if (hasValidTimetable(newData.timetable)) {
+      finalTimetable = newData.timetable;
+    } else if (hasValidTimetable(existing.timetable) && !(existing.timetable as any)?.isStaticJSONFallback) {
+      finalTimetable = existing.timetable;
+    } else {
+      const bestSection = findBestTimetableSection(section);
+      if (bestSection && (timetableData as any)[bestSection]) {
+        finalTimetable = { ...(timetableData as any)[bestSection], isStaticJSONFallback: true };
+      }
+    }
+
+    await setScrapedData({
+      profile: newData.profile || existing.profile,
+      subjects: updatedSubjects,
+      timetable: finalTimetable,
+      marks: (newData.marks && newData.marks.length) ? newData.marks : existing.marks,
+      isScrapedDataLoaded: true
+    });
+
+    if (userId && section) {
+      syncUserWithDB(userId, section, newData.profile?.uid)
+        .catch(e => console.error('Failed to sync section to DB', e));
+    }
+
+    await setSession('cu', 'culko-scraped', 0);
+
+    // Persist the freshest cookies we captured — never overwrite with empty,
+    // otherwise AutoSync / detail views lose the session (ponytail: this was
+    // the cookie-wipe bug; keep one source of truth in `culko_cookies`).
+    if (cookieRef.current) {
+      await SecureStore.setItemAsync('culko_cookies', cookieRef.current).catch(() => {});
+    }
+
+    router.replace('/(app)/studyos/dashboard');
+  };
+
   const handleNavigationStateChange = (navState: WebViewNavigation) => {
-    if (!navState.loading && navState.url.includes(currentStep.url.split('?')[0])) {
-      // Inject script shortly after page is fully loaded
+    if (!navState.loading) {
+      const step = SCRAPE_STEPS[stepIndexRef.current];
+      if (!step) return;
+
+      // Inject saved session cookies FIRST for ALL steps to prevent redirects
+      // to login/error pages on Android WebViews losing session context.
+      let cookieInject = '';
+      if (cookieRef.current) {
+        const parts = cookieRef.current.split(';').map((c: string) => c.trim()).filter(Boolean);
+        cookieInject = parts.map((c: string) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
+      }
+
+      if (cookieInject) {
+        webViewRef.current?.injectJavaScript(cookieInject + '\ntrue;');
+      }
+
+      // For attendance, wait 2s for AJAX data to populate. For others, 100ms is enough.
+      const delay = step.id === 'attendance' ? 2000 : 100;
+
       setTimeout(() => {
-        // Run cookie capture and scrape script simultaneously to save time
-        const combinedScript = `
+        const captureAndScrape = `
           (function() {
             try {
               var c = document.cookie;
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOKIES', data: c }));
             } catch(e) {}
           })();
-          ${currentStep.script}
+          ${step.script}
         `;
-        webViewRef.current?.injectJavaScript(combinedScript);
-      }, 100); // Drastically reduced delay since ASP.NET WebForms render on server
+        webViewRef.current?.injectJavaScript(captureAndScrape);
+      }, delay);
     }
   };
+
+  const stepIndexRef = useRef(0);
+
+  // Keep ref in sync with state so async callbacks always see the latest index
+  useEffect(() => {
+    stepIndexRef.current = currentStepIndex;
+  }, [currentStepIndex]);
 
   const handleMessage = async (event: any) => {
     try {
@@ -316,77 +553,47 @@ export default function SyncScreen() {
       if (data.type === 'COOKIES') {
         // Save latest cookies whenever we get them
         if (data.data) {
-          SecureStore.setItemAsync('culko_cookies', data.data).catch(() => {});
+          cookieRef.current = data.data;
+          await SecureStore.setItemAsync('culko_cookies', data.data).catch(() => {});
         }
       } else if (data.type === 'DEBUG_HTML') {
         console.log('========= DEBUG HTML FOR STEP:', data.step, '=========');
         console.log(JSON.stringify(data, null, 2));
-      } else if (data.type === 'SCRAPE_RESULT' && data.step === currentStep.id) {
-        console.log('Scraped data for', data.step, data.data);
-        const newData = { ...scrapedDataState, [data.step]: data.data };
+      } else if (data.type === 'SCRAPE_RESULT') {
+        const expectedStep = SCRAPE_STEPS[stepIndexRef.current];
+        // Accept if step matches, or if it's a forced skip (same step id sent by timeout/error)
+        if (!expectedStep || data.step !== expectedStep.id) {
+          console.log('[Sync] Ignoring SCRAPE_RESULT for', data.step, '— expected', expectedStep?.id);
+          return;
+        }
+        console.log('Scraped data for', data.step, data.data ? '(data received)' : '(null/skip)');
+        const newData = { ...scrapedDataRef.current, [data.step]: data.data };
+        scrapedDataRef.current = newData;
         setScrapedDataState(newData);
 
-        if (currentStepIndex < SCRAPE_STEPS.length - 1) {
-          setCurrentStepIndex(currentStepIndex + 1);
+        const nextIndex = stepIndexRef.current + 1;
+        if (nextIndex < SCRAPE_STEPS.length) {
+          stepIndexRef.current = nextIndex;
+          setCurrentStepIndex(nextIndex);
         } else {
-          // Merge attendance into subjects
-          const subjList = newData.subjects?.list || [];
-          const section = newData.subjects?.section || '';
-          
-          const updatedSubjects = subjList.map((subj: any) => {
-            let att = newData.attendance?.[subj.code];
-            if (!att && subj.code) {
-               // Try without prefix or exact match
-               const cleanCode = subj.code.replace(/^[A-Z]+_/, '').trim();
-               att = newData.attendance[cleanCode];
-               
-               // Try matching by checking if any key in attendance is a substring of the subject code
-               if (!att) {
-                  const matchingKey = Object.keys(newData.attendance || {}).find(k => subj.code.includes(k) || k.includes(cleanCode));
-                  if (matchingKey) att = newData.attendance[matchingKey];
-               }
-            }
-            if (att) {
-              return { ...subj, attendancePercentage: att.percentage, attendedClasses: att.attended, totalClasses: att.total };
-            }
-            return subj;
-          });
-
-          if (newData.profile) {
-             newData.profile.section = section;
-          }
-
-          let finalTimetable = {};
-          if (section && (timetableData as any)[section]) {
-             finalTimetable = (timetableData as any)[section];
-          }
-
-          await setScrapedData({
-            profile: newData.profile,
-            subjects: updatedSubjects,
-            timetable: finalTimetable,
-            marks: newData.marks || [],
-            isScrapedDataLoaded: true
-          });
-          
-          if (userId && section) {
-            syncUserWithDB(
-              userId, 
-              section, 
-              newData.profile?.uid
-            ).catch(e => console.error('Failed to sync section to DB', e));
-          }
-
-          await setSession('cu', 'culko-scraped', 0);
-          // Save cookies for future refresh
-          await SecureStore.setItemAsync('culko_cookies', newData._cookies || '');
-          router.replace('/(app)/studyos/dashboard');
+          await finalizeSync();
         }
       }
     } catch (e) {
       console.log('Error parsing scrape message', e);
     }
   };
+
+  // Per-step safety net: if a step's page hangs for more than 30 seconds, skip it.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!finishedRef.current && currentStep) {
+         console.log('Step timeout:', currentStep.id);
+         handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
+      }
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [currentStepIndex]);
 
   return (
     <View style={styles.container}>
@@ -405,6 +612,14 @@ export default function SyncScreen() {
             source={{ uri: currentStep.url }}
             onNavigationStateChange={handleNavigationStateChange}
             onMessage={handleMessage}
+            onError={(e) => {
+              console.log('WebView Error on step:', currentStep.id, e.nativeEvent.description);
+              handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
+            }}
+            onHttpError={(e) => {
+              console.log('WebView HTTP Error on step:', currentStep.id, e.nativeEvent.statusCode);
+              handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
+            }}
             javaScriptEnabled={true}
             domStorageEnabled={true}
             sharedCookiesEnabled={true}

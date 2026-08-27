@@ -6,7 +6,7 @@
 // asset, same rounded tile, same sizing) — no wordmark, no tagline. A subtle
 // pulse plus three bouncing loader dots signal progress.
 import React, { useEffect, useRef } from "react";
-import { View, Animated, Easing, StyleSheet } from "react-native";
+import { View, Animated, Easing, StyleSheet, Image } from "react-native";
 import { useThemeStore } from "../store/useThemeStore";
 
 // Match the login screen's logo selection exactly: light tile on
@@ -85,11 +85,13 @@ export default function AppLoading() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Animated.Image
-        source={logo}
-        resizeMode="contain"
-        style={[styles.logo, { transform: [{ scale }] }]}
-      />
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Image
+          source={logo}
+          resizeMode="contain"
+          style={styles.logo}
+        />
+      </Animated.View>
 
       <View style={styles.dots}>
         <Dot color={colors.primary} delay={0} />

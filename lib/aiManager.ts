@@ -84,7 +84,21 @@ Disk
 
 # MATHEMATICS
 
-Show calculations step-by-step.
+CRITICAL: NEVER use LaTeX syntax. Do NOT write $...$, \(...\), \[...\], \frac{}{}, \le, \ge, \cdot, \alpha, \beta, \Omega, \Theta, or any backslash LaTeX commands.
+
+Instead, use plain Unicode characters:
+- ≤ instead of \le or $\le$
+- ≥ instead of \ge or $\ge$  
+- × instead of \cdot or \times
+- ÷ for division
+- ² ³ for superscripts (e.g. O(n²) not O(n^2) or $O(n^2)$)
+- Ω for Big-Omega, Θ for Big-Theta, O for Big-O
+- α β γ δ ε for Greek letters
+- → for arrows
+- ∑ for summation, ∏ for product, √ for square root
+- ∞ for infinity
+
+Show calculations step-by-step using plain text and these Unicode symbols.
 
 Never skip intermediate steps.
 
@@ -271,76 +285,86 @@ export async function generateAiResponse(
                      vector: vector,
                      topK: queryTopK,
                      includeMetadata: true
-                  })
+                  }),
+                  signal: AbortSignal.timeout(5000)
              });
-             
-             if (pineconeRes.ok) {
-                 const pcData = await pineconeRes.json();
-                 if (pcData.matches && pcData.matches.length > 0) {
-                      let matches = pcData.matches;
-                      
-                      // 1. STRICT SUBJECT ISOLATION: First filter by current course code/name to prevent cross-subject contamination
-                      if (courseCode || courseName) {
-                          const subjectFiltered = matches.filter((m: any) => {
-                              if (!m.metadata?.subject) return false;
-                              const dbSubject = m.metadata.subject.toLowerCase();
-                              let searchCode = (courseCode || '').toLowerCase().replace('cont_', '').trim();
-                              const searchName = (courseName || '').toLowerCase().trim();
-                              
-                              let targetKey = searchCode;
-                              if (searchName.includes('database') || searchName.includes('dbms') || searchCode.includes('25csh-211') || searchCode.includes('25csh211')) targetKey = 'dbms';
-                              else if (searchName.includes('data structure') || searchName.includes('dsa') || searchName.includes('algorithm') || searchCode.includes('25csh-209') || searchCode.includes('25csh209')) targetKey = '25csh-209';
-                              else if (searchName.includes('architecture') || searchName.includes('organization') || searchName.includes('coa') || searchCode.includes('25cst-208') || searchCode.includes('25cst208')) targetKey = '25cst-208';
-                              else if (searchName.includes('python') || searchName.includes('gui') || searchCode.includes('25csh-214') || searchCode.includes('25csh214')) targetKey = '25csh-214';
-                              else if (searchName.includes('discrete') || searchName.includes('mathematics') || searchCode.includes('25mtt-202') || searchCode.includes('25mtt202')) targetKey = '25mtt-202';
-                              else if (searchName.includes('environmental') || searchName.includes('evs') || searchName.includes('ecology') || searchCode.includes('25uct-201') || searchCode.includes('25uct201')) targetKey = '25uct-201';
 
-                              let isMatch = targetKey && dbSubject.includes(targetKey);
-                              if (!isMatch && searchCode) isMatch = dbSubject.includes(searchCode);
-                              if (!isMatch && searchName) {
-                                  const nameWords = searchName.split(/\s+/).filter((w: string) => w.length >= 4);
-                                  isMatch = nameWords.some((word: string) => dbSubject.includes(word));
-                              }
-                              return isMatch;
-                          });
-                          
-                          if (subjectFiltered.length > 0) {
-                              matches = subjectFiltered;
-                          }
-                      }
-                      
-                      // 2. FILE FILTERING WITHIN ISOLATED SUBJECT: Match against the user's selected PPTs
-                      if (requestedFiles.length > 0) {
-                          const fileFiltered = matches.filter((m: any) => {
-                              if (!m.metadata?.source) return false;
-                              const sourceLower = m.metadata.source.toLowerCase().replace(/\.(pptx|pdf|docx|txt|ppt)$/i, '').trim();
-                              return requestedFiles.some(f => {
-                                  const fClean = f.toLowerCase().replace(/\.(pptx|pdf|docx|txt|ppt)$/i, '').trim();
-                                  if (!fClean) return false;
-                                  return sourceLower === fClean || sourceLower.includes(fClean) || fClean.includes(sourceLower);
-                              });
-                          });
-                          if (fileFiltered.length > 0) {
-                              matches = fileFiltered;
-                          }
-                      }
-                      
-                      // Use top 20 relevant chunks from this subject as per Efficient Retrieval Strategy
-                      matches = matches.slice(0, 20);
+             if (pineconeRes.ok) {
+                let pcData: any = null;
+                try {
+                    const rawText = await pineconeRes.text();
+                    if (rawText && rawText.trim().length > 0) {
+                        pcData = JSON.parse(rawText);
+                    }
+                } catch (jsonErr) {
+                    console.warn("[aiManager] Pinecone JSON parse failed, skipping RAG:", jsonErr);
+                }
+                if (pcData && pcData.matches && pcData.matches.length > 0) {
+                     let matches = pcData.matches;
                      
+                     // 1. STRICT SUBJECT ISOLATION: First filter by current course code/name to prevent cross-subject contamination
+                     if (courseCode || courseName) {
+                         const subjectFiltered = matches.filter((m: any) => {
+                             if (!m.metadata?.subject) return false;
+                             const dbSubject = m.metadata.subject.toLowerCase();
+                             let searchCode = (courseCode || '').toLowerCase().replace('cont_', '').trim();
+                             const searchName = (courseName || '').toLowerCase().trim();
+                             
+                             let targetKey = searchCode;
+                             if (searchName.includes('database') || searchName.includes('dbms') || searchCode.includes('25csh-211') || searchCode.includes('25csh211')) targetKey = 'dbms';
+                             else if (searchName.includes('data structure') || searchName.includes('dsa') || searchName.includes('algorithm') || searchCode.includes('25csh-209') || searchCode.includes('25csh209')) targetKey = '25csh-209';
+                             else if (searchName.includes('architecture') || searchName.includes('organization') || searchName.includes('coa') || searchCode.includes('25cst-208') || searchCode.includes('25cst208')) targetKey = '25cst-208';
+                             else if (searchName.includes('python') || searchName.includes('gui') || searchCode.includes('25csh-214') || searchCode.includes('25csh214')) targetKey = '25csh-214';
+                             else if (searchName.includes('discrete') || searchName.includes('mathematics') || searchCode.includes('25mtt-202') || searchCode.includes('25mtt202')) targetKey = '25mtt-202';
+                             else if (searchName.includes('environmental') || searchName.includes('evs') || searchName.includes('ecology') || searchCode.includes('25uct-201') || searchCode.includes('25uct201')) targetKey = '25uct-201';
+
+                             let isMatch = targetKey && dbSubject.includes(targetKey);
+                             if (!isMatch && searchCode) isMatch = dbSubject.includes(searchCode);
+                             if (!isMatch && searchName) {
+                                 const nameWords = searchName.split(/\s+/).filter((w: string) => w.length >= 4);
+                                 isMatch = nameWords.some((word: string) => dbSubject.includes(word));
+                             }
+                             return isMatch;
+                         });
+                         
+                         if (subjectFiltered.length > 0) {
+                             matches = subjectFiltered;
+                         }
+                     }
+                     
+                     // 2. FILE FILTERING WITHIN ISOLATED SUBJECT: Match against the user's selected PPTs
+                     if (requestedFiles.length > 0) {
+                         const fileFiltered = matches.filter((m: any) => {
+                             if (!m.metadata?.source) return false;
+                             const sourceLower = m.metadata.source.toLowerCase().replace(/\.(pptx|pdf|docx|txt|ppt)$/i, '').trim();
+                             return requestedFiles.some((f: string) => {
+                                 const fClean = f.toLowerCase().replace(/\.(pptx|pdf|docx|txt|ppt)$/i, '').trim();
+                                 if (!fClean) return false;
+                                 return sourceLower === fClean || sourceLower.includes(fClean) || fClean.includes(sourceLower);
+                             });
+                         });
+                         if (fileFiltered.length > 0) {
+                             matches = fileFiltered;
+                         }
+                     }
+                     
+                     // Use top relevant chunks from this subject, applying a safe limit for Groq
+                     const maxChunks = (activeProvider === 'groq' || personalKey?.startsWith('gsk_')) ? 10 : 20;
+                     matches = matches.slice(0, maxChunks);
+                    
                      const uniqueSources = [...new Set(matches.map((m: any) => m.metadata?.source).filter(Boolean).map((s: string) => s.split('/').pop()))] as string[];
-                     ragContext = "\n\nFILES DETECTED IN KNOWLEDGE BASE:\n" + uniqueSources.map((s, i) => `${i+1}. ${s}`).join('\n') + 
+                     ragContext = "\n\nFILES DETECTED IN KNOWLEDGE BASE:\n" + uniqueSources.map((s: any, i: number) => `${i+1}. ${s}`).join('\n') + 
                                   "\n\nEXACT EXTRACTS FROM THE ADMIN'S SYLLABUS PPTs:\n" +
-                                  matches.map((m: any) => `[Source: ${m.metadata.source}]\n${m.metadata.text}`).join('\n---\n');
-                 }
-             }
-          }
-       } catch (e) {
+                                  matches.map((m: any) => `[Source: ${m.metadata.source}]\n${(m.metadata.text || '').substring(0, 800)}`).join('\n---\n');
+                }
+             } // end pineconeRes.ok
+          } // end vector.length > 0
+        } catch (e) {
           console.error("[aiManager] RAG Query failed:", e);
        }
     }
     
-    const TOKEN_SAVER_SKILL = "[TOKEN SAVING MODE]: Please provide direct, concise answers without any pleasantries, conversational filler, or verbose explanations. Prioritize brevity to minimize token usage while answering the core question.";
+    const TOKEN_SAVER_SKILL = "[TOKEN SAVING MODE]: Please provide direct, concise answers without any pleasantries, conversational filler, or verbose explanations. Prioritize brevity to minimize token usage while answering the core question.\n\n[MATH FORMATTING RULE — CRITICAL]: NEVER use LaTeX syntax ($...$, \\(...\\), \\[...\\], \\frac, \\le, \\ge, \\cdot, \\alpha, \\Omega, \\Theta etc.). This app cannot render LaTeX. Instead use plain Unicode: ≤ ≥ × ÷ ² ³ Ω Θ α β γ → ∑ √ ∞. Example: write 'f(n) = O(n²)' NOT '$f(n) = O(n^2)$'."
     const systemContext = TOKEN_SAVER_SKILL + `\n\n[CRITICAL RULE]: You are strictly an AI Tutor for the subject "${courseName || courseCode || 'Selected Subject'}". NEVER discuss concepts or explain slides from unrelated subjects or other courses.\n\nSYLLABUS CONTEXT FOR THIS SPECIFIC COURSE (${courseName || 'Unknown'}):\n---\n${syllabusText || 'No syllabus provided.'}\n${ragContext}\n---`;
     
     const isGemini = personalKey && (personalKey.startsWith('AIza') || personalKey.startsWith('AQ.'));
@@ -373,15 +397,23 @@ export async function generateAiResponse(
                   parts: [{ text: m.parts[0].text }]
               }))
            ];
-           const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${personalKey}`, {
+           let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${personalKey}`, {
                method: 'POST',
                headers: { 'Content-Type': 'application/json', 'X-goog-api-key': personalKey },
                body: JSON.stringify({ contents }),
                signal: AbortSignal.timeout(25000)
            });
+           
+           if (response.status === 503) {
+               throw new Error("OVERLOADED");
+           }
+
            const data = await response.json();
            if (!response.ok) {
                console.error("[aiManager] Gemini API Error:", data);
+               if (data.error?.message?.includes('high demand') || response.status === 503) {
+                   throw new Error("OVERLOADED");
+               }
                throw new Error(data.error?.message || 'Gemini API Error');
            }
            aiResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || aiResponseText;
@@ -440,7 +472,12 @@ export async function generateAiResponse(
            if (!res.ok) {
               const errText = await res.text();
               console.error(`[aiManager] API Error ${res.status}:`, errText);
-              throw new Error(`AI Provider Error (${res.status})`);
+              if (res.status === 429) {
+                  throw new Error(`Rate Limit Exceeded (429)`);
+              } else if (res.status === 413) {
+                  throw new Error(`Payload Too Large (413)`);
+              }
+              throw new Error(`AI Provider Error (${res.status}): ${errText.substring(0, 50)}`);
            } else {
               const data = await res.json();
               if (data.choices && data.choices.length > 0) aiResponseText = data.choices[0].message.content;

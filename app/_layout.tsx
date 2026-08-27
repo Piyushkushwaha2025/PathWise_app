@@ -17,13 +17,11 @@ import { GlobalPaywallModal } from "../components/ui/GlobalPaywallModal";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
-  SpaceGrotesk_500Medium,
   SpaceGrotesk_600SemiBold,
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
 import {
   Inter_400Regular,
-  Inter_500Medium,
   Inter_600SemiBold,
 } from "@expo-google-fonts/inter";
 import { JetBrainsMono_400Regular } from "@expo-google-fonts/jetbrains-mono";
@@ -83,6 +81,9 @@ import { useThemeStore, loadTheme, ThemeType } from "../store/useThemeStore";
 import { useUser } from "@clerk/clerk-expo";
 import { registerBackgroundSync } from "../tasks/backgroundSync";
 
+import { useStudySessionStore } from "../store/studySessionStore";
+import { useStudyOSStore } from "../store/studyosStore";
+
 if (LogBox) {
   LogBox.ignoreLogs([
     'SafeAreaView has been deprecated',
@@ -95,7 +96,12 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 2, refetchOnWindowFocus: false },
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      staleTime: 5 * 60 * 1000,   // 5 min — show cached data instantly, no spinner
+      gcTime: 10 * 60 * 1000,     // 10 min — keep in memory longer
+    },
   },
 });
 
@@ -109,43 +115,49 @@ function RootLayoutInner() {
   const theme = useThemeStore((state) => state.theme);
 
   useEffect(() => {
+    // Fire-and-forget — never block UI on local reads
+    Promise.all([
+      useStudySessionStore.getState().checkConnection(),
+      useStudyOSStore.getState().loadGamification(),
+    ]).catch(e => console.warn("Store init warning:", e));
+  }, []);
+
+  useEffect(() => {
     if (!user?.id) return;
-    // Defer heavy startup tasks so app UI renders first
+    // Defer ALL heavy tasks by 5s so the dashboard fully renders first
     const timer = setTimeout(() => {
       (async () => {
-        const { status: existing } = await Notifications.getPermissionsAsync();
-        let finalStatus = existing;
-        if (existing !== "granted") {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        
-        // If granted and user logged in, get token and save to DB
-        if (finalStatus === "granted" && user?.id && Platform.OS !== 'web') {
-          try {
-            const projectId = "6ec620f1-e4e6-4862-8223-6418976b86e4";
-            const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-            const API_URL = process.env.EXPO_PUBLIC_API_URL;
-            
-            if (API_URL && tokenData?.data) {
-               fetch(`${API_URL}/api/user/push-token`, {
-                  method: 'POST',
-                  headers: {
-                     'Content-Type': 'application/json',
-                     'x-clerk-user-id': user.id
-                  },
-                  body: JSON.stringify({ expoPushToken: tokenData.data })
-               }).catch(e => console.error("Error saving token:", e));
-            }
-          } catch (error: any) {
-            console.warn("⚠️ Push token generation skipped:", error?.message);
+        try {
+          const { status: existing } = await Notifications.getPermissionsAsync();
+          let finalStatus = existing;
+          if (existing !== "granted") {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
           }
+          if (finalStatus === "granted" && user?.id && Platform.OS !== 'web') {
+            try {
+              const projectId = "6ec620f1-e4e6-4862-8223-6418976b86e4";
+              const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+              const API_URL = process.env.EXPO_PUBLIC_API_URL;
+              if (API_URL && tokenData?.data) {
+                fetch(`${API_URL}/api/user/push-token`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-clerk-user-id': user.id },
+                  body: JSON.stringify({ expoPushToken: tokenData.data })
+                }).catch(e => console.error("Error saving token:", e));
+              }
+            } catch (error: any) {
+              console.warn("⚠️ Push token generation skipped:", error?.message);
+            }
+          }
+          // Setup notification channels + background sync after everything else
+          setupAndroidChannels();
+          await registerBackgroundSync();
+        } catch (e) {
+          console.warn("Deferred startup task failed:", e);
         }
-        
-        // Register background sync task
-        await registerBackgroundSync();
       })();
-    }, 3000); // 3s delay so the main UI renders first
+    }, 5000); // 5s delay — fully off critical path
     return () => clearTimeout(timer);
   }, [user?.id]);
 
@@ -159,17 +171,14 @@ function RootLayoutInner() {
   }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
 
   useEffect(() => {
+    // Hide splash as soon as Clerk is loaded — don't wait for anything else
     if (isLoaded) {
       SplashScreen.hideAsync().catch(() => {});
-      // Setup Android notification channels after app has rendered
-      setupAndroidChannels();
     }
   }, [isLoaded]);
 
-  // NOTE: we intentionally do NOT block the first paint on `fontsLoaded`.
-  // Fonts load in the background and swap in once ready (they are cached after
-  // first launch, so subsequent opens are instant). Gating the splash on fonts
-  // was the main cause of the slow app-open time.
+  // Show nothing until Clerk auth is resolved (needed for routing)
+  // This also holds the splash screen safely
   if (!isLoaded) return null;
 
   return (

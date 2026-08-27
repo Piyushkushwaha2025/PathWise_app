@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, RefreshControl, AppState, Alert, Animated, Image, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, RefreshControl, AppState, Alert, Animated, Image, LayoutAnimation, Platform, UIManager, ActivityIndicator } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
@@ -15,6 +15,7 @@ import { FacilitiesModal } from '../../../components/FacilitiesModal';
 import * as SecureStore from 'expo-secure-store';
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { fetchNotifications, useDBProfile } from '../../../lib/db';
+import { useSubscription } from '../../../hooks/useSubscription';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -39,31 +40,84 @@ function getAttendancePrediction(total: number, attended: number) {
   }
 }
 
-function getHistoryStatuses(records?: any[], total = 0, attended = 0) {
-  if (records && records.length > 0) {
-    const recent = records.slice(-5);
-    return recent.map((r: any) => {
-      const st = (r.status || '').toUpperCase();
-      if (st.includes('DUTY') || st.includes('DL') || st.includes('ON DUTY')) return { type: 'DL', label: 'D', color: '#eab308' };
-      if (st.includes('MEDIC') || st.includes('ML') || st.includes('SICK')) return { type: 'ML', label: 'M', color: '#06b6d4' };
-      if (st.includes('ABSENT') || st === 'A' || st.includes('LEAVE')) return { type: 'A', label: 'A', color: '#ef4444' };
-      return { type: 'P', label: 'P', color: '#22c55e' };
-    });
-  }
-  
-  if (total === 0) return [];
-  const count = Math.min(total, 5);
-  const ratio = total > 0 ? attended / total : 0;
-  const presentCount = Math.round(count * ratio);
-  const arr = [];
-  for (let i = 0; i < count; i++) {
-    if (i < presentCount) {
-      arr.push({ type: 'P', label: 'P', color: '#22c55e' });
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+// CUIMS dates: dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd, "12 Aug 2026", "Aug 12 2026".
+// Returns ms (with time-of-day as tiebreak), NaN if unparseable.
+function parseRecordDate(d?: string, time?: string) {
+  const s = String(d || '').trim();
+  if (!s) return NaN;
+
+  let y = NaN, mo = NaN, day = NaN;
+
+  const named = s.match(/(\d{1,2})[\s\-\/]*([A-Za-z]{3,})[\s\-\/,]*(\d{2,4})/)
+             || s.match(/([A-Za-z]{3,})[\s\-\/]*(\d{1,2})[\s\-\/,]*(\d{2,4})/);
+  const numeric = s.match(/(\d{1,4})[\/\-.](\d{1,2})[\/\-.](\d{1,4})/);
+
+  if (named) {
+    const isDayFirst = /^\d/.test(s);
+    const monKey = String(isDayFirst ? named[2] : named[1]).slice(0, 3).toLowerCase();
+    mo = MONTHS[monKey];
+    day = Number(isDayFirst ? named[1] : named[2]);
+    y = Number(named[3]);
+  } else if (numeric) {
+    const a = Number(numeric[1]), b = Number(numeric[2]), c = Number(numeric[3]);
+    if (numeric[1].length === 4) {
+      y = a; mo = b - 1; day = c;              // yyyy-mm-dd
     } else {
-      arr.push({ type: 'A', label: 'A', color: '#ef4444' });
+      day = a; mo = b - 1; y = c;              // dd/mm/yyyy (portal default)
     }
+  } else {
+    return NaN;
   }
-  return arr.reverse();
+
+  if (isNaN(y) || isNaN(mo) || isNaN(day) || mo < 0 || mo > 11 || day < 1 || day > 31) return NaN;
+  if (y < 100) y += 2000;
+
+  const t = String(time || '').match(/(\d{1,2}):(\d{2})/);
+  return new Date(y, mo, day, t ? Number(t[1]) : 0, t ? Number(t[2]) : 0).getTime();
+}
+
+// Real chronological data only — no synthetic P/A blocks. Empty = show nothing.
+// Output is newest→oldest so the FIRST dot is the most recent class (top of column).
+function getHistoryStatuses(records?: any[]) {
+  if (!records || records.length === 0) return [];
+
+  const dated = records.map((r, i) => ({ r, i, t: parseRecordDate(r?.date, r?.time) }));
+  const parseable = dated.filter((x) => !isNaN(x.t));
+
+  let ordered: any[];
+  if (parseable.length >= 2) {
+    // Sort NEWEST to OLDEST (descending time). If times are equal, keep portal order.
+    ordered = parseable.sort((a, b) => b.t - a.t || a.i - b.i).map((x) => x.r);
+  } else {
+    // Portal lists newest-first by default.
+    ordered = records;
+  }
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const todayEnd = todayStart + 86400000;
+
+  // Take the 5 newest classes. They are already ordered newest-first (index 0 is the newest class).
+  return ordered.slice(0, 5).map((r: any) => {
+    let isToday = false;
+    const t = parseRecordDate(r?.date, r?.time);
+    if (!isNaN(t) && t >= todayStart && t <= todayEnd) {
+      isToday = true;
+    }
+
+    const st = String(r?.status || '').toUpperCase();
+    let type = 'P', label = 'P', color = '#22c55e';
+    if (st.includes('DUTY') || st === 'DL') { type = 'DL'; label = 'D'; color = '#eab308'; }
+    else if (st.includes('MEDIC') || st === 'ML' || st.includes('SICK')) { type = 'ML'; label = 'M'; color = '#06b6d4'; }
+    else if (st.includes('ABSENT') || st === 'A' || st.includes('LEAVE')) { type = 'A'; label = 'A'; color = '#ef4444'; }
+    
+    return { type, label, color, isToday };
+  });
 }
 
 function getCurrentDay() {
@@ -74,18 +128,19 @@ function getCurrentDay() {
 
 function parseTimeRange(timeStr: string) {
   try {
-    if (!timeStr) return { start: 0, end: 0 };
-    const cleanStr = timeStr.replace(/AM|PM/gi, '').trim();
-    const [startStr, endStr] = cleanStr.split('-').map(s => s.trim());
+    const parts = timeStr.split(/[-–—]| to /i).map(s => s?.trim() || '');
+    const startOriginal = parts[0] || '';
+    const endOriginal = parts[1] || '';
     
-    const parsePart = (str: string, originalPart: string = '') => {
-      if (!str) return 0;
-      let [hoursStr, minutesStr] = str.split(':');
+    const parsePart = (originalPart: string) => {
+      if (!originalPart) return 0;
+      const cleanPart = originalPart.replace(/AM|PM/gi, '').trim();
+      let [hoursStr, minutesStr] = cleanPart.split(':');
       let hours = parseInt((hoursStr || '').replace(/\D/g, ''), 10) || 0;
       let minutes = parseInt((minutesStr || '').replace(/\D/g, ''), 10) || 0;
       
-      const isExplicitPM = /PM/i.test(originalPart || timeStr);
-      const isExplicitAM = /AM/i.test(originalPart || timeStr);
+      const isExplicitPM = /PM/i.test(originalPart);
+      const isExplicitAM = /AM/i.test(originalPart);
       
       if (isExplicitPM && hours < 12) {
         hours += 12;
@@ -94,7 +149,7 @@ function parseTimeRange(timeStr: string) {
       }
       return hours * 60 + minutes;
     };
-    return { start: parsePart(startStr), end: parsePart(endStr) };
+    return { start: parsePart(startOriginal), end: parsePart(endOriginal) };
   } catch (e) {
     return { start: 0, end: 0 };
   }
@@ -207,7 +262,7 @@ function CurrentClassWidget() {
   
   const matchedSubject = subjects?.find(s => s.code === baseCode);
   const fullNameToDisplay = matchedSubject ? `${matchedSubject.name}${suffix}` : rawSubjectName;
-  const history = matchedSubject ? getHistoryStatuses(detailedAttendanceCache?.[matchedSubject.code], matchedSubject.totalClasses || 0, matchedSubject.attendedClasses || 0) : [];
+  const history = matchedSubject ? getHistoryStatuses(detailedAttendanceCache?.[matchedSubject.code]) : [];
 
   return (
     <View style={{ marginBottom: 16 }}>
@@ -223,7 +278,6 @@ function CurrentClassWidget() {
             </Text>
           </View>
         </View>
-        <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Today's Schedule</Text>
       </View>
 
       <View style={{
@@ -257,9 +311,15 @@ function CurrentClassWidget() {
         {/* Card Content - Optimized height & compact padding */}
         <View style={{ paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ flex: 1, paddingRight: 8 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
               <Text style={{ color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_700Bold', flex: 1, paddingRight: 4 }}>{fullNameToDisplay}</Text>
             </View>
+            
+            {!!matchedSubject && (
+              <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium', marginBottom: 4 }}>
+                {rawSubjectName}
+              </Text>
+            )}
             
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
               <Ionicons name="time-outline" size={13} color={colors.textMuted} style={{ marginRight: 5 }} />
@@ -324,7 +384,8 @@ export default function StudyOSDashboard() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
-  const { roadmaps, profile, subjects, detailedAttendanceCache } = useStudyOSStore();
+  const { isPro, isTrialActive, trialDaysLeft, isSubscribed, plan } = useSubscription();
+  const { roadmaps, profile, subjects, detailedAttendanceCache, isHydrated } = useStudyOSStore();
   const { clearSession } = useStudySessionStore();
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -340,16 +401,13 @@ export default function StudyOSDashboard() {
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
   const lastSyncTime = useRef(0);
-  // Signature of the last attendance change we already notified about, so a
-  // repeated/unchanged refresh does not fire the same push notification again.
-  const lastNotifSigRef = useRef<string>('');
 
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [currentMonth, setCurrentMonth] = useState(todayStr.substring(0, 7));
   const [cookies, setCookies] = useState('');
   const [isServicesMenuVisible, setIsServicesMenuVisible] = useState(true);
-  const [selectedFacility, setSelectedFacility] = useState<'hostel' | 'transport' | 'profile' | 'leave' | null>(null);
+  const [selectedFacility, setSelectedFacility] = useState<'hostel' | 'transport' | 'profile' | 'leave' | 'fees' | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
 
   const { userId } = useAuth();
@@ -395,20 +453,33 @@ export default function StudyOSDashboard() {
   };
 
   const triggerSync = (force = true) => {
+    const now = Date.now();
+    // Debounce: tab-focus AND app-foreground both fire; ignore a second call
+    // within 3s so we don't spin up two WebViews back-to-back (the time lag).
+    if (now - lastSyncTime.current < 3000) return;
+    
     // Wipe previous per-subject "just updated" badges so the indicator from the
     // last refresh never carries over / repeats on this pull-to-refresh.
     setJustUpdated({});
-    lastSyncTime.current = Date.now();
+
+    lastSyncTime.current = now;
     setSyncKey(prev => prev + 1);
     setRefreshing(true);
   };
 
-  // Auto-sync when app comes to foreground
+  // Auto-sync when app comes to foreground (only if inactive for > 15 mins)
+  const lastBackgroundTime = useRef<number>(0);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState.match(/inactive|background/)) {
+        lastBackgroundTime.current = Date.now();
+      }
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        console.log('[Dashboard] App foregrounded — triggering attendance sync');
-        triggerSync(true);
+        const timeInBackground = Date.now() - lastBackgroundTime.current;
+        if (timeInBackground > 15 * 60 * 1000) { // 15 mins
+          console.log('[Dashboard] App foregrounded after >15m — triggering sync');
+          triggerSync(true);
+        }
       }
       appState.current = nextState;
     });
@@ -422,8 +493,8 @@ export default function StudyOSDashboard() {
   const handleSyncFinish = async (updated: boolean, changes?: { code?: string, subjectName: string, status: string }[]) => {
     setRefreshing(false);
 
-    // Build per-subject badges for subjects that actually changed this sync.
-    // Cleared on the next triggerSync(), so they only show once (no repeat).
+    // Per-subject "just updated" badges — only for the sync that just changed
+    // data (cleared on next triggerSync so they never repeat).
     const newJust: Record<string, string> = {};
     if (changes && changes.length > 0) {
       changes.forEach(c => { if (c.code) newJust[c.code] = c.status; });
@@ -432,24 +503,32 @@ export default function StudyOSDashboard() {
 
     if (changes && changes.length > 0) {
       const presentChanges = changes.filter(c => c.status === 'Present' || c.status === 'Updated');
-      const subjectNames = (presentChanges.length > 0 ? presentChanges : changes).map(c => c.subjectName).join(', ');
+      const absentChanges = changes.filter(c => c.status === 'Absent');
       
-      showToast(`✨ Marked Present in ${subjectNames.length > 28 ? subjectNames.substring(0, 28) + '...' : subjectNames}`);
-
-      // Dedup push notification: only fire if this exact change set hasn't been
-      // notified already (e.g. consecutive refreshes returning identical data).
-      const sig = changes.map(c => `${c.code || c.subjectName}:${c.status}`).sort().join('|');
-      if (sig && sig !== lastNotifSigRef.current) {
-        lastNotifSigRef.current = sig;
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "Attendance Marked! 🎯",
-            body: `Marked Present in: ${subjectNames}. Your attendance is updated!`,
-            sound: true,
-          },
-          trigger: null,
-        });
+      let title = "Attendance Marked! 🎯";
+      let bodyText = "";
+      
+      if (presentChanges.length > 0 && absentChanges.length > 0) {
+        bodyText = `Present in: ${presentChanges.map(c => c.subjectName).join(', ')}. Absent in: ${absentChanges.map(c => c.subjectName).join(', ')}`;
+      } else if (presentChanges.length > 0) {
+        const names = presentChanges.map(c => c.subjectName).join(', ');
+        bodyText = `Marked Present in: ${names.length > 30 ? names.substring(0, 30) + '...' : names}`;
+      } else if (absentChanges.length > 0) {
+        title = "Attendance Marked! ⚠️";
+        const names = absentChanges.map(c => c.subjectName).join(', ');
+        bodyText = `Marked Absent in: ${names.length > 30 ? names.substring(0, 30) + '...' : names}`;
       }
+
+      showToast(`✨ ${bodyText.replace('Marked ', '')}`);
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body: bodyText,
+          sound: true,
+        },
+        trigger: null,
+      });
     } else if (updated) {
       showToast('✨ Attendance Synced & Marked Up-To-Date!');
     } else {
@@ -465,8 +544,15 @@ export default function StudyOSDashboard() {
 
   useFocusEffect(
     React.useCallback(() => {
-      // Trigger sync whenever user navigates or opens the app
-      triggerSync(true);
+      // Show last-saved cache instantly, then refresh for new data.
+      // Re-hydrate from AsyncStorage in case the boot race lost (blank flash fix).
+      useStudyOSStore.getState().loadGamification();
+      const state = useStudyOSStore.getState();
+      // Only auto-sync on focus if we have no subjects data at all.
+      // Otherwise, let the user manually pull-to-refresh to save bandwidth and battery.
+      if (!state.subjects || state.subjects.length === 0) {
+        triggerSync(true);
+      }
     }, [])
   );
 
@@ -477,6 +563,14 @@ export default function StudyOSDashboard() {
       setCurrentMonth(today.substring(0, 7));
     }
   }, [isCalendarVisible]);
+
+  if (!isHydrated) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -510,6 +604,18 @@ export default function StudyOSDashboard() {
           </View>
 
           <View style={styles.headerRight}>
+                <TouchableOpacity onPress={() => router.push('/(app)/_pathwise_subscription' as any)}>
+                  {isSubscribed ? (
+                    <View style={{ backgroundColor: '#22c55e20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#22c55e40' }}>
+                      <Text style={{ color: '#22c55e', fontSize: 12, fontFamily: 'Inter_700Bold' }}>PRO</Text>
+                    </View>
+                  ) : isTrialActive ? (
+                    <View style={{ backgroundColor: '#eab30820', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#eab30840' }}>
+                      <Text style={{ color: '#eab308', fontSize: 12, fontFamily: 'Inter_700Bold' }}>{trialDaysLeft}D Trial</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+
                 <TouchableOpacity style={{ marginLeft: 16 }} onPress={() => router.push('/studyos/notifications' as any)}>
                   <View>
                     <Ionicons name="notifications-outline" size={26} color={colors.text} />
@@ -551,21 +657,36 @@ export default function StudyOSDashboard() {
         {/* Inline Services Menu */}
         {isServicesMenuVisible && (
           <View style={[styles.inlineServicesContainer, { backgroundColor: colors.surfaceHigh, shadowColor: colors.primary }]}>
-            <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('profile')}>
-              <Ionicons name="person" size={24} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setIsCalendarVisible(true)}>
-              <Ionicons name="calendar-outline" size={24} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('hostel')}>
-              <Ionicons name="bed" size={24} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('transport')}>
-              <Ionicons name="bus" size={24} color={colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('leave')}>
-              <Ionicons name="airplane" size={24} color={colors.primary} />
-            </TouchableOpacity>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('profile')}>
+                <Ionicons name="person" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setIsCalendarVisible(true)}>
+                <Ionicons name="calendar-outline" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('hostel')}>
+                <Ionicons name="bed" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('transport')}>
+                <Ionicons name="bus" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('leave')}>
+                <Ionicons name="airplane" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('fees')}>
+                <Ionicons name="card" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -601,7 +722,7 @@ export default function StudyOSDashboard() {
 
         {subjects && subjects.length > 0 ? subjects.map((sub, idx) => {
           const prediction = getAttendancePrediction(sub.totalClasses || 0, sub.attendedClasses || 0);
-          const history = getHistoryStatuses(detailedAttendanceCache?.[sub.code], sub.totalClasses || 0, sub.attendedClasses || 0);
+          const history = getHistoryStatuses(detailedAttendanceCache?.[sub.code]);
           return (
             <SubjectCard 
               key={idx}
@@ -731,7 +852,7 @@ export default function StudyOSDashboard() {
                 style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' }}
                 onPress={async () => {
                    setIsSessionModalVisible(false);
-                   await clearSession();
+                   await clearSession(true);
                    router.replace('/(app)' as any);
                 }}
               >
@@ -752,7 +873,7 @@ export default function StudyOSDashboard() {
 
       {toastVisible && (
         <Animated.View style={[styles.toast, { opacity: toastOpacity }]}>
-          <Ionicons name="checkmark-circle-sharp" size={20} color="#22c55e" style={{ marginRight: 6 }} />
+          <Ionicons name="notifications" size={20} color="#ffffff" style={{ marginRight: 6 }} />
           <Text style={styles.toastText}>{toastMsg}</Text>
         </Animated.View>
       )}
@@ -804,22 +925,48 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
         
         {history && history.length > 0 && (
           <View style={{ justifyContent: 'center', alignItems: 'center', marginLeft: 10, gap: 3.5 }}>
-            {history.map((h: any, idx: number) => (
-              <View 
-                key={idx} 
-                style={{ 
-                  width: 8, 
-                  height: 8, 
-                  borderRadius: 2.5, 
-                  backgroundColor: h.color, 
-                  shadowColor: h.color,
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 1.5,
-                  elevation: 2
-                }}
-              />
-            ))}
+            {history.map((h: any, idx: number) => {
+              if (h.isToday) {
+                return (
+                  <View 
+                    key={idx} 
+                    style={{ 
+                      width: 14, 
+                      height: 14, 
+                      borderRadius: 4, 
+                      backgroundColor: h.color + '30',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      shadowColor: h.color,
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 2,
+                      elevation: 2,
+                      marginBottom: 1 // slight offset adjustment
+                    }}
+                  >
+                    <View style={{ width: 6, height: 6, borderRadius: 2, backgroundColor: h.color }} />
+                  </View>
+                );
+              }
+              
+              return (
+                <View 
+                  key={idx} 
+                  style={{ 
+                    width: 8, 
+                    height: 8, 
+                    borderRadius: 2.5, 
+                    backgroundColor: h.color, 
+                    shadowColor: h.color,
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.4,
+                    shadowRadius: 1.5,
+                    elevation: 2
+                  }}
+                />
+              );
+            })}
           </View>
         )}
       </View>
@@ -851,7 +998,7 @@ function CircularProgress({ value, color }: { value: number, color: string }) {
 
 const useStyles = (colors: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: Spacing.lg, paddingTop: 50, paddingBottom: 100 },
+  content: { padding: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: 100 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   owlIcon: { width: 48, height: 48, backgroundColor: colors.text, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
@@ -904,27 +1051,24 @@ const useStyles = (colors: any) => StyleSheet.create({
     position: 'absolute',
     bottom: 85,
     alignSelf: 'center',
-    backgroundColor: colors.surfaceHigh,
-    borderWidth: 1.5,
-    borderColor: '#22c55e',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: Radius.full,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: Radius.xl,
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#22c55e',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
+    maxWidth: '90%',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
     elevation: 10,
   },
-  toastText: { color: colors.text, fontSize: 13, fontFamily: 'SpaceGrotesk_600SemiBold' },
+  toastText: { color: '#ffffff', fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', flexShrink: 1 },
   inlineServicesContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     paddingVertical: 18,
-    paddingHorizontal: Spacing.xl,
     marginHorizontal: Spacing.sm,
     marginBottom: Spacing.xl,
     marginTop: -4,
@@ -933,6 +1077,11 @@ const useStyles = (colors: any) => StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 6,
     elevation: 3,
+  },
+  serviceItemWrapper: {
+    width: '20%',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   inlineServiceIcon: {
     width: 46,

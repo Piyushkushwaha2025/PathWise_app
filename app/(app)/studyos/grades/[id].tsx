@@ -42,9 +42,10 @@ const stripAllWord = (text: string) => {
 export default function LmsGradeReportScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
   const router = useRouter();
+  useHardwareBack('/studyos/grades');
+
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
-  useHardwareBack('/studyos/grades');
 
   const webViewRef = useRef<WebView>(null);
   // `id` may be a numeric Moodle course id (preferred) OR, when missing from cache,
@@ -77,32 +78,32 @@ export default function LmsGradeReportScreen() {
     return /[0-9]/.test(clean);
   };
 
-  // ── Helper: Eliminate course headers and subject name rows from showing up as assignment items ──
-  const isValidGradeItem = (item: GradeItem, subj: string): boolean => {
-    if (!item.title) return false;
+  // ── Helper: keep real assessment rows, drop only pure header/structure rows ──
+  // Older logic rejected any row whose title matched the subject name — but in
+  // Moodle grade reports the category row IS the course name and the actual quiz/
+  // assignment rows are its children, so that rule deleted every real grade.
+  // Now we keep a row unless it's an obvious structural header with no grade.
+  const isValidGradeItem = (item: GradeItem): boolean => {
+    if (!item || !item.title) return false;
     const tLow = item.title.toLowerCase().trim();
     const rLow = (item.rawTitle || '').toLowerCase().trim();
 
-    // Reject standard table headers & keywords
-    if (tLow === 'grade item' || tLow === 'category' || tLow === 'course total' || tLow === 'category total') {
-      return false;
-    }
-    // Reject Moodle course header delimiter rows (e.g. CODE :: COURSE NAME)
-    if (rLow.includes('::') || tLow.includes('::')) {
-      return false;
-    }
-    // Reject rows that literally represent the subject name itself
-    const normSubj = subj.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const normTitle = tLow.replace(/[^a-z0-9]/g, '');
+    // Drop literal table headers / structural labels.
+    if (
+      tLow === 'grade item' || tLow === 'category' || tLow === 'course total' ||
+      tLow === 'category total' || tLow === 'grade' || tLow === 'item' || tLow === 'range'
+    ) return false;
 
-    if (normTitle.length >= 3 && normSubj.length >= 3) {
-      if (normTitle === normSubj || normSubj.includes(normTitle) || normTitle.includes(normSubj)) {
-        // Unless it explicitly contains an assessment keyword, it's a course header row
-        if (!/\b(assign|quiz|test|lab|exam|attend|project|viva|tutorial)\b/i.test(item.title)) {
-          return false;
-        }
-      }
-    }
+    // Drop the course-header delimiter rows (CODE :: COURSE NAME).
+    if (rLow.includes('::') || tLow.includes('::')) return false;
+
+    // Drop ONLY if it has no grade value AND no assessment keyword (i.e. it's a
+    // bare course title row with nothing to show).
+    const hasGrade = !!item.grade && item.grade !== '-' && item.grade !== '—' &&
+      item.grade.toLowerCase() !== 'n/a' && item.grade.trim() !== '';
+    const hasKeyword = /\b(assign|quiz|test|lab|exam|attend|project|viva|tutorial|mid|mst|practical|surprise|ct|class\s*test)\b/i.test(item.title);
+    if (!hasGrade && !hasKeyword) return false;
+
     return true;
   };
 
@@ -113,7 +114,7 @@ export default function LmsGradeReportScreen() {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed.items)) {
-          const cleanCached = parsed.items.filter((i: GradeItem) => isValidGradeItem(i, cleanSubjectName));
+          const cleanCached = parsed.items.filter((i: GradeItem) => isValidGradeItem(i));
           setGrades(cleanCached);
           setCourseTotal(parsed.courseTotal || null);
           setLastUpdated(parsed.timestamp || null);
@@ -127,10 +128,14 @@ export default function LmsGradeReportScreen() {
 
   useEffect(() => {
     loadCache();
+    // Moodle session is carried by sharedCookiesEnabled (same as the working
+    // subjects/[id] screen) — no cookie injection needed. We only rely on
+    // onLoadEnd re-injecting the scraper on every navigation so Moodle's own
+    // SSO (login -> ERP -> back to LMS) completes before we extract.
     const timer = setTimeout(() => {
       setLoading(false);
       setRefreshing(false);
-    }, 35000);
+    }, 25000);
     return () => clearTimeout(timer);
   }, [loadCache]);
 
@@ -146,7 +151,7 @@ export default function LmsGradeReportScreen() {
       if (data.type === 'DEBUG_LOG') {
         console.log('[GRADE_SCRAPER]', data.msg);
       } else if (data.type === 'GRADES_RESULT' && Array.isArray(data.items)) {
-        const validItems = data.items.filter((item: GradeItem) => isValidGradeItem(item, cleanSubjectName));
+        const validItems = data.items.filter((item: GradeItem) => isValidGradeItem(item));
 
         let foundTotal: GradeItem | null = null;
         const cleanItems: GradeItem[] = [];
@@ -188,90 +193,25 @@ export default function LmsGradeReportScreen() {
   };
 
   // ── JavaScript Scraper Injected into Moodle Grade Report ──
+  // The hidden WebView reaches LMS via the shared cookie jar (same as the
+  // working subjects/[id] screen) — NO SSO dance needed. We only redirect when
+  // genuinely logged out; otherwise we extract grades directly.
   const injectedJs = `
     (function() {
       function extractGrades() {
         var url = window.location.href;
 
-        // Auto-Login Step 1: If on Moodle login page, redirect to ERP Dashboard to establish session
+        // On Moodle's login page the SSO will auto-redirect (via the shared ERP
+        // cookie) back to LMS. Do NOT post or navigate away — just wait. onLoadEnd
+        // re-injects this script after the redirect lands on the grade report.
         if (url.indexOf('login') !== -1 && url.indexOf('lms.culko.in') !== -1) {
-           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'LMS Session expired! Auto-navigating to ERP...' }));
-           window.location.href = 'https://student.culko.in/StudentHome.aspx';
+           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'LMS SSO in progress...' }));
            return;
         }
 
-        // Auto-Login Step 2: If on ERP Dashboard, find and click the LMS button!
-        if (url.indexOf('student.culko.in') !== -1) {
-           var links = document.querySelectorAll('a');
-           for (var i = 0; i < links.length; i++) {
-              var txt = links[i].innerText ? links[i].innerText.toUpperCase().trim() : '';
-              var href = links[i].href ? links[i].href.toLowerCase() : '';
-              if (txt === 'CU-LMS' || txt === 'MY LMS' || txt === 'LMS' || txt === 'CU LMS' || txt.indexOf('LMS') !== -1 || href.indexOf('lms') !== -1) {
-                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'Found LMS button on ERP, clicking it!' }));
-                 if (href && !href.startsWith('javascript:')) {
-                    window.location.href = links[i].href;
-                 } else {
-                    links[i].click();
-                 }
-                 return;
-              }
-           }
-           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'Could not find LMS button on ERP!' }));
-           return;
-        }
-
-        // Step 1: If on My Courses or dashboard, find the exact course matching our title and prioritize ALL link!
-        if (url.indexOf('my/courses') !== -1 || url.indexOf('my/') !== -1) {
-          var targetName = "${String(name).replace(/"/g, '')}".toLowerCase();
-          var targetId = "${String(id).replace(/"/g, '')}".toLowerCase();
-          var targetTerm = targetName + " " + targetId.replace(/-/g, ' ');
-          var words = targetTerm.split(/\s+/).filter(function(w){ return w.length >= 3; });
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'Searching for words: ' + words.join(',') }));
-
-          var links = document.querySelectorAll('a[href*="course/view.php?id="], a[href*="grade/report/user/index.php?id="], a[href*="/course/"]');
-          var bestMatch = null;
-          var bestScore = -1;
-          
-          var foundLinks = [];
-          for(var j=0; j<links.length; j++) {
-             var txt = (links[j].innerText + " " + links[j].href).toLowerCase();
-             if (links[j].innerText && links[j].innerText.trim().length > 2) {
-                foundLinks.push(links[j].innerText.trim().replace(/\n/g, ' '));
-             }
-             var matchCount = 0;
-             for(var w=0; w<words.length; w++) { if(txt.indexOf(words[w]) !== -1) matchCount += 10; }
-             if (/\ball\b|[-_]all|all[-_]|_all|all_/i.test(links[j].innerText)) matchCount += 50;
-             if(words.length > 0 && matchCount > bestScore && matchCount >= 10) {
-                bestScore = matchCount;
-                bestMatch = links[j];
-             }
-          }
-          
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'Found ' + links.length + ' course links. Names: ' + foundLinks.join(' | ') }));
-
-          if (bestMatch) {
-             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'Best Match: ' + bestMatch.innerText + ' with score: ' + bestScore }));
-             var m = bestMatch.href.match(/[?&]id=(\d+)/);
-             if (m && m[1]) {
-                window.location.href = "https://lms.culko.in/grade/report/user/index.php?id=" + m[1];
-                return;
-             }
-          } else {
-             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'No match found for: ' + targetTerm }));
-          }
-        }
-
-        // Step 2: If we are inside an ALL course view page (course/view.php), automatically find and open its Grades tab!
-        if (window.location.href.indexOf('course/view.php') !== -1 || window.location.href.indexOf('/course/') !== -1) {
-          var gradeTabs = document.querySelectorAll('a[href*="/grade/"], a[href*="grade/report"]');
-          for(var g=0; g<gradeTabs.length; g++) {
-             var gText = gradeTabs[g].innerText ? gradeTabs[g].innerText.trim().toLowerCase() : '';
-             if (gText === 'grades' || gText === 'grade' || gradeTabs[g].href.indexOf('grade/report') !== -1) {
-                window.location.href = gradeTabs[g].href;
-                return;
-             }
-          }
-        }
+        // If we're not yet on a grade report, do nothing and let the direct
+        // grade/report/user/index.php URL (numeric id) load it. (Non-numeric id
+        // falls back to my/courses and is matched by the Grades list screen.)
 
         var results = [];
         var added = {};
@@ -366,11 +306,60 @@ export default function LmsGradeReportScreen() {
           }
         }
 
-        // Send back results
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'GRADES_RESULT',
-          items: results
-        }));
+        // Strategy 3 (last-resort, theme-agnostic): any <tr> whose first cell
+        // looks like an item name and any later cell holds a grade-like number.
+        // Catches custom Moodle themes whose class names Strategies 1/2 miss.
+        if (results.length === 0) {
+          var gradeLike = /^\\s*[-+]?\\d*\\.?\\d+\\s*(\\/?\\s*\\d+(\\.\\d+)?)?\\s*%?\\s*$/;
+          var allTr = document.querySelectorAll('table tr');
+          for (var t3 = 0; t3 < allTr.length; t3++) {
+            var c3 = allTr[t3].querySelectorAll('th, td');
+            if (c3.length < 2) continue;
+            var tTitle = (c3[0].innerText || '').replace(/\\s+/g, ' ').trim();
+            if (!tTitle || tTitle.length < 2) continue;
+            if (/^(grade item|category|item|range|percentage)$/i.test(tTitle)) continue;
+            // Find a grade-like cell anywhere in the row (usually the 2nd cell).
+            var gVal = '-';
+            for (var gc = 1; gc < c3.length; gc++) {
+              var cv = (c3[gc].innerText || '').replace(/\\s+/g, ' ').trim();
+              if (gradeLike.test(cv)) { gVal = cv; break; }
+            }
+            var hasKw = /\\b(assign|quiz|test|lab|exam|attend|project|viva|tutorial|mid|mst|practical|surprise|ct|class\\s*test)\\b/i.test(tTitle);
+            if (gVal === '-' && !hasKw) continue;
+            var rng3 = c3.length >= 3 ? (c3[2].innerText || '').replace(/\\s+/g, ' ').trim() : '-';
+            var ck = tTitle + '_' + gVal;
+            if (!added[ck]) {
+              added[ck] = true;
+              var cc = 'ASSIGNMENT';
+              if (/quiz/i.test(tTitle)) cc = 'QUIZ';
+              else if (/surprise/i.test(tTitle)) cc = 'SURPRISE TEST';
+              else if (/attend|presence/i.test(tTitle)) cc = 'ATTENDANCE';
+              else if (/total/i.test(tTitle)) cc = 'TOTAL';
+              results.push({
+                id: 'g3_' + results.length + '_' + Math.random().toString(36).substr(2, 5),
+                title: tTitle,
+                rawTitle: tTitle,
+                category: cc,
+                grade: gVal,
+                range: rng3 === gVal ? '-' : rng3,
+                percentage: '',
+                feedback: ''
+              });
+            }
+          }
+        }
+
+        // Send back results — but don't post an empty set on early attempts,
+        // because Moodle's grade table can still be rendering. Only flush an
+        // empty result on the final attempt so the loading flag always ends.
+        window.__gradeAttempt = (window.__gradeAttempt || 0) + 1;
+        var isFinal = window.__gradeAttempt >= 3;
+        if (results.length > 0 || isFinal) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'GRADES_RESULT',
+            items: results
+          }));
+        }
       }
 
       if (document.readyState === 'complete' || document.readyState === 'interactive') {
@@ -429,43 +418,33 @@ export default function LmsGradeReportScreen() {
           title: 'Grade Center',
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
+          headerShadowVisible: false,
           headerLeft: () => (
-            <TouchableOpacity
-              onPress={() => router.replace('/studyos/grades' as any)}
-              style={{
-                marginLeft: 14,
-                marginRight: 14,
-                paddingVertical: 6,
-                paddingHorizontal: 4,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={() => router.navigate('/studyos/grades' as any)} style={{ marginLeft: 14 }}>
               <Ionicons name="arrow-back" size={24} color={colors.text} />
             </TouchableOpacity>
           ),
         }}
       />
 
-      {/* Hidden WebView to extract grades in background */}
-      <View style={{ width: 0, height: 0, opacity: 0, position: 'absolute', top: 0, left: 0 }}>
-        <WebView
-          ref={webViewRef}
-          source={{ uri: targetUrl }}
-          injectedJavaScript={injectedJs}
-          onMessage={handleWebViewMessage}
-          onNavigationStateChange={(state) => {
-            console.log('[GRADE_SCRAPER_NAV]', state.url);
-          }}
-          onLoadEnd={() => {
-            webViewRef.current?.injectJavaScript(injectedJs);
-          }}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          sharedCookiesEnabled={true}
-        />
-      </View>
+      {(!grades || grades.length === 0 || refreshing) && (
+        <View style={{ width: 0, height: 0, opacity: 0, position: 'absolute', top: 0, left: 0 }}>
+          <WebView
+            ref={webViewRef}
+            source={{ uri: targetUrl }}
+            onMessage={handleWebViewMessage}
+            onNavigationStateChange={(state) => {
+              console.log('[GRADE_SCRAPER_NAV]', state.url);
+            }}
+            onLoadEnd={() => {
+              webViewRef.current?.injectJavaScript(injectedJs);
+            }}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+            sharedCookiesEnabled={true}
+          />
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}

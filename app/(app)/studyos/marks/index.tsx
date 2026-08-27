@@ -34,10 +34,6 @@ function parseSession(text: string): { year: number; month: number } {
   return { year, month };
 }
 
-// Build the semester picker list from the portal's real sessions only.
-// Each session is relabelled "Semester N" in chronological order (oldest = 1).
-// Semesters whose results are not yet uploaded by the portal are simply absent
-// — we never show a semester the user cannot actually select.
 function buildSemesterList(raw: RawSemester[]): SemesterItem[] {
   const sorted = [...raw].sort((a, b) => {
     const A = parseSession(a.text);
@@ -46,11 +42,20 @@ function buildSemesterList(raw: RawSemester[]): SemesterItem[] {
     return A.month - B.month;
   });
 
-  return sorted.map((opt, i) => ({
+  const list: SemesterItem[] = sorted.map((opt, i) => ({
     label: `Semester ${i + 1}`,
     value: opt.value,
     originalText: opt.text,
   }));
+
+  // Append the current/ongoing semester (since it hasn't appeared in the portal's Results dropdown yet)
+  list.push({
+    label: `Semester ${list.length + 1} (Current)`,
+    value: null,
+    originalText: 'Current Session'
+  });
+
+  return list;
 }
 
 export default function MarksScreen() {
@@ -74,27 +79,40 @@ export default function MarksScreen() {
     () => buildSemesterList(semesterOptions),
     [semesterOptions]
   );
-  const selectedSemLabel = derivedSemesters.find(
+
+  // Latest (current) semester = last item in chronological list
+  const latestSemValue = derivedSemesters.length > 0
+    ? derivedSemesters[derivedSemesters.length - 1].value
+    : null;
+
+  const selectedSemIdx = derivedSemesters.findIndex(
     (d) => d.value === selectedSemester || d.label === selectedSemester
-  )?.label;
+  );
+  const selectedSemLabel = selectedSemIdx >= 0 ? derivedSemesters[selectedSemIdx].label : undefined;
+
+  // True when user is on the latest/current semester
+  const isCurrentSemester = selectedSemIdx === derivedSemesters.length - 1;
+
+  // Auto-select latest semester whenever options first arrive
+  useEffect(() => {
+    if (derivedSemesters.length > 0 && !selectedSemester) {
+      const latest = derivedSemesters[derivedSemesters.length - 1];
+      setSelectedSemester(latest.value || latest.label);
+    }
+  }, [derivedSemesters]);
 
   useFocusEffect(
     React.useCallback(() => {
-      // First mount: the two hidden WebViews below already load their portal
-      // pages and scrape once, so we just ensure a clean state and skip a
-      // redundant re-scrape here.
       if (!didMountRef.current) {
         didMountRef.current = true;
-        return () => {
-          setSelectedSemester('');
-          setResultData(null);
-        };
+        return;
       }
 
-      // Returning to this tab (app open / tab switch / foreground): re-scrape
-      // fresh internal marks + final results automatically — mirrors the
-      // attendance tab behaviour so the performance radar is never stale.
-      setSelectedSemester('');
+      // Returning to marks tab — reload data but keep latest semester selected
+      const latestFromCache = buildSemesterList(semesterOptionsCache || []);
+      const latest = latestFromCache[latestFromCache.length - 1];
+      const latestVal = latest ? (latest.value || latest.label) : '';
+      setSelectedSemester(latestVal);
       setResultData(null);
       setRefreshing(false);
       setIsLoading(true);
@@ -106,8 +124,6 @@ export default function MarksScreen() {
 
       return () => {
         clearTimeout(t);
-        setSelectedSemester('');
-        setResultData(null);
       };
     }, [])
   );
@@ -140,66 +156,69 @@ export default function MarksScreen() {
     marksWebViewRef.current?.reload();
   }, []);
 
-  // Prioritize subjects from dashboard to ensure all are shown, even if they don't have internal marks yet
-  const chartData = subjects?.length > 0 ? subjects.map(s => {
-    // Find matching mark object if it exists
-    const m = marks?.find(mark => 
-      mark.subjectName.toLowerCase() === s.name.toLowerCase() || 
-      mark.subjectName.toLowerCase().includes(s.name.toLowerCase()) || 
+  // Grade → approximate percentage for radar (based on CU grading scale)
+  const GRADE_TO_PCT: Record<string, number> = {
+    'O': 95, 'A+': 88, 'A': 78, 'B+': 68, 'B': 58,
+    'C+': 53, 'C': 48, 'P': 38, 'F': 0, 'E': 0, 'AB': 0, 'I': 0,
+  };
+
+  // Radar data for current semester (internal marks)
+  const internalChartData = subjects?.length > 0 ? subjects.map(s => {
+    const m = marks?.find(mark =>
+      mark.subjectName.toLowerCase() === s.name.toLowerCase() ||
+      mark.subjectName.toLowerCase().includes(s.name.toLowerCase()) ||
       s.name.toLowerCase().includes(mark.subjectName.toLowerCase())
     );
-    
-    let totalObtained = 0;
-    let totalMax = 0;
-    let hasValidMarks = false;
-
+    let totalObtained = 0, totalMax = 0, hasValidMarks = false;
     if (m) {
-      if (m.mstMarks && m.mstMarks.includes('/')) {
-         const p = m.mstMarks.split('/');
-         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-            totalObtained += parseFloat(p[0]);
-            totalMax += parseFloat(p[1]);
-            hasValidMarks = true;
-         }
+      if (m.mstMarks?.includes('/')) {
+        const p = m.mstMarks.split('/');
+        if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+          totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
+        }
       }
-      if (m.practicalMarks && m.practicalMarks.includes('/')) {
-         const p = m.practicalMarks.split('/');
-         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-            totalObtained += parseFloat(p[0]);
-            totalMax += parseFloat(p[1]);
-            hasValidMarks = true;
-         }
+      if (m.practicalMarks?.includes('/')) {
+        const p = m.practicalMarks.split('/');
+        if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+          totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
+        }
       }
     }
-    
     const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
     const cleanedName = s.name.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
     return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
   }) : marks?.length > 0 ? marks.map(m => {
-     // Fallback if subjects array is empty but marks exists
-     let totalObtained = 0;
-     let totalMax = 0;
-     let hasValidMarks = false;
-     if (m.mstMarks && m.mstMarks.includes('/')) {
-         const p = m.mstMarks.split('/');
-         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-            totalObtained += parseFloat(p[0]);
-            totalMax += parseFloat(p[1]);
-            hasValidMarks = true;
-         }
+    let totalObtained = 0, totalMax = 0, hasValidMarks = false;
+    if (m.mstMarks?.includes('/')) {
+      const p = m.mstMarks.split('/');
+      if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+        totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
       }
-      if (m.practicalMarks && m.practicalMarks.includes('/')) {
-         const p = m.practicalMarks.split('/');
-         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-            totalObtained += parseFloat(p[0]);
-            totalMax += parseFloat(p[1]);
-            hasValidMarks = true;
-         }
+    }
+    if (m.practicalMarks?.includes('/')) {
+      const p = m.practicalMarks.split('/');
+      if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+        totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
       }
-     const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
-     const cleanedName = m.subjectName.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
-     return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
+    }
+    const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
+    const cleanedName = m.subjectName.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
+    return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
   }) : [{ subject: 'No Data', score: 0, hasMarks: false }];
+
+  // Radar data for previous semesters (from final result grades)
+  const resultChartData = useMemo(() => {
+    if (!resultData?.subjects?.length) return null;
+    return resultData.subjects.map(sub => ({
+      subject: (sub.name || sub.code || '').replace(/\s*\(?(theory|practical)\)?/gi, '').trim(),
+      score: GRADE_TO_PCT[sub.grade?.trim().toUpperCase() || ''] ?? 50,
+      hasMarks: !!sub.grade,
+    }));
+  }, [resultData]);
+
+  // Active chart: previous semester → use grade-based radar. Current → internal marks.
+  const chartData = (!isCurrentSemester && resultChartData) ? resultChartData : internalChartData;
+
 
   const extractScript = `
     try {
@@ -426,7 +445,7 @@ export default function MarksScreen() {
                {
                  text: 'Logout & Re-login',
                  style: 'destructive',
-                 onPress: async () => { await clearSession(); router.replace('/(app)' as any); }
+                 onPress: async () => { await clearSession(true); router.replace('/(app)' as any); }
                }
              ]
            );
@@ -661,85 +680,87 @@ export default function MarksScreen() {
           </View>
         )}
 
-        <View style={styles.listContainer}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={styles.listTitle}>Internal Marks</Text>
-            {overallPercentage ? (
-              <View style={styles.sgpaBadge}>
-                <Text style={styles.sgpaText}>{overallPercentage}</Text>
-              </View>
-            ) : null}
-          </View>
-            {marks && marks.length > 0 ? marks.map((item, index) => {
-              const isExpanded = expandedIndex === index;
-              
-              let totalObtained = 0;
-              let totalMax = 0;
-              let hasValidMarks = false;
-
-              if (item.mstMarks && item.mstMarks.includes('/')) {
-                 const p = item.mstMarks.split('/');
-                 if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-                    totalObtained += parseFloat(p[0]);
-                    totalMax += parseFloat(p[1]);
-                    hasValidMarks = true;
-                 }
-              }
-              if (item.practicalMarks && item.practicalMarks.includes('/')) {
-                 const p = item.practicalMarks.split('/');
-                 if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-                    totalObtained += parseFloat(p[0]);
-                    totalMax += parseFloat(p[1]);
-                    hasValidMarks = true;
-                 }
-              }
-              const percentage = hasValidMarks ? ((totalObtained / totalMax) * 100).toFixed(2) + '%' : '';
-
-              return (
-                <View key={index.toString()} style={styles.accordionCard}>
-                  <TouchableOpacity 
-                    style={styles.accordionHeader} 
-                    onPress={() => setExpandedIndex(isExpanded ? null : index)}
-                  >
-                    <View style={{ flex: 1, paddingRight: 16 }}>
-                      <Text style={styles.accordionTitle}>{item.subjectName}</Text>
-                      {percentage ? (
-                        <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Inter_600SemiBold', marginTop: 4 }}>
-                           {percentage}
-                        </Text>
-                      ) : (
-                        <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 4 }}>
-                           Marks Not Available
-                        </Text>
-                      )}
-                    </View>
-                    <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textDim} />
-                  </TouchableOpacity>
-                  
-                  {isExpanded && (
-                    <View style={styles.accordionContent}>
-                      <View style={styles.markRow}>
-                        <Text style={styles.markLabel}>MST</Text>
-                        <Text style={styles.markValue}>{item.mstMarks}</Text>
-                      </View>
-                      <View style={styles.markRow}>
-                        <Text style={styles.markLabel}>Practical</Text>
-                        <Text style={styles.markValue}>{item.practicalMarks}</Text>
-                      </View>
-                    </View>
-                  )}
+        {isCurrentSemester && (
+          <View style={styles.listContainer}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={styles.listTitle}>Internal Marks</Text>
+              {overallPercentage ? (
+                <View style={styles.sgpaBadge}>
+                  <Text style={styles.sgpaText}>{overallPercentage}</Text>
                 </View>
-              );
-            }) : (
-              <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 40, padding: 20 }}>
-                <Ionicons name="document-text-outline" size={64} color="#3b82f640" />
-                <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 16 }}>No Marks Uploaded Yet</Text>
-                <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 8, fontSize: 13, lineHeight: 20 }}>
-                  There are no internal marks uploaded for the current session yet. You can check back later, or select a past semester from the top right to view your final results.
-                </Text>
-              </View>
-            )}
-          </View>
+              ) : null}
+            </View>
+              {marks && marks.length > 0 ? marks.map((item, index) => {
+                const isExpanded = expandedIndex === index;
+                
+                let totalObtained = 0;
+                let totalMax = 0;
+                let hasValidMarks = false;
+
+                if (item.mstMarks && item.mstMarks.includes('/')) {
+                   const p = item.mstMarks.split('/');
+                   if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+                      totalObtained += parseFloat(p[0]);
+                      totalMax += parseFloat(p[1]);
+                      hasValidMarks = true;
+                   }
+                }
+                if (item.practicalMarks && item.practicalMarks.includes('/')) {
+                   const p = item.practicalMarks.split('/');
+                   if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+                      totalObtained += parseFloat(p[0]);
+                      totalMax += parseFloat(p[1]);
+                      hasValidMarks = true;
+                   }
+                }
+                const percentage = hasValidMarks ? ((totalObtained / totalMax) * 100).toFixed(2) + '%' : '';
+
+                return (
+                  <View key={index.toString()} style={styles.accordionCard}>
+                    <TouchableOpacity 
+                      style={styles.accordionHeader} 
+                      onPress={() => setExpandedIndex(isExpanded ? null : index)}
+                    >
+                      <View style={{ flex: 1, paddingRight: 16 }}>
+                        <Text style={styles.accordionTitle}>{item.subjectName}</Text>
+                        {percentage ? (
+                          <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Inter_600SemiBold', marginTop: 4 }}>
+                             {percentage}
+                          </Text>
+                        ) : (
+                          <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 4 }}>
+                             Marks Not Available
+                          </Text>
+                        )}
+                      </View>
+                      <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textDim} />
+                    </TouchableOpacity>
+                    
+                    {isExpanded && (
+                      <View style={styles.accordionContent}>
+                        <View style={styles.markRow}>
+                          <Text style={styles.markLabel}>MST</Text>
+                          <Text style={styles.markValue}>{item.mstMarks}</Text>
+                        </View>
+                        <View style={styles.markRow}>
+                          <Text style={styles.markLabel}>Practical</Text>
+                          <Text style={styles.markValue}>{item.practicalMarks}</Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                );
+              }) : (
+                <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 40, padding: 20 }}>
+                  <Ionicons name="document-text-outline" size={64} color="#3b82f640" />
+                  <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 16 }}>No Marks Uploaded Yet</Text>
+                  <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 8, fontSize: 13, lineHeight: 20 }}>
+                    There are no internal marks uploaded for the current session yet. You can check back later, or select a past semester from the top right to view your final results.
+                  </Text>
+                </View>
+              )}
+            </View>
+        )}
       </ScrollView>
 
       <Modal visible={isModalVisible} animationType="fade" transparent={true}>
@@ -825,7 +846,7 @@ export default function MarksScreen() {
                 style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' }}
                 onPress={async () => {
                    setIsSessionModalVisible(false);
-                   await clearSession();
+                   await clearSession(true);
                    router.replace('/(app)' as any);
                 }}
               >

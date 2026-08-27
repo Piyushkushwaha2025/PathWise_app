@@ -25,6 +25,7 @@ export default function LmsCoursesScreen() {
   const { dbUser } = useDBProfile();
   const profile = useStudyOSStore((s) => s.profile);
   const erpSubjects = useStudyOSStore((s) => s.subjects) || [];
+  const setLmsCourses = useStudyOSStore((s) => s.setLmsCourses);
   const { data: attendanceData } = useAttendance();
   const { isSubscriptionRequired } = useSubscription();
   const activeSection = dbUser?.section_code || profile?.section || null;
@@ -81,8 +82,10 @@ export default function LmsCoursesScreen() {
         if (raw) {
           const cached = JSON.parse(raw);
           setScrapedCourses(cached);
+          setLmsCourses(cached); // Hydrate global store from cache immediately
           setIsLoading(false);
-          setIsScraping(true); // Still scrape in background for fresh data
+          // Only scrape manually via Pull-To-Refresh once loaded!
+          setIsScraping(false); 
         } else {
           setIsScraping(true); // No cache — show loading and scrape
         }
@@ -253,6 +256,13 @@ export default function LmsCoursesScreen() {
                   if (text === 'My Courses' || text === 'Active Courses' || text === 'Dashboard' || text === 'Course Categories' || text.startsWith('Search')) continue;
 
                   var aTag = titles[i].closest('a');
+                  if (!aTag) {
+                      var card = titles[i].closest('.card, .coursebox, .course');
+                      if (card) {
+                          aTag = card.querySelector('a[href*="course/view.php"]');
+                      }
+                  }
+                  
                   var href = aTag ? (aTag.href || '') : '';
                   var idMatch = href.match(/id=(\d+)/);
                   var courseId = idMatch ? idMatch[1] : '';
@@ -356,6 +366,7 @@ export default function LmsCoursesScreen() {
            accumulatedCoursesRef.current = mergedCourses;
 
            setScrapedCourses(mergedCourses);
+           setLmsCourses(mergedCourses); // Push to global store → Grade Center reads instantly
            // Save to cache for next time
            AsyncStorage.setItem(LMS_COURSES_CACHE_KEY, JSON.stringify(mergedCourses)).catch(() => {});
         } else {
@@ -392,7 +403,7 @@ export default function LmsCoursesScreen() {
   };
 
   const handleLogout = async () => {
-    await clearSession();
+    await clearSession(true);
     router.replace('/(app)' as any);
   };
 
@@ -542,7 +553,7 @@ export default function LmsCoursesScreen() {
     code = code.replace(/[-_([ ]*ALL[-_)\] ]*/gi, '').replace(/[_-]+$/, '').replace(/^[_-]+/, '').trim();
 
     // Optional ERP enhancement: use the official subject name/code when this
-    // course maps to an ERP record. Never drops the course if no match found.
+    // course maps to an ERP record. Drops the course if it doesn't match an ERP subject!
     const cCode = getCoreCode(c.shortname || c.fullname);
     const erpMatch = erpTargets.find((t: any) => {
       if (cCode && t.code && cCode === t.code) return true;
@@ -557,6 +568,9 @@ export default function LmsCoursesScreen() {
     if (erpMatch) {
       if (erpMatch.originalTitle && erpMatch.originalTitle.length >= 2) cleanName = erpMatch.originalTitle;
       if (erpMatch.code) code = erpMatch.code.toUpperCase();
+    } else if (erpTargets.length > 0) {
+      // If ERP data exists but this LMS course didn't match any ERP subject, skip it!
+      return;
     }
 
     if (cleanName.length >= 2) {
@@ -576,7 +590,6 @@ export default function LmsCoursesScreen() {
               setIsRefreshing(true);
               accumulatedCoursesRef.current = [];
               setWebViewUrl('https://lms.culko.in/my/courses.php?paged=0');
-              AsyncStorage.removeItem(LMS_COURSES_CACHE_KEY).catch(() => {});
               setIsScraping(true);
             }}
             colors={[colors.primary]}
@@ -585,33 +598,29 @@ export default function LmsCoursesScreen() {
         }
       >
         <View style={styles.headerRow}>
-           <View style={{ flex: 1, paddingRight: 16 }}>
-              <Text style={styles.header}>LMS Courses</Text>
-              <Text style={styles.subheader}>Access your study materials from university.</Text>
+           <View style={{ flex: 1, paddingRight: 8, justifyContent: 'center' }}>
+              <Text style={styles.header}>LMS</Text>
            </View>
-           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              {/* Subtle background sync spinner */}
-              {isScraping && !isLoading && <ActivityIndicator size="small" color={colors.primary} />}
-              
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <TouchableOpacity 
                  onPress={() => router.push('/studyos/assignments' as any)} 
                  style={{ 
                     flexDirection: 'row', 
                     alignItems: 'center', 
                     justifyContent: 'center',
-                    backgroundColor: colors.surface, 
+                    backgroundColor: colors.primary + '15', 
                     borderWidth: 1,
-                    borderColor: colors.border,
-                    paddingHorizontal: pendingCount > 0 ? 12 : 0, 
-                    width: pendingCount > 0 ? 'auto' : 48,
-                    height: 48, 
-                    borderRadius: 24 
+                    borderColor: colors.primary + '30',
+                    paddingHorizontal: 16, 
+                    height: 46, 
+                    borderRadius: 23 
                  }}
               >
-                 <Ionicons name="clipboard-outline" size={20} color={colors.primary} />
+                 <Ionicons name="reader" size={20} color={colors.primary} />
+                 <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13, marginLeft: 6 }}>Tasks</Text>
                  {pendingCount > 0 && (
-                    <View style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6 }}>
-                       <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Inter_700Bold' }}>{pendingCount}</Text>
+                    <View style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 6 }}>
+                       <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'Inter_700Bold' }}>{pendingCount}</Text>
                     </View>
                  )}
               </TouchableOpacity>
@@ -619,28 +628,37 @@ export default function LmsCoursesScreen() {
                <TouchableOpacity
                   onPress={() => router.push('/studyos/grades' as any)}
                   style={{ 
+                     flexDirection: 'row',
                      alignItems: 'center', 
                      justifyContent: 'center',
-                     backgroundColor: colors.surface, 
+                     backgroundColor: colors.primary + '15', 
                      borderWidth: 1,
-                     borderColor: colors.border,
-                     width: 48,
-                     height: 48, 
-                     borderRadius: 24 
+                     borderColor: colors.primary + '30',
+                     paddingHorizontal: 16,
+                     height: 46, 
+                     borderRadius: 23 
                   }}
                >
-                  <Ionicons name="book" size={20} color={colors.primary} />
+                  <Ionicons name="stats-chart" size={20} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13, marginLeft: 6 }}>Grades</Text>
                </TouchableOpacity>
            </View>
         </View>
-         {(mainCourses.length === 0 && erpSubjects.length > 0) ? (
+         
+         {erpSubjects.length > 0 ? (
             <>
                {erpSubjects.map((sub, index) => (
                  <TouchableOpacity 
-                   key={'fallback-'+index} 
+                   key={'erp-'+index} 
                    style={styles.card}
-                   activeOpacity={1}
-                   onPress={() => {}}
+                   activeOpacity={0.7}
+                   onPress={() => {
+                     if (isSubscriptionRequired) {
+                       usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
+                       return;
+                     }
+                     router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
+                   }}
                  >
                    <View style={styles.cardHeader}>
                      <View style={styles.cardIconBox}>
@@ -681,105 +699,36 @@ export default function LmsCoursesScreen() {
                  </TouchableOpacity>
                ))}
             </>
-         ) : (isLoading && mainCourses.length === 0) ? (
+         ) : (
           <View style={styles.centerBox}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={{ color: colors.textMuted, marginTop: Spacing.md, textAlign: 'center' }}>
-               Connecting to LMS... Please wait.
+               Loading subjects...
             </Text>
           </View>
-        ) : (
-          <>
-            {errorMsg === 'SESSION_EXPIRED' && (
-              <View style={{ backgroundColor: colors.error + '15', padding: 16, borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: colors.error + '40' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Ionicons name="cloud-offline-outline" size={24} color={colors.error} />
-                  <Text style={{ color: colors.error, marginLeft: 8, fontFamily: 'Inter_600SemiBold', flex: 1 }}>
-                    Servers Unreachable
-                  </Text>
-                </View>
-                <Text style={{ color: colors.text, fontSize: 13, marginBottom: 12 }}>
-                  LMS is down and your session has expired. Showing offline subjects. To get fresh data, please re-connect.
-                </Text>
-                <TouchableOpacity 
-                  style={{ backgroundColor: colors.error, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}
-                  onPress={handleLogout}
-                >
-                  <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Logout & Re-connect</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+         )}
 
-            {mainCourses.length > 0 ? (
-              <>
-                {mainCourses.map((course, index) => {
-                  const isErpCourse = course.fullname.includes('(ERP)');
-                  
-                  return (
-                  <TouchableOpacity 
-                    key={'main-'+index} 
-                style={styles.card}
-                activeOpacity={isErpCourse ? 1 : 0.7}
-                onPress={() => {
-                  if (isErpCourse) return;
-                  router.push(`/studyos/subjects/${course.id || course.shortname}?name=${encodeURIComponent(course.fullname)}` as any);
-                }}
-              >
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardIconBox}>
-                    <Ionicons name="book-outline" size={20} color={colors.primary} />
-                  </View>
-                  <View style={styles.cardInfo}>
-                    <Text style={styles.subjectName}>{course.fullname}</Text>
-                    <Text style={styles.subjectCode}>{course.shortname}</Text>
-                  </View>
-                  
-                  <TouchableOpacity 
-                    style={{ 
-                      backgroundColor: colors.primary, 
-                      paddingHorizontal: 16, 
-                      paddingVertical: 8, 
-                      borderRadius: 18, 
-                      marginRight: 8, 
-                      flexDirection: 'row', 
-                      alignItems: 'center',
-                      shadowColor: colors.primary,
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.35,
-                      shadowRadius: 5,
-                      elevation: 4
-                    }}
-                    onPress={() => {
-                      if (isSubscriptionRequired) {
-                        usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
-                        return;
-                      }
-                      // Use shortname as the course code for file lookups (e.g. CONT_25CSH-214)
-                      // Fall back to numeric id if shortname is generic
-                      const chatId = (course.shortname && course.shortname !== 'COURSE') ? course.shortname : (course.id || course.shortname);
-                      router.push(`/studyos/subjects/chat/${encodeURIComponent(chatId)}?name=${encodeURIComponent(course.fullname)}` as any);
-                    }}
-                  >
-                    <Ionicons name="sparkles" size={17} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={{ color: '#fff', fontSize: 15, fontFamily: 'Inter_700Bold' }}>AI</Text>
-                  </TouchableOpacity>
-                  
-                  {!isErpCourse && <Ionicons name="chevron-forward" size={18} color={colors.textDim} />}
-                </View>
-              </TouchableOpacity>
-                )})}
+         {errorMsg === 'SESSION_EXPIRED' && (
+           <View style={{ backgroundColor: colors.error + '15', padding: 16, borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: colors.error + '40', marginTop: 16 }}>
+             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+               <Ionicons name="cloud-offline-outline" size={24} color={colors.error} />
+               <Text style={{ color: colors.error, marginLeft: 8, fontFamily: 'Inter_600SemiBold', flex: 1 }}>
+                 LMS Sync Error
+               </Text>
+             </View>
+             <Text style={{ color: colors.text, fontSize: 13, marginBottom: 12 }}>
+               LMS session expired. Grades will not update until re-connected.
+             </Text>
+             <TouchableOpacity 
+               style={{ backgroundColor: colors.error, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}
+               onPress={handleLogout}
+             >
+               <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Logout & Re-connect</Text>
+             </TouchableOpacity>
+           </View>
+         )}
 
-          </>
-        ) : (
-          <View style={styles.centerBox}>
-            <Ionicons name="folder-open-outline" size={48} color={colors.textMuted} />
-            <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: Spacing.md }}>
-              No enrolled courses found on LMS.
-            </Text>
-          </View>
-        )}
-        </>
-        )}
+         <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* Hidden WebView for scraping — only active when needed */}

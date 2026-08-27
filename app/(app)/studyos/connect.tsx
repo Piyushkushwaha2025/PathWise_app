@@ -2,6 +2,7 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler, Modal } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
 import { GraduationCap, ChevronRight, Search, X, ShieldAlert } from 'lucide-react-native';
 import { GlassCard } from '../../../components/ui/GlassCard';
@@ -24,6 +25,15 @@ export default function ConnectScreen() {
     if (error === 'account_linked') {
       setShowErrorModal(true);
       router.setParams({ error: '' });
+    }
+    
+    // Auto-bypass if credentials exist and we're not resetting
+    if (reset !== 'true') {
+      SecureStore.getItemAsync('culko_u').then(u => {
+        if (u) {
+          router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: 'cu' } } as any);
+        }
+      });
     }
   }, [reset, error]);
 

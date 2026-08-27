@@ -528,8 +528,10 @@ export default function AITutorChatScreen() {
     });
 
     try {
-      const activeSession = sessions.find(s => s.id === currentSessionId);
-      const history = (activeSession?.messages.slice(1) || []).map(msg => ({
+      // Use a ref to avoid stale closure on sessions state
+      const latestSession = sessions.find(s => s.id === currentSessionId) ||
+                            JSON.parse(await AsyncStorage.getItem(STORAGE_KEY) || '[]').find((s: ChatSession) => s.id === currentSessionId);
+      const history = (latestSession?.messages.slice(1) || []).map((msg: Message) => ({
          role: msg.role === 'user' ? 'user' : 'model',
          parts: [{ text: msg.text }]
       }));
@@ -538,14 +540,14 @@ export default function AITutorChatScreen() {
       const learningProfile = await AsyncStorage.getItem('ai_learning_profile') || undefined;
       const aiText = await generateAiResponse(history, syllabusText, name as string, id as string, learningProfile, activeProvider);
 
-      // Trigger self-learning in the background
+      // Trigger self-learning in the background (non-blocking)
       if (apiKey) {
          const fullHistory = [...history, { role: 'model' as const, parts: [{ text: aiText }] }];
          reflectAndLearn(fullHistory, learningProfile || "").then(newProfile => {
              if (newProfile && newProfile.length > 5) {
                  AsyncStorage.setItem('ai_learning_profile', newProfile);
              }
-         });
+         }).catch(() => {/* silent */});
       }
 
       // Save AI msg to state & local storage
@@ -567,6 +569,12 @@ export default function AITutorChatScreen() {
       if (error.message?.includes('DAILY_LIMIT_REACHED') || error.message?.includes('NO_PERSONAL_KEY')) {
          errMsg = "To chat with your AI Tutor without limits, please save your free personal API Key!";
          setShowSettings(true);
+      } else if (error.message?.includes('OVERLOADED')) {
+         errMsg = "Google Gemini is currently facing very high global demand and is overloaded. Please try again in 15 seconds, or switch to Groq in Settings for a faster experience.";
+      } else if (error.message?.includes('Rate Limit Exceeded') || error.message?.includes('429') || error.message?.includes('Quota exceeded')) {
+         errMsg = "Rate Limit Exceeded. You are sending messages too fast or the document is too large for this free API key.";
+      } else if (error.message?.includes('Payload Too Large') || error.message?.includes('413')) {
+         errMsg = "The document you attached is too large for this API key. Try asking a shorter question or use a more capable API Key.";
       } else if (error.message?.includes('NO_POOL_KEYS') || error.message?.includes('PROXY_ERROR') || error.message?.includes('NO_PROXY_URL')) {
          errMsg = "Please tap the Settings gear icon at the top right to enter your own free API Key.";
          setShowSettings(true);
@@ -826,15 +834,25 @@ export default function AITutorChatScreen() {
               <View key={msg.id} style={[styles.messageBubble, msg.role === 'user' ? styles.userBubble : styles.aiBubble]}>
                  {msg.role === 'user' ? (
                     <View>
-                       <Text style={styles.userText}>{displayText}</Text>
+                       {displayText ? <Text style={styles.userText}>{displayText}</Text> : <Text style={[styles.userText, { fontStyle: 'italic', opacity: 0.8 }]}>Can you explain this document?</Text>}
                        {hiddenFiles.length > 0 && (
-                          <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
+                          <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                              {hiddenFiles.map((f, i) => {
-                                const displayName = f.trim().split('/').pop() || f;
+                                // Extract just the filename without path
+                                const rawName = f.trim().split('/').pop()?.split('\\').pop() || f;
+                                // Remove extension
+                                const nameNoExt = rawName.replace(/\.(pptx|pdf|docx|txt|ppt|xlsx|csv)$/i, '');
+                                // Remove "Topic X.X - " prefix if present
+                                const cleanName = nameNoExt.replace(/^Topic\s*\d+[\.\d]*\s*[-–]\s*/i, '').trim();
+                                // Truncate if too long
+                                const shortName = cleanName.length > 22 ? cleanName.substring(0, 20) + '…' : cleanName;
+                                // Pick icon by extension
+                                const ext = rawName.split('.').pop()?.toLowerCase() || '';
+                                const icon = ext === 'pdf' ? 'document-text' : ext === 'pptx' || ext === 'ppt' ? 'easel' : 'document-attach';
                                 return (
-                                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                                      <Ionicons name="document-attach" size={15} color="rgba(255,255,255,0.9)" style={{ marginRight: 6 }} />
-                                      <Text style={{ color: 'rgba(255,255,255,0.95)', fontSize: 13, fontFamily: 'Inter_600SemiBold', flex: 1 }} numberOfLines={2}>{displayName}</Text>
+                                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, gap: 5 }}>
+                                      <Ionicons name={icon as any} size={13} color="rgba(255,255,255,0.95)" />
+                                      <Text style={{ color: 'rgba(255,255,255,0.97)', fontSize: 12, fontFamily: 'Inter_600SemiBold' }} numberOfLines={1}>{shortName}</Text>
                                    </View>
                                 );
                              })}

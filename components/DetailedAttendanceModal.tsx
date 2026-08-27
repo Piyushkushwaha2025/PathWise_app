@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
@@ -214,6 +214,49 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
   const postbackStarted = useRef(false);
   const navAttempts = useRef(0);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Pull-to-refresh: bust cache for this subject and re-fetch from portal
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    // Remove only this subject's cache so fresh data is fetched
+    const currentCache = useStudyOSStore.getState().detailedAttendanceCache || {};
+    const { [subjectCode]: _removed, ...rest } = currentCache;
+    await setScrapedData({ detailedAttendanceCache: rest });
+
+    cacheHit.current = false;
+    hasInjectedPostback.current = false;
+    postbackStarted.current = false;
+    navAttempts.current = 0;
+    setAttendanceData([]);
+    setErrorMsg('');
+    setDebugLogs([]);
+    setLoading(true);
+
+    // Re-load cookie and trigger webview fetch
+    try {
+      const cookies = await SecureStore.getItemAsync('culko_cookies');
+      if (!cookies) {
+        setErrorMsg('Session expired. Please re-login.');
+        setLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+      const parts = cookies.split(';').map((c) => c.trim()).filter(Boolean);
+      const lines = parts.map((c) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
+      setCookieInjectScript(null);
+      // Small delay then set new script to trigger webview reload
+      setTimeout(() => {
+        setCookieInjectScript(lines + '\ntrue;');
+        setIsRefreshing(false);
+      }, 200);
+    } catch (e) {
+      setErrorMsg('Failed to refresh. Please try again.');
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
 
   useEffect(() => {
     if (!visible) return;
@@ -449,6 +492,13 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
           <TouchableOpacity onPress={() => setIsPredicting(!isPredicting)} style={[styles.closeBtn, { backgroundColor: isPredicting ? colors.primary + '20' : colors.surfaceHigh, marginRight: 8 }]}>
             <Ionicons name="analytics" size={24} color={isPredicting ? colors.primary : colors.text} />
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={loading || isRefreshing}
+            style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh, marginRight: 8, opacity: (loading || isRefreshing) ? 0.4 : 1 }]}
+          >
+            <Ionicons name="refresh-outline" size={22} color={colors.text} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh }]}>
             <Ionicons name="close" size={24} color={colors.text} />
           </TouchableOpacity>
@@ -601,7 +651,17 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
             <Text style={[styles.errorText, { color: colors.textMuted }]}>No records found</Text>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <ScrollView
+            contentContainerStyle={{ padding: 16 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
+              />
+            }
+          >
             {safeAttendanceData.map((item, index) => {
               const isPresent = String(item?.status || '').toLowerCase() === 'present';
               const isLeave = String(item?.status || '').toLowerCase().includes('leave');

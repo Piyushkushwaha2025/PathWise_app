@@ -43,6 +43,12 @@ interface CulkoMarks {
   mstMarks: string;
 }
 
+interface LmsCourse {
+  fullname: string;
+  shortname: string;
+  id?: string;
+}
+
 interface StudyOSState {
   streak: number;
   xp: number;
@@ -55,7 +61,12 @@ interface StudyOSState {
   timetable: Record<string, CulkoClassSlot[]>;
   marks: CulkoMarks[];
   isScrapedDataLoaded: boolean;
+  isHydrated: boolean;
   
+  // LMS Courses (shared between Subjects tab and Grade Center)
+  lmsCourses: LmsCourse[];
+  setLmsCourses: (courses: LmsCourse[]) => void;
+
   // Results Cache
   semesterOptionsCache: { text: string, value: string }[];
   resultCache: Record<string, { sgpa: string, subjects: any[] }>;
@@ -81,6 +92,9 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
   timetable: {},
   marks: [],
   isScrapedDataLoaded: false,
+  isHydrated: false,
+  lmsCourses: [],
+  setLmsCourses: (courses) => set({ lmsCourses: courses }),
   semesterOptionsCache: [],
   resultCache: {},
   detailedAttendanceCache: {},
@@ -98,10 +112,12 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
         xp: storedXP ? parseInt(storedXP, 10) : 0,
         lastActivityDate: storedLastDate,
         roadmaps: storedRoadmaps ? JSON.parse(storedRoadmaps) : [],
-        ...(storedScraped ? JSON.parse(storedScraped) : {})
+        ...(storedScraped ? JSON.parse(storedScraped) : {}),
+        isHydrated: true
       });
     } catch (e) {
       console.error('Failed to load gamification data', e);
+      set({ isHydrated: true });
     }
   },
 

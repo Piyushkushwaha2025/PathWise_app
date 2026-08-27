@@ -60,9 +60,11 @@ export default function SignInScreen() {
     try {
       setOauthLoading(true);
       setError("");
-      const { createdSessionId, setActive: setOAuthActive, authSessionResult } = await startOAuthFlow({
-        redirectUrl: Linking.createURL("/(auth)/sign-in", { scheme: "pathwise" })
+      const { createdSessionId, setActive: setOAuthActive, authSessionResult, signIn, signUp } = await startOAuthFlow({
+        redirectUrl: Linking.createURL("/callback", { scheme: "pathwise" })
       });
+
+      console.log("OAUTH RESULT:", authSessionResult, createdSessionId, signIn, signUp);
 
       // User cancelled or dismissed the browser — clear any partial session and stay on sign-in
       if (
@@ -70,26 +72,51 @@ export default function SignInScreen() {
         authSessionResult.type === "cancel" ||
         authSessionResult.type === "dismiss"
       ) {
+        console.log("OAUTH CANCELLED OR DISMISSED", authSessionResult);
         await signOut().catch(() => {});
         setOauthLoading(false);
+        router.replace("/(auth)/sign-in");
         return;
       }
 
-      if (createdSessionId && setOAuthActive) {
-        await setOAuthActive({ session: createdSessionId });
+      const sessionId = createdSessionId || signIn?.createdSessionId || signUp?.createdSessionId;
+
+      if (sessionId && setOAuthActive) {
+        await setOAuthActive({ session: sessionId });
         // Don't turn off loading on success so the loading screen covers the navigation delay
         router.replace("/(app)/dashboard");
       } else {
+        console.error("Missing session ID! Auth State:", {
+           signInStatus: signIn?.status,
+           signUpStatus: signUp?.status,
+           unverifiedFields: signUp?.unverifiedFields,
+           missingFields: signUp?.missingFields
+        });
+        const missingStr = signUp?.missingFields ? signUp.missingFields.join(', ') : '';
+        const unverifiedStr = signUp?.unverifiedFields ? signUp.unverifiedFields.join(', ') : '';
+        
+        const debugInfo = `Session: ${createdSessionId ? 'yes' : 'no'}. SignIn: ${signIn?.status || 'none'}. SignUp: ${signUp?.status || 'none'}. AuthResult: ${authSessionResult?.type || 'none'}.`;
+        
+        setError(debugInfo);
         setOauthLoading(false);
+        router.replace("/(auth)/sign-in");
       }
     } catch (err: any) {
       console.error("OAuth error", err);
       // Sign out any partial session on error too
       await signOut().catch(() => {});
-      if (err?.code !== "session_exists" && !err?.message?.toLowerCase().includes("cancel")) {
+      
+      if (err?.code === "session_exists" || err?.errors?.[0]?.code === "session_exists") {
+        router.replace("/(app)/dashboard");
+        return;
+      }
+      
+      if (!err?.message?.toLowerCase().includes("cancel")) {
         setError(err?.errors?.[0]?.message ?? "Google Sign In failed.");
       }
       setOauthLoading(false);
+      // If we are on the callback screen, we must replace back to sign-in
+      router.replace("/(auth)/sign-in");
     }
   };
 

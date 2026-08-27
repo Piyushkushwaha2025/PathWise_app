@@ -8,7 +8,7 @@ import * as SecureStore from 'expo-secure-store';
 
 interface FacilitiesModalProps {
   visible: boolean;
-  type: 'hostel' | 'transport' | 'profile' | 'leave' | null;
+  type: 'hostel' | 'transport' | 'profile' | 'leave' | 'fees' | null;
   onClose: () => void;
 }
 
@@ -19,7 +19,8 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
   const [cookies, setCookies] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [cookiesLoaded, setCookiesLoaded] = useState(false);
-  const [leaveType, setLeaveType] = useState<'ml' | 'dl' | 'hostel' | null>(null);
+  const [subType, setSubType] = useState<'ml' | 'dl' | 'hostel' | 'details' | 'receipts' | null>(null);
+  const [receiptViewerUrl, setReceiptViewerUrl] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
   const dataCache = useRef<Record<string, any[]>>({});
 
@@ -28,19 +29,26 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
   else if (type === 'transport') targetUrl = 'https://student.culko.in/frmTransportDetails.aspx';
   else if (type === 'profile') targetUrl = 'https://student.culko.in/frmStudentProfile.aspx';
   else if (type === 'leave') {
-    if (leaveType === 'ml') targetUrl = 'https://student.culko.in/frmStudentMedicalLeaveApply.aspx';
-    else if (leaveType === 'dl') targetUrl = 'https://student.culko.in/frmStudentApplyDutyLeave.aspx';
-    else if (leaveType === 'hostel') targetUrl = 'https://student.culko.in/frmStudentHostelLeave.aspx';
+    if (subType === 'ml') targetUrl = 'https://student.culko.in/frmStudentMedicalLeaveApply.aspx';
+    else if (subType === 'dl') targetUrl = 'https://student.culko.in/frmStudentApplyDutyLeave.aspx';
+    else if (subType === 'hostel') targetUrl = 'https://student.culko.in/frmStudentHostelLeave.aspx';
+  } else if (type === 'fees') {
+    if (subType === 'details') targetUrl = 'https://student.culko.in/frmAccountStudentDetails.aspx';
+    else if (subType === 'receipts') targetUrl = 'https://student.culko.in/frmAccountsStudentReceiptList.aspx';
   }
 
   useEffect(() => {
     if (visible && type) {
-      if (type === 'leave' && leaveType === null) {
-        setLeaveType('ml');
+      if (type === 'leave' && subType === null) {
+        setSubType('ml');
+        return;
+      }
+      if (type === 'fees' && subType === null) {
+        setSubType('details');
         return;
       }
       
-      const cacheKey = type === 'leave' ? `leave_${leaveType}` : type;
+      const cacheKey = (type === 'leave' || type === 'fees') ? `${type}_${subType}` : type;
       const hasCache = cacheKey && dataCache.current[cacheKey] !== undefined;
       
       if (hasCache) {
@@ -72,17 +80,25 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
       return () => clearTimeout(timer);
     } else {
       setCookiesLoaded(false);
-      setLeaveType(null); // Reset when closed
+      setSubType(null); // Reset when closed
     }
-  }, [visible, type, leaveType]);
+  }, [visible, type, subType]);
 
   const INJECTED_JAVASCRIPT = `
+    window.open = function(url) {
+        if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'OPEN_URL', url: url }));
+        }
+        return null;
+    };
+    
     setTimeout(function() {
       try {
         var pageType = "${type}";
+        var subPageType = "${subType}";
         var results = [];
         
-        if (pageType === 'leave') {
+        if (pageType === 'leave' || pageType === 'fees') {
               var tables = document.querySelectorAll('table');
               for(var i=0; i<tables.length; i++) {
                  var rows = tables[i].querySelectorAll('tr');
@@ -101,7 +117,9 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                      var hasTh = rows[0].querySelectorAll('th').length > 0;
                      var isGrid = tables[i].id.toLowerCase().includes('grid') || tables[i].className.toLowerCase().includes('grid') || tables[i].getAttribute('rules') === 'all' || hasTh;
                      
-                     if (isGrid || (headers.length >= 2 && (headerStr.includes('status') || headerStr.includes('action') || headerStr.includes('category') || headerStr.includes('type') || headerStr.includes('date') || headerStr.includes('leave')))) {
+                     var isValidGrid = isGrid || (headers.length >= 2 && (headerStr.includes('status') || headerStr.includes('action') || headerStr.includes('category') || headerStr.includes('type') || headerStr.includes('date') || headerStr.includes('leave') || headerStr.includes('amount') || headerStr.includes('fee') || headerStr.includes('balance') || headerStr.includes('receipt')));
+                     
+                     if (isValidGrid) {
                           var parsedCount = 0;
                           for(var r=1; r<rows.length; r++) {
                              var rowHasInput = rows[r].querySelectorAll(inputSelector).length > 0;
@@ -112,17 +130,28 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                                  var rowData = {};
                                  for(var c=0; c<tds.length; c++) {
                                     var head = headers[c] || 'Column_' + c;
-                                    if (head.toLowerCase().includes('file name')) continue; // Ignore file name
-                                    var val = tds[c].innerText.trim();
-                                    if (val) rowData[head] = val;
-                                 }
-                                 if (Object.keys(rowData).length > 0) {
+                                     if (head.toLowerCase().includes('file name')) continue; // Ignore file name
+                                     var val = tds[c].innerText.trim();
+                                     if (val) rowData[head] = val;
+                                     
+                                     var actionEl = tds[c].querySelector('a, input[type="button"], input[type="image"], input[type="submit"]');
+                                     if (actionEl && !actionEl.id.toLowerCase().includes('sort')) {
+                                         if (actionEl.getAttribute('href') && actionEl.getAttribute('href').includes('javascript:')) {
+                                             rowData['_downloadScript'] = actionEl.getAttribute('href');
+                                         } else if (actionEl.getAttribute('onclick')) {
+                                             rowData['_downloadScript'] = actionEl.getAttribute('onclick');
+                                         } else if (actionEl.tagName === 'A' && actionEl.getAttribute('href')) {
+                                             rowData['_downloadUrl'] = actionEl.getAttribute('href');
+                                         }
+                                     }
+                                  }
+                                  if (Object.keys(rowData).length > 0) {
                                     results.push(rowData);
                                     parsedCount++;
                                  }
                              }
                           }
-                          if (parsedCount > 0) break;
+                          // Do not break; allow extracting multiple grid sections
                      }
                  }
               }
@@ -204,7 +233,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
       const msg = JSON.parse(event.nativeEvent.data);
       if (msg.type === 'DATA') {
         const hasData = msg.data && msg.data.length > 0;
-        const cacheKey = type === 'leave' ? `leave_${leaveType}` : type;
+        const cacheKey = (type === 'leave' || type === 'fees') ? `${type}_${subType}` : type;
         
         if (hasData) {
            const newDataStr = JSON.stringify(msg.data);
@@ -213,7 +242,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                setData(msg.data);
                if (cacheKey) dataCache.current[cacheKey] = msg.data;
            }
-        } else if (type === 'leave') {
+        } else if (type === 'leave' || (type === 'fees' && subType === 'receipts')) {
            const newDataStr = JSON.stringify([]);
            const oldDataStr = JSON.stringify(cacheKey ? dataCache.current[cacheKey] : null);
            if (newDataStr !== oldDataStr) {
@@ -222,10 +251,16 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
            }
         } else {
            if (!cacheKey || !dataCache.current[cacheKey]) {
-              setError(type === 'hostel' ? 'No Hostel Allotted' : type === 'transport' ? 'No Transport Allotted' : 'No Profile Data');
+              setError(type === 'hostel' ? 'No Hostel Allotted' : type === 'transport' ? 'No Transport Allotted' : type === 'fees' ? 'No Fee Details Found' : 'No Profile Data');
            }
         }
         setLoading(false);
+      } else if (msg.type === 'OPEN_URL') {
+         let fullUrl = msg.url;
+         if (fullUrl && !fullUrl.startsWith('http')) {
+             fullUrl = 'https://student.culko.in/' + fullUrl.replace(/^\/+/, '');
+         }
+         setReceiptViewerUrl(fullUrl);
       } else if (msg.type === 'ERROR') {
         setError('Failed to extract data.');
         setLoading(false);
@@ -241,7 +276,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
       <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Text style={[styles.title, { color: colors.text }]}>
-              {type === 'hostel' ? 'Hostel Details' : type === 'transport' ? 'Transport Details' : type === 'profile' ? 'Profile Details' : 'Leave History'}
+              {type === 'hostel' ? 'Hostel Details' : type === 'transport' ? 'Transport Details' : type === 'profile' ? 'Profile Details' : type === 'fees' ? 'Fee Details' : 'Leave History'}
             </Text>
             <TouchableOpacity onPress={onClose} style={[styles.closeButton, { backgroundColor: colors.surfaceHigh }]}>
               <Ionicons name="close" size={24} color={colors.text} />
@@ -251,22 +286,39 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
           {type === 'leave' && (
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
               <TouchableOpacity 
-                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: leaveType === 'ml' ? colors.primary : colors.surfaceHigh, borderColor: leaveType === 'ml' ? colors.primary : colors.border }]} 
-                onPress={() => setLeaveType('ml')}
+                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'ml' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'ml' ? colors.primary : colors.border }]} 
+                onPress={() => setSubType('ml')}
               >
-                <Text style={[styles.leaveOptionText, { color: leaveType === 'ml' ? '#fff' : colors.textMuted }]}>ML</Text>
+                <Text style={[styles.leaveOptionText, { color: subType === 'ml' ? '#fff' : colors.textMuted }]}>ML</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: leaveType === 'dl' ? colors.primary : colors.surfaceHigh, borderColor: leaveType === 'dl' ? colors.primary : colors.border }]} 
-                onPress={() => setLeaveType('dl')}
+                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'dl' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'dl' ? colors.primary : colors.border }]} 
+                onPress={() => setSubType('dl')}
               >
-                <Text style={[styles.leaveOptionText, { color: leaveType === 'dl' ? '#fff' : colors.textMuted }]}>DL</Text>
+                <Text style={[styles.leaveOptionText, { color: subType === 'dl' ? '#fff' : colors.textMuted }]}>DL</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: leaveType === 'hostel' ? colors.primary : colors.surfaceHigh, borderColor: leaveType === 'hostel' ? colors.primary : colors.border }]} 
-                onPress={() => setLeaveType('hostel')}
+                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'hostel' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'hostel' ? colors.primary : colors.border }]} 
+                onPress={() => setSubType('hostel')}
               >
-                <Text style={[styles.leaveOptionText, { color: leaveType === 'hostel' ? '#fff' : colors.textMuted }]}>Hostel</Text>
+                <Text style={[styles.leaveOptionText, { color: subType === 'hostel' ? '#fff' : colors.textMuted }]}>Hostel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {type === 'fees' && (
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 24 }}>
+              <TouchableOpacity 
+                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'details' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'details' ? colors.primary : colors.border }]} 
+                onPress={() => setSubType('details')}
+              >
+                <Text style={[styles.leaveOptionText, { color: subType === 'details' ? '#fff' : colors.textMuted }]}>Account Details</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'receipts' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'receipts' ? colors.primary : colors.border }]} 
+                onPress={() => setSubType('receipts')}
+              >
+                <Text style={[styles.leaveOptionText, { color: subType === 'receipts' ? '#fff' : colors.textMuted }]}>Receipts</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -274,7 +326,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
           {loading && (
                 <View style={styles.centerContent}>
                   <ActivityIndicator size="large" color={colors.primary} />
-                  <Text style={[styles.loadingText, { color: colors.textMuted }]}>Securely fetching {leaveType || type} info...</Text>
+                  <Text style={[styles.loadingText, { color: colors.textMuted }]}>Securely fetching {subType || type} info...</Text>
                 </View>
               )}
 
@@ -287,7 +339,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
 
               {!loading && !error && (
                 <ScrollView style={styles.dataContainer} contentContainerStyle={{ paddingBottom: Spacing.xl }} showsVerticalScrollIndicator={false}>
-                    {type === 'leave' ? (
+                    {type === 'leave' || type === 'fees' ? (
                       data.length > 0 ? data.map((item, index) => {
                          const statusKey = Object.keys(item).find(k => k.toLowerCase().includes('status') || k.toLowerCase().includes('action') || k.toLowerCase().includes('approval'));
                          const statusValue = statusKey ? item[statusKey] : null;
@@ -300,7 +352,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                          return (
                          <View key={index} style={[styles.leaveCard, { backgroundColor: colors.surfaceHigh, borderColor: colors.border }]}>
                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                             <Text style={[styles.leaveCardTitle, { color: colors.text, flex: 1, marginRight: 8 }]}>{item['Category'] || item['Leave_Type'] || item['Leave Type'] || 'Leave Application'}</Text>
+                             <Text style={[styles.leaveCardTitle, { color: colors.text, flex: 1, marginRight: 8 }]}>{item['Category'] || item['Leave_Type'] || item['Leave Type'] || item['Receipt No'] || item['Receipt_No'] || item['Receipt No.'] || item['Fee Head'] || item['Fee_Head'] || item['Head'] || 'Record'}</Text>
                              {statusValue && (
                                <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
                                  <Text style={[styles.statusText, { color: statusColor }]}>{statusValue}</Text>
@@ -308,7 +360,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                              )}
                            </View>
                            {Object.keys(item).map(k => {
-                             if (k === 'Category' || k === 'Leave_Type' || k === 'Leave Type' || k === statusKey || !item[k]) return null;
+                             if (k.startsWith('_') || k.startsWith('Column_') || k.toLowerCase().includes('download') || k === 'Category' || k === 'Leave_Type' || k === 'Leave Type' || k === 'Receipt No' || k === 'Receipt_No' || k === 'Receipt No.' || k === 'Fee Head' || k === 'Fee_Head' || k === 'Head' || k === statusKey || !item[k]) return null;
                              return (
                                <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                                  <Text style={{ color: colors.textMuted, fontSize: 13, flex: 1 }}>{k.replace(/_/g, ' ')}</Text>
@@ -320,7 +372,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                          );
                        }) : (
                        <View style={styles.centerContent}>
-                          <Text style={{ color: colors.textMuted }}>No leave records found.</Text>
+                          <Text style={{ color: colors.textMuted }}>No records found.</Text>
                        </View>
                      )
                   ) : (
@@ -353,6 +405,26 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                     thirdPartyCookiesEnabled={true}
                   />
                 </View>
+              )}
+
+              {receiptViewerUrl && (
+                <Modal visible={true} animationType="slide" onRequestClose={() => setReceiptViewerUrl(null)}>
+                  <View style={{ flex: 1, backgroundColor: colors.background }}>
+                    <View style={[styles.header, { borderBottomColor: colors.border, padding: Spacing.xl, paddingTop: 60, marginBottom: 0 }]}>
+                      <Text style={[styles.title, { color: colors.text, fontSize: 18 }]}>Receipt Document</Text>
+                      <TouchableOpacity onPress={() => setReceiptViewerUrl(null)} style={[styles.closeButton, { backgroundColor: colors.surfaceHigh }]}>
+                        <Ionicons name="close" size={24} color={colors.text} />
+                      </TouchableOpacity>
+                    </View>
+                    <WebView
+                      source={{ uri: receiptViewerUrl, headers: { Cookie: cookies } }}
+                      sharedCookiesEnabled={true}
+                      thirdPartyCookiesEnabled={true}
+                      javaScriptEnabled={true}
+                      scalesPageToFit={true}
+                    />
+                  </View>
+                </Modal>
               )}
         </View>
     </Modal>

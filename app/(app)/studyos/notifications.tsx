@@ -4,6 +4,7 @@ import {
   ActivityIndicator, RefreshControl, Alert, TextInput, Modal, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@clerk/clerk-expo';
 import { useThemeStore } from '../../../store/useThemeStore';
@@ -27,8 +28,10 @@ export default function NotificationsScreen() {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newMessage, setNewMessage] = useState('');
-  const [expiryDays, setExpiryDays] = useState<number>(3); // Default 3 days
+  const [expiryDaysStr, setExpiryDaysStr] = useState('3'); // Default 3 days
   const [creating, setCreating] = useState(false);
+  const [titleError, setTitleError] = useState('');
+  const [messageError, setMessageError] = useState('');
 
   // Modal states for deleting
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
@@ -54,23 +57,38 @@ export default function NotificationsScreen() {
   useEffect(() => { loadNotifications(); }, [loadNotifications]);
 
   const handleCreate = async () => {
-    if (!userId || !newTitle.trim() || !newMessage.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+    let hasError = false;
+    if (!newTitle.trim()) {
+      setTitleError('Title is required');
+      hasError = true;
+    }
+    if (!newMessage.trim()) {
+      setMessageError('Message is required');
+      hasError = true;
+    }
+    if (hasError || !userId) return;
+    
+    if (!activeSection) {
+      Alert.alert('Error', 'Section code is missing. Please sync your profile first.');
       return;
     }
-    
+
     try {
       setCreating(true);
+      const days = parseInt(expiryDaysStr, 10);
+      const finalDays = isNaN(days) || days < 1 ? 3 : days; // Fallback to 3 if invalid
       const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + expiryDays);
+      expiresAt.setDate(expiresAt.getDate() + finalDays);
 
-      const newNotif = await createNotification(userId, newTitle.trim(), newMessage.trim(), expiresAt.toISOString());
+      const newNotif = await createNotification(userId, newTitle.trim(), newMessage.trim(), expiresAt.toISOString(), activeSection);
       
       setNotifications(prev => [newNotif, ...prev]);
       setCreateModalVisible(false);
       setNewTitle('');
       setNewMessage('');
-      setExpiryDays(3);
+      setExpiryDaysStr('3');
+      setTitleError('');
+      setMessageError('');
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to create notification');
     } finally {
@@ -97,6 +115,8 @@ export default function NotificationsScreen() {
       setDeleting(false);
     }
   };
+
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.container}>
@@ -129,7 +149,7 @@ export default function NotificationsScreen() {
         <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
       ) : (
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadNotifications(); }} />
           }
@@ -174,7 +194,7 @@ export default function NotificationsScreen() {
       {/* FAB for CR */}
       {!loading && isCR && (
         <TouchableOpacity
-          style={styles.fab}
+          style={[styles.fab, { bottom: insets.bottom + 30 }]}
           onPress={() => setCreateModalVisible(true)}
         >
           <Ionicons name="add" size={30} color="#fff" />
@@ -182,52 +202,59 @@ export default function NotificationsScreen() {
       )}
 
       {/* Create Modal */}
-      <Modal visible={createModalVisible} transparent animationType="slide">
+      <Modal visible={createModalVisible} transparent animationType="fade">
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalOverlay}
         >
-          <View style={styles.bottomSheet}>
+          <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>New Notification</Text>
-              <TouchableOpacity onPress={() => setCreateModalVisible(false)}>
+              <TouchableOpacity onPress={() => {
+                setCreateModalVisible(false);
+                setTitleError('');
+                setMessageError('');
+              }}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             <Text style={styles.inputLabel}>Title</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, titleError ? { borderColor: '#ef4444' } : null]}
               placeholder="e.g. Lab Manual Submission"
               placeholderTextColor={colors.textMuted}
               value={newTitle}
-              onChangeText={setNewTitle}
+              onChangeText={(t) => {
+                setNewTitle(t);
+                if (titleError) setTitleError('');
+              }}
             />
+            {!!titleError && <Text style={{ color: '#ef4444', fontSize: 12, fontFamily: 'Inter_500Medium', marginTop: 4 }}>{titleError}</Text>}
 
             <Text style={styles.inputLabel}>Message</Text>
             <TextInput
-              style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+              style={[styles.input, { height: 100, textAlignVertical: 'top' }, messageError ? { borderColor: '#ef4444' } : null]}
               placeholder="Provide details about the announcement..."
               placeholderTextColor={colors.textMuted}
               value={newMessage}
-              onChangeText={setNewMessage}
+              onChangeText={(t) => {
+                setNewMessage(t);
+                if (messageError) setMessageError('');
+              }}
               multiline
             />
+            {!!messageError && <Text style={{ color: '#ef4444', fontSize: 12, fontFamily: 'Inter_500Medium', marginTop: 4 }}>{messageError}</Text>}
 
             <Text style={styles.inputLabel}>Auto Delete After (Days)</Text>
-            <View style={styles.chipRow}>
-              {[1, 3, 7, 14].map(days => (
-                <TouchableOpacity
-                  key={days}
-                  style={[styles.chip, expiryDays === days && styles.chipActive]}
-                  onPress={() => setExpiryDays(days)}
-                >
-                  <Text style={[styles.chipText, expiryDays === days && styles.chipTextActive]}>
-                    {days} Day{days > 1 ? 's' : ''}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 7"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="number-pad"
+              value={expiryDaysStr}
+              onChangeText={(t) => setExpiryDaysStr(t.replace(/[^0-9]/g, ''))}
+            />
 
             <TouchableOpacity 
               style={[styles.postBtn, creating && { opacity: 0.7 }]} 

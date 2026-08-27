@@ -115,6 +115,49 @@ export interface NotificationData {
 // Notification API
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface SaturdayOverrideData {
+  _id: string;
+  date: string;
+  mapped_day: string;
+  section_code: string;
+  created_by: string;
+}
+
+export async function fetchSaturdayOverrides(clerkId: string, section_code?: string): Promise<SaturdayOverrideData[]> {
+  if (!section_code) return [];
+  try {
+    const res = await fetch(`${API_URL}/saturday-override?section_code=${encodeURIComponent(section_code)}`, {
+      headers: { 'x-clerk-user-id': clerkId }
+    });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function setSaturdayOverride(clerkId: string, date: string, mapped_day: string, section_code: string): Promise<SaturdayOverrideData> {
+  const res = await fetch(`${API_URL}/saturday-override`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-clerk-user-id': clerkId
+    },
+    body: JSON.stringify({ date, mapped_day, section_code })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to set override');
+  return data;
+}
+
+export async function deleteSaturdayOverride(clerkId: string, overrideId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/saturday-override/${overrideId}`, {
+    method: 'DELETE',
+    headers: { 'x-clerk-user-id': clerkId }
+  });
+  if (!res.ok) throw new Error('Failed to delete override');
+}
+
 export async function fetchNotifications(clerkId: string, section?: string): Promise<NotificationData[]> {
   try {
     const url = section ? `${API_URL}/notifications?section=${encodeURIComponent(section)}` : `${API_URL}/notifications`;
@@ -128,14 +171,14 @@ export async function fetchNotifications(clerkId: string, section?: string): Pro
   }
 }
 
-export async function createNotification(clerkId: string, title: string, message: string, expiresAt: string): Promise<NotificationData> {
+export async function createNotification(clerkId: string, title: string, message: string, expiresAt: string, section_code: string): Promise<NotificationData> {
   const res = await fetch(`${API_URL}/notifications`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-clerk-user-id': clerkId
     },
-    body: JSON.stringify({ title, message, expiresAt })
+    body: JSON.stringify({ title, message, expiresAt, section_code })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to create notification');

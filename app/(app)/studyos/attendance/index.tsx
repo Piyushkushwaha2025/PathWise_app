@@ -56,7 +56,7 @@ export default function AttendanceScreen() {
     if ((error as Error).message.includes('expired') || error.name === 'SessionExpiredError') {
       // Handle graceful logout
       setTimeout(() => {
-        clearSession().then(() => {
+        clearSession(true).then(() => {
           router.replace('/(app)/studyos/connect');
         });
       }, 100);

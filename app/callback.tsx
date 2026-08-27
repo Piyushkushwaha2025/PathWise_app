@@ -13,6 +13,8 @@ export default function OAuthCallbackScreen() {
       router.replace('/(app)/dashboard');
     }
     
+    // Safety net: if not signed in after 10 seconds, the OAuth flow likely failed,
+    // so we return to sign in to avoid being permanently stuck on the loading screen.
     const timer = setTimeout(() => {
       if (!isSignedIn) router.replace('/(auth)/sign-in');
     }, 10000);

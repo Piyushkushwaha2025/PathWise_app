@@ -1,7 +1,7 @@
 import { useUser } from '@clerk/clerk-expo';
 import { useMemo } from 'react';
 
-const TRIAL_DAYS = 0; // Set to 0 for testing paywall
+const TRIAL_DAYS = 3; // 3 days free trial for new users
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 export function useSubscription() {

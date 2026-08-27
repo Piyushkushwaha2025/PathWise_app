@@ -106,26 +106,49 @@ export default function WebViewLoginScreen() {
         try {
           var userInp = document.querySelector('input[type="text"]') || document.querySelector('input[name*="user" i]') || document.querySelector('input[name*="uid" i]');
           var passInp = document.querySelector('input[type="password"]');
+          var captchaInp = document.querySelector('input[name*="captcha" i]') || document.querySelector('input[placeholder*="captcha" i]') || document.querySelector('input[id*="captcha" i]');
           var btn = document.querySelector('input[type="submit"]') || document.querySelector('button[type="submit"]') || document.getElementById('btnLogin');
           
           var hasCreds = "${uEnc}" !== "";
+          // Page 2 has both password AND captcha field — auto-click is dangerous there
+          var hasCaptcha = !!captchaInp;
+          // Page 1 has only UID field (no password, no captcha) — safe to auto-click
+          var isPage1 = !!userInp && !passInp && !hasCaptcha;
 
-          if (userInp && passInp && btn && !window.__autoLogStarted) {
+          if (userInp && btn && !window.__autoLogStarted) {
              window.__autoLogStarted = true;
              
              if (hasCreds) {
-               userInp.value = decodeURIComponent("${uEnc}");
-               passInp.value = decodeURIComponent("${pEnc}");
+               if (isPage1) {
+                 // Page 1: only UID field exists — fill it
+                 userInp.value = decodeURIComponent("${uEnc}");
+               } else if (hasCaptcha && passInp) {
+                 // Page 2: portal already fills UID from URL params — DON'T touch it
+                 // Only auto-fill password so user can freely edit UID if needed
+                 passInp.value = decodeURIComponent("${pEnc}");
+               }
              }
              
-             // Always add click listener so we can save/update credentials
+             // Always add click listener to save/update credentials on login
              btn.addEventListener('click', function() {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                   type: 'SAVE_CREDS',
-                   u: userInp.value,
-                   p: passInp.value
-                }));
+                if (userInp && passInp) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                     type: 'SAVE_CREDS',
+                     u: userInp.value,
+                     p: passInp.value
+                  }));
+                }
              });
+
+             if (hasCreds && isPage1) {
+               // Page 1: No captcha — safe to auto-click NEXT button
+               var errorMsg = document.querySelector('.text-danger') || document.querySelector('.error') || document.querySelector('#lblError');
+               var errorText = errorMsg ? errorMsg.innerText.trim() : '';
+               if (!errorText || errorText === '') {
+                 setTimeout(function() { btn.click(); }, 300);
+               }
+             }
+             // Page 2 (has captcha): Only auto-fill UID+Password, let user fill captcha and click LOGIN
           }
         } catch(e) {}
         true;

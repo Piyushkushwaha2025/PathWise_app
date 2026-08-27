@@ -38,8 +38,10 @@ import { useThemeStore, ThemeType } from "../../store/useThemeStore";
 import { useUpdateStore } from "../../store/useUpdateStore";
 import { validateNameInput, validateFeedback, sanitizeString, MAX_NAME_LENGTH, MAX_FEEDBACK_LENGTH } from "../../lib/validation";
 import { useStudySessionStore } from "../../store/studySessionStore";
+import { useStudyOSStore } from "../../store/studyosStore";
 import { useDBProfile, deleteUserFromDB } from "../../lib/db";
 import { DeleteAccountModal } from "../../components/modals/DeleteAccountModal";
+import { ClearStudyOSModal } from "../../components/modals/ClearStudyOSModal";
 import { useSubscription } from "../../hooks/useSubscription";
 type SubBadge = "FREE" | "PRO" | "ELITE";
 
@@ -111,6 +113,7 @@ export default function ProfileScreen() {
   const [isUpToDateModalVisible, setUpToDateModalVisible] = useState(false);
   const [isChangePasswordVisible, setChangePasswordVisible] = useState(false);
   const [isDeleteAccountVisible, setDeleteAccountVisible] = useState(false);
+  const [isClearStudyOSVisible, setClearStudyOSVisible] = useState(false);
 
   // Close all modals when user navigates away from profile tab
   useFocusEffect(
@@ -122,6 +125,7 @@ export default function ProfileScreen() {
         setUpToDateModalVisible(false);
         setChangePasswordVisible(false);
         setDeleteAccountVisible(false);
+        setClearStudyOSVisible(false);
       };
     }, [])
   );
@@ -178,6 +182,7 @@ export default function ProfileScreen() {
   const handleSignOut = async () => {
     try {
       await AsyncStorage.clear();
+      await AsyncStorage.setItem('auth_was_signed_in', 'false'); // Explicitly set optimistic routing to false
       await SecureStore.deleteItemAsync('culko_cookies');
       await SecureStore.deleteItemAsync('culko_u');
       await SecureStore.deleteItemAsync('culko_p');
@@ -188,6 +193,18 @@ export default function ProfileScreen() {
     } catch (e) {
       Alert.alert("Error", "Failed to sign out");
     }
+  };
+
+  const handleClearStudyOSData = () => {
+    setClearStudyOSVisible(true);
+  };
+
+  const doClearStudyOSData = async () => {
+    await SecureStore.deleteItemAsync('culko_u');
+    await SecureStore.deleteItemAsync('culko_p');
+    await SecureStore.deleteItemAsync('culko_cookies');
+    await useStudyOSStore.getState().resetScrapedData();
+    await AsyncStorage.removeItem('last_notif_sig');
   };
 
   const handleConfirmDelete = async () => {
@@ -602,6 +619,17 @@ export default function ProfileScreen() {
 
             <View style={styles.divider} />
 
+            <TouchableOpacity style={styles.menuItem} onPress={handleClearStudyOSData}>
+              <Ionicons name="school-outline" size={20} color="#f59e0b" />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[styles.menuLabel, { color: "#f59e0b", marginLeft: 0 }]}>Clear StudyOS Data</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 1 }}>CUIMS login, attendance, grades cache</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#f59e0b" />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             <TouchableOpacity style={styles.menuItem} onPress={handleSignOut}>
               <Ionicons name="log-out-outline" size={20} color={colors.error} />
               <Text style={[styles.menuLabel, { color: colors.error }]}>
@@ -808,6 +836,12 @@ export default function ProfileScreen() {
         isVisible={isDeleteAccountVisible}
         onClose={() => setDeleteAccountVisible(false)}
         onConfirm={handleConfirmDelete}
+      />
+
+      <ClearStudyOSModal
+        isVisible={isClearStudyOSVisible}
+        onClose={() => setClearStudyOSVisible(false)}
+        onConfirm={doClearStudyOSData}
       />
     </View>
   );

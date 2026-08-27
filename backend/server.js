@@ -8,6 +8,13 @@ const multer = require('multer');
 const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const SaturdayOverride = mongoose.model('SaturdayOverride', new mongoose.Schema({
+  date: { type: String, required: true }, 
+  mapped_day: { type: String, required: true },
+  section_code: { type: String, required: true },
+  created_by: { type: String, required: true }
+}));
+
 const User = require('./models/User');
 const Assignment = require('./models/Assignment');
 const UserAssignment = require('./models/UserAssignment');
@@ -95,16 +102,16 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
           }
         }
       }
-      try {
-        const assignmentsResult = await Assignment.deleteMany({ created_by: clerkId });
-        const notificationsResult = await Notification.deleteMany({ created_by: clerkId });
-        console.log(`[Webhook] Cleanup complete for user ${clerkId}:\n` + 
+      const assignmentsResult = await Assignment.deleteMany({ created_by: clerkId });
+      const notificationsResult = await Notification.deleteMany({ created_by: clerkId });
+      
+      console.log(`[Webhook] Cleanup complete for user ${clerkId}:\n` + 
         `     User doc deleted\n` +
         `     UserAssignment records: ${userAssignmentsResult.deletedCount} deleted\n` +
         `     Assignments created by user: ${assignmentsResult.deletedCount} deleted\n` +
         `     Notifications created by user: ${notificationsResult.deletedCount} deleted\n` +
         `     PDFs checked: ${createdAssignments.length}`);
-      } catch (err) {
+    } catch (err) {
       console.error(`❌ Webhook CASCADE DELETE Error for ${clerkId}:`, err);
     }
   }
@@ -575,6 +582,57 @@ app.delete('/api/notifications/:id', getClerkId, async (req, res) => {
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SATURDAY OVERRIDE ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/api/saturday-override', getClerkId, async (req, res) => {
+  try {
+    const { section_code } = req.query;
+    if (!section_code) return res.status(400).json({ error: 'Missing section' });
+    const todayStr = new Date().toISOString().split('T')[0];
+    const overrides = await SaturdayOverride.find({ 
+      section_code,
+      date: { $gte: todayStr }
+    });
+    res.json(overrides);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/saturday-override', getClerkId, requireCR, async (req, res) => {
+  try {
+    const { date, mapped_day, section_code } = req.body;
+    if (!date || !mapped_day) return res.status(400).json({ error: 'Missing fields' });
+    const finalSection = section_code || req.crUser.section_code;
+    if (!finalSection) return res.status(400).json({ error: 'Section missing' });
+    
+    const override = await SaturdayOverride.findOneAndUpdate(
+      { date, section_code: finalSection },
+      { mapped_day, created_by: req.clerkUserId },
+      { upsert: true, new: true }
+    );
+    res.json(override);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/saturday-override/:id', getClerkId, requireCR, async (req, res) => {
+  try {
+    const override = await SaturdayOverride.findById(req.params.id);
+    if (!override) return res.status(404).json({ error: 'Not found' });
+    if (override.created_by !== req.clerkUserId && req.crUser.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only delete your own overrides' });
+    }
+    await override.deleteOne();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

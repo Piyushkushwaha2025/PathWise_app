@@ -5,17 +5,18 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="24746a27-06b2-422d-b194-c358cb91da96" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/app.json" beforeDir="false" afterPath="$PROJECT_DIR$/app.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/_layout.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/dashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/profile.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/profile.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/roadmaps/create.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/roadmaps/create.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/roadmaps/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/roadmaps/index.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/subscription.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/subscription.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/components/layout/TabBar.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/layout/TabBar.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/store/useThemeStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/store/useThemeStore.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/dashboard.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/grades/[id].tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/grades/[id].tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/grades/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/grades/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/subjects/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/subjects/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/sync.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/sync.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/timetable/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/timetable/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/timetableData.json" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/timetableData.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/AutoSyncAttendance.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/AutoSyncAttendance.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/FacilitiesModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/FacilitiesModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/store/studyosStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/store/studyosStore.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tasks/backgroundSync.ts" beforeDir="false" afterPath="$PROJECT_DIR$/tasks/backgroundSync.ts" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -49,7 +50,7 @@
     "cidr.known.project.marker": "true",
     "git-widget-placeholder": "master",
     "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "D:/AI/LearnPath-AI/PathWise_Versions/v1.0.0",
+    "last_opened_file_path": "D:/AI/PathWise_Versions/v1.0.3",
     "settings.editor.selected.configurable": "AndroidSdkUpdater"
   }
 }]]></component>

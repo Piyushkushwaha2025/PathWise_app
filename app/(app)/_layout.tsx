@@ -21,9 +21,6 @@ export default function AppLayout() {
   const colors = useThemeStore((s) => s.colors);
 
   useEffect(() => {
-    // Check for college connection on boot to set StudyOS mode if needed
-    checkConnection();
-    loadGamification();
     // Single auto-check on app load — delayed so app fully renders first
     // Manual check is available in Profile → "Check for Updates"
     const timer = setTimeout(() => {

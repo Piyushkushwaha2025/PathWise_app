@@ -1,13 +1,14 @@
 import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 
 const BACKGROUND_SYNC_TASK = 'BACKGROUND_SYNC_TASK';
 
 TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
   try {
-    const cookies = await AsyncStorage.getItem('studyos_portal_cookies');
+    const cookies = await AsyncStorage.getItem('culko_cookies');
     if (!cookies) return BackgroundFetch.BackgroundFetchResult.NoData;
 
     const rawOldData = await AsyncStorage.getItem('studyos_scraped_data');

@@ -11,7 +11,7 @@ interface StudySessionState {
   lmsUserId: number | null;
   
   checkConnection: () => Promise<void>;
-  clearSession: () => Promise<void>;
+  clearSession: (keepCreds?: boolean) => Promise<void>;
   setSession: (universityId: string, sesskey: string, userId: number) => Promise<void>;
   setStudyOSMode: (mode: boolean) => void;
   setSwitchingMode: (switching: boolean) => void;
@@ -52,15 +52,19 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
     set({ isConnected: true, isStudyOSMode: true, universityId, lmsSesskey: sesskey, lmsUserId: userId });
   },
 
-  clearSession: async () => {
+  clearSession: async (keepCreds: boolean = false) => {
     try {
       await SecureStore.deleteItemAsync('study_university_id');
       await SecureStore.deleteItemAsync('portal_session');
       await SecureStore.deleteItemAsync('lms_cookie');
       await SecureStore.deleteItemAsync('lms_sesskey');
       await SecureStore.deleteItemAsync('lms_userid');
-      await SecureStore.deleteItemAsync('culko_u');
-      await SecureStore.deleteItemAsync('culko_p');
+      
+      if (!keepCreds) {
+        await SecureStore.deleteItemAsync('culko_u');
+        await SecureStore.deleteItemAsync('culko_p');
+      }
+      
       await SecureStore.deleteItemAsync('culko_cookies');
       await useStudyOSStore.getState().resetScrapedData();
       set({ isConnected: false, isStudyOSMode: false, universityId: null, lmsSesskey: null, lmsUserId: null });

@@ -29,7 +29,8 @@ export default function AssignmentsScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
-  useHardwareBack('/studyos/subjects');
+  useHardwareBack('/studyos');
+
   const { userId } = useAuth();
   const { dbUser } = useDBProfile();
   const profile = useStudyOSStore((s) => s.profile);
@@ -104,7 +105,7 @@ export default function AssignmentsScreen() {
           headerTintColor: colors.text,
           headerShadowVisible: false,
           headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 14 }}>
+            <TouchableOpacity onPress={() => router.navigate('/studyos' as any)} style={{ marginLeft: 14 }}>
               <Ionicons name="arrow-back" size={24} color={colors.text} />
             </TouchableOpacity>
           ),

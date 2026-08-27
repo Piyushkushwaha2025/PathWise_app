@@ -13,7 +13,7 @@ export function useHardwareBack(targetRoute: string) {
   useFocusEffect(
     useCallback(() => {
       const onBackPress = () => {
-        router.push(targetRoute as any);
+        router.navigate(targetRoute as any);
         return true;
       };
 
