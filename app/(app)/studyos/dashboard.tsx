@@ -895,10 +895,7 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
   let badgeBg = '#22c55e20';
   let badgeColor = '#22c55e';
   
-  const hasClassToday = history && history.length > 0 && history[0].isToday;
-
-  if (hasClassToday) { badgeText = '★ Today Updated'; badgeBg = '#3b82f620'; badgeColor = '#3b82f6'; }
-  else if (updateBadge === 'Present') { badgeText = '✓ Present'; }
+  if (updateBadge === 'Present') { badgeText = '✓ Present'; }
   else if (updateBadge === 'Absent') { badgeText = '● Absent'; badgeBg = '#ef444420'; badgeColor = '#ef4444'; }
   else if (updateBadge === 'Updated') { badgeText = '↻ Updated'; badgeBg = '#3b82f620'; badgeColor = '#3b82f6'; }
   else if (updateBadge) { badgeText = '✓ Refreshed'; }
