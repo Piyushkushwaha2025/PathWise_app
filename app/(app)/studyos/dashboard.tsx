@@ -58,7 +58,7 @@ function parseRecordDate(d?: string, time?: string) {
   const numeric = s.match(/(\d{1,4})[\/\-.](\d{1,2})[\/\-.](\d{1,4})/);
 
   if (named) {
-    const isDayFirst = /^\d/.test(s);
+    const isDayFirst = /^\d+$/.test(named[1]);
     const monKey = String(isDayFirst ? named[2] : named[1]).slice(0, 3).toLowerCase();
     mo = MONTHS[monKey];
     day = Number(isDayFirst ? named[1] : named[2]);
@@ -116,7 +116,7 @@ function getHistoryStatuses(records?: any[]) {
     else if (st.includes('MEDIC') || st === 'ML' || st.includes('SICK')) { type = 'ML'; label = 'M'; color = '#06b6d4'; }
     else if (st.includes('ABSENT') || st === 'A' || st.includes('LEAVE')) { type = 'A'; label = 'A'; color = '#ef4444'; }
     
-    return { type, label, color, isToday };
+    return { type, label, color, isToday, rawDate: r?.date || 'undefined', parsedT: t };
   });
 }
 
@@ -894,7 +894,11 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
   let badgeText = '';
   let badgeBg = '#22c55e20';
   let badgeColor = '#22c55e';
-  if (updateBadge === 'Present') { badgeText = '✓ Present'; }
+  
+  const hasClassToday = history && history.length > 0 && history[0].isToday;
+
+  if (hasClassToday) { badgeText = '★ Today Updated'; badgeBg = '#3b82f620'; badgeColor = '#3b82f6'; }
+  else if (updateBadge === 'Present') { badgeText = '✓ Present'; }
   else if (updateBadge === 'Absent') { badgeText = '● Absent'; badgeBg = '#ef444420'; badgeColor = '#ef4444'; }
   else if (updateBadge === 'Updated') { badgeText = '↻ Updated'; badgeBg = '#3b82f620'; badgeColor = '#3b82f6'; }
   else if (updateBadge) { badgeText = '✓ Refreshed'; }
@@ -933,19 +937,16 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
                     style={{ 
                       width: 14, 
                       height: 14, 
-                      borderRadius: 4, 
-                      backgroundColor: h.color + '30',
+                      borderRadius: 7, 
+                      borderWidth: 1.5,
+                      borderColor: h.color,
+                      backgroundColor: 'transparent',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      shadowColor: h.color,
-                      shadowOffset: { width: 0, height: 1 },
-                      shadowOpacity: 0.4,
-                      shadowRadius: 2,
-                      elevation: 2,
-                      marginBottom: 1 // slight offset adjustment
+                      marginBottom: 1
                     }}
                   >
-                    <View style={{ width: 6, height: 6, borderRadius: 2, backgroundColor: h.color }} />
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: h.color }} />
                   </View>
                 );
               }

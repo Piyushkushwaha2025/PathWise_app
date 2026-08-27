@@ -12,8 +12,7 @@ export default function Index() {
   useEffect(() => {
     if (!isLoaded) return;
     if (isSignedIn) {
-      const studyOSMode = useStudySessionStore.getState().isStudyOSMode;
-      router.replace(studyOSMode ? "/(app)/studyos" : "/(app)/dashboard");
+      router.replace("/(app)/dashboard");
     } else {
       router.replace("/(auth)/sign-in");
     }
