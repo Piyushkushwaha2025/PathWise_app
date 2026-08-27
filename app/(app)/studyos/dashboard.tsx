@@ -934,7 +934,7 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
                     style={{ 
                       width: 14, 
                       height: 14, 
-                      borderRadius: 7, 
+                      borderRadius: 4, 
                       borderWidth: 1.5,
                       borderColor: h.color,
                       backgroundColor: 'transparent',
@@ -943,7 +943,7 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
                       marginBottom: 1
                     }}
                   >
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: h.color }} />
+                    <View style={{ width: 6, height: 6, borderRadius: 1.5, backgroundColor: h.color }} />
                   </View>
                 );
               }
