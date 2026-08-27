@@ -932,19 +932,17 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
                   <View 
                     key={idx} 
                     style={{ 
-                      width: 14, 
-                      height: 14, 
-                      borderRadius: 4, 
-                      borderWidth: 1.5,
-                      borderColor: h.color,
-                      backgroundColor: 'transparent',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginBottom: 1
+                      width: 10, 
+                      height: 10, 
+                      borderRadius: 3, 
+                      backgroundColor: h.color, 
+                      shadowColor: h.color,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.9,
+                      shadowRadius: 5,
+                      elevation: 6
                     }}
-                  >
-                    <View style={{ width: 6, height: 6, borderRadius: 1.5, backgroundColor: h.color }} />
-                  </View>
+                  />
                 );
               }
               
