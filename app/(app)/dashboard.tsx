@@ -10,11 +10,6 @@ import { useEffect } from 'react';
 export default function DashboardSwitcher() {
   const { isStudyOSMode } = useStudySessionStore();
 
-  useEffect(() => {
-    setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, 100);
-  }, [isStudyOSMode]);
 
   return (
     <View style={styles.container}>

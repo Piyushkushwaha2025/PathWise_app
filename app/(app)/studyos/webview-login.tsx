@@ -9,6 +9,7 @@ import { useStudySessionStore } from '../../../store/studySessionStore';
 import { UNIVERSITIES } from '../../../constants/universities';
 import { useLocalSearchParams } from 'expo-router';
 import { useUser } from '@clerk/clerk-expo';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function WebViewLoginScreen() {
   const { user } = useUser();
@@ -18,10 +19,11 @@ export default function WebViewLoginScreen() {
   const styles = useStyles(colors);
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
-  const { setSession } = useStudySessionStore();
+  const { setSession, clearSession } = useStudySessionStore();
   
   const [loadingMsg, setLoadingMsg] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [autoCreds, setAutoCreds] = useState<{u?: string, p?: string} | null>(null);
 
   const [isOnLms, setIsOnLms] = useState(false);
   const [webviewKey, setWebviewKey] = useState(Date.now());
@@ -33,7 +35,15 @@ export default function WebViewLoginScreen() {
         setIsProcessing(false);
         setLoadingMsg('');
         if (isMounted) setWebviewKey(Date.now());
-        // NOTE: Do NOT delete cookies here - they are needed by AutoSync!
+        
+        try {
+          const u = await SecureStore.getItemAsync('culko_u');
+          const p = await SecureStore.getItemAsync('culko_p');
+          if (isMounted) {
+            if (u && p) setAutoCreds({u, p});
+            else setAutoCreds(null);
+          }
+        } catch(e){}
       })();
       return () => { isMounted = false; };
     }, [])
@@ -41,6 +51,15 @@ export default function WebViewLoginScreen() {
 
   const handleCancel = () => {
     router.replace({ pathname: '/(app)/studyos/connect', params: { reset: 'true' } } as any);
+  };
+
+  const handleClearData = async () => {
+    await clearSession(true);
+    await SecureStore.deleteItemAsync('culko_cookies');
+    await SecureStore.deleteItemAsync('culko_u');
+    await SecureStore.deleteItemAsync('culko_p');
+    setAutoCreds(null);
+    setWebviewKey(Date.now()); // reload webview
   };
 
   useEffect(() => {
@@ -57,42 +76,94 @@ export default function WebViewLoginScreen() {
     const urlLower = url.toLowerCase();
 
     // Auto-detect login success:
-    // 1. Matches studentHomeMatch OR
-    // 2. We are on student.culko.in but NOT on the login/logout page
     const isSuccessPath = urlLower.includes(activeUni.studentHomeMatch.toLowerCase());
     const isCulkoLoggedIn = urlLower.includes('student.culko.in') && 
                             !urlLower.includes('login') && 
                             !urlLower.includes('logout');
 
-    // Show "Finish" button only if we are past the login screen
     if (activeUni.id === 'cu') {
       setIsOnLms(isCulkoLoggedIn);
     } else {
-      if (urlLower.includes(activeUni.lmsDomain.toLowerCase())) {
-        if (!isOnLms) setIsOnLms(true);
-      } else {
-        if (isOnLms) setIsOnLms(false);
-      }
+      setIsOnLms(urlLower.includes(activeUni.lmsDomain.toLowerCase()));
     }
 
-    // Only detect login success when page has fully loaded
     if (navState.loading) return;
 
     if ((isSuccessPath || isCulkoLoggedIn) && !isProcessing) {
       setIsProcessing(true);
       setLoadingMsg('Login successful. Preparing to sync data...');
-      
-      // Delay slightly for smooth UX, then redirect to sync screen
       setTimeout(() => {
         router.replace('/(app)/studyos/sync');
       }, 1000);
     }
     
-    // Removed auto login injection per user request
+    // Auto Login Injection for Webview
+    if (!navState.loading && (urlLower.includes('login') || urlLower.includes('ums'))) {
+      const uEnc = autoCreds?.u ? encodeURIComponent(autoCreds.u) : '';
+      const pEnc = autoCreds?.p ? encodeURIComponent(autoCreds.p) : '';
+      
+      const autoFillScript = `
+        try {
+          var userInp = document.querySelector('input[type="text"]') || document.querySelector('input[name*="user" i]') || document.querySelector('input[name*="uid" i]');
+          var passInp = document.querySelector('input[type="password"]');
+          var captchaInp = document.querySelector('input[name*="captcha" i]') || document.querySelector('input[placeholder*="captcha" i]') || document.querySelector('input[id*="captcha" i]');
+          var btn = document.querySelector('input[type="submit"]') || document.querySelector('button[type="submit"]') || document.getElementById('btnLogin') || document.getElementById('btnNext');
+          
+          var hasCreds = "${uEnc}" !== "";
+          var hasCaptcha = !!captchaInp;
+          var isPage1 = !!userInp && !passInp && !hasCaptcha;
+
+          if (userInp && btn && !window.__autoLogStarted) {
+             window.__autoLogStarted = true;
+             
+             if (hasCreds) {
+               if (isPage1) {
+                 userInp.value = decodeURIComponent("${uEnc}");
+                 userInp.dispatchEvent(new Event('change', { bubbles: true }));
+               } else if (hasCaptcha && passInp) {
+                 passInp.value = decodeURIComponent("${pEnc}");
+                 passInp.dispatchEvent(new Event('change', { bubbles: true }));
+               }
+             }
+             
+             // Attach click listener to save/update credentials on login click
+             btn.addEventListener('click', function() {
+                if (userInp && passInp) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                     type: 'SAVE_CREDS',
+                     u: userInp.value,
+                     p: passInp.value
+                  }));
+                }
+             });
+
+             if (hasCreds && isPage1) {
+               // Safely auto-click NEXT button on page 1 only if there are no errors showing
+               var errorMsg = document.querySelector('.text-danger') || document.querySelector('.error') || document.querySelector('#lblError');
+               var errorText = errorMsg ? errorMsg.innerText.trim() : '';
+               if (!errorText) {
+                 setTimeout(function() { btn.click(); }, 400);
+               }
+             }
+          }
+        } catch(e) {}
+        true;
+      `;
+      setTimeout(() => {
+        webViewRef.current?.injectJavaScript(autoFillScript);
+      }, 800);
+    }
   };
 
   const handleMessage = async (event: any) => {
-    // No-op since auto login is removed
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'SAVE_CREDS' && data.u && data.p) {
+         await SecureStore.setItemAsync('culko_u', data.u);
+         await SecureStore.setItemAsync('culko_p', data.p);
+         setAutoCreds({ u: data.u, p: data.p });
+      }
+    } catch (e) {}
   };
 
   const forceProceed = async () => {
@@ -105,21 +176,23 @@ export default function WebViewLoginScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleCancel} style={styles.closeBtn}>
-          <Text style={styles.closeText}>Cancel</Text>
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         
         <Text style={styles.headerTitle}>{activeUni.shortName} Portal</Text>
         
-        {isOnLms ? (
-          <TouchableOpacity onPress={forceProceed} style={styles.proceedBtn}>
-             <Text style={styles.proceedText}>Finish</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity onPress={handleClearData} style={styles.clearBtn}>
+             <Ionicons name="trash-outline" size={20} color={colors.error} />
           </TouchableOpacity>
-        ) : (
-          <View style={styles.placeholder} />
-        )}
+          {isOnLms && (
+            <TouchableOpacity onPress={forceProceed} style={styles.proceedBtn}>
+               <Text style={styles.proceedText}>Finish</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Always render WebView so injectJavaScript continues running */}
       <WebView
         key={webviewKey}
         ref={webViewRef}
@@ -127,19 +200,17 @@ export default function WebViewLoginScreen() {
         style={[styles.webview, isProcessing && styles.hiddenWebview]}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleMessage}
-        startInLoadingState={true}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
         sharedCookiesEnabled={true}
-        renderLoading={() => (
-          <View style={styles.webviewLoader}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-        )}
+        thirdPartyCookiesEnabled={true}
+        incognito={false}
       />
-
+      
       {isProcessing && (
-        <View style={styles.loadingOverlay}>
+        <View style={styles.overlay}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>{loadingMsg}</Text>
+          <Text style={[styles.loadingText, { color: colors.text }]}>{loadingMsg}</Text>
         </View>
       )}
     </View>
@@ -147,69 +218,30 @@ export default function WebViewLoginScreen() {
 }
 
 const useStyles = (colors: any) => StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: Spacing.md,
-    paddingTop: 40,
-    backgroundColor: colors.surface,
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: 60,
+    paddingBottom: Spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  headerTitle: {
-    ...Typography.h3,
-    color: colors.text,
-  },
-  closeBtn: {
-    padding: Spacing.sm,
-  },
-  closeText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  proceedBtn: {
-    padding: Spacing.sm,
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-  },
-  proceedText: {
-    color: colors.background,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  placeholder: {
-    width: 60,
-  },
-  webview: {
-    flex: 1,
-  },
-  hiddenWebview: {
-    opacity: 0,
-  },
-  webviewLoader: {
-    ...StyleSheet.absoluteFill as any,
+  closeBtn: { padding: 8, marginLeft: -8 },
+  headerTitle: { ...Typography.h3, color: colors.text },
+  clearBtn: { padding: 8, marginRight: 8 },
+  proceedBtn: { padding: 8, marginRight: -8, backgroundColor: `${colors.primary}20`, borderRadius: 8 },
+  proceedText: { ...Typography.body, color: colors.primary, fontFamily: 'Inter_600SemiBold' },
+  webview: { flex: 1, backgroundColor: 'transparent' },
+  hiddenWebview: { opacity: 0, position: 'absolute', top: -9999 },
+  overlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: colors.background,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFill as any,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    padding: Spacing.xl,
     zIndex: 10,
   },
-  loadingText: {
-    ...Typography.h3,
-    color: colors.text,
-    marginTop: Spacing.lg,
-    textAlign: 'center',
-  },
+  loadingText: { ...Typography.body, marginTop: Spacing.md, fontFamily: 'Inter_500Medium' },
 });

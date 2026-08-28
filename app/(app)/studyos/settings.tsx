@@ -102,7 +102,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     marginBottom: 4,
   },
   settingDesc: {
-    ...Typography.caption,
+    ...Typography.small,
     color: colors.textMuted,
   },
 });

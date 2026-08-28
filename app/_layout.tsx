@@ -171,8 +171,11 @@ function RootLayoutInner() {
   }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
 
   useEffect(() => {
-    // We intentionally DO NOT hide the splash screen here anymore.
-    // We will hide it inside dashboard.tsx or sign-in.tsx after the UI is actually mounted.
+    if (isLoaded) {
+      setTimeout(() => {
+        SplashScreen.hideAsync().catch(() => {});
+      }, 150); // Small delay to let the initial screen paint
+    }
   }, [isLoaded]);
 
   // Show nothing until Clerk auth is resolved (needed for routing)

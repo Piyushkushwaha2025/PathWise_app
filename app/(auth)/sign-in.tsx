@@ -51,12 +51,7 @@ export default function SignInScreen() {
   // OAuth-specific loading — shows full-screen AppLoading overlay
   const [oauthLoading, setOauthLoading] = useState(false);
 
-  useEffect(() => {
-    // Hide splash screen after the sign-in UI is ready
-    setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, 100);
-  }, []);
+
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 

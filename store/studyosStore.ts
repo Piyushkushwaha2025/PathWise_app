@@ -183,16 +183,25 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
     await AsyncStorage.setItem('studyos_last_activity', today);
   },
 
+  saveGamification: async () => {
+    const state = get();
+    await AsyncStorage.setItem('studyos_gamification', JSON.stringify({ streak: state.streak, xp: state.xp }));
+  },
+
   addRoadmap: async (newRoadmapData) => {
     const newRoadmap: Roadmap = {
       ...newRoadmapData,
       id: Math.random().toString(36).substr(2, 9),
       createdAt: new Date().toISOString(),
     };
-    
-    const updatedRoadmaps = [newRoadmap, ...get().roadmaps];
-    set({ roadmaps: updatedRoadmaps });
+    set((state) => ({ roadmaps: [...state.roadmaps, newRoadmap] }));
+    const updatedRoadmaps = get().roadmaps;
     await AsyncStorage.setItem('studyos_roadmaps', JSON.stringify(updatedRoadmaps));
+  },
+
+  removeRoadmap: async (id: string) => {
+    set((state) => ({ roadmaps: state.roadmaps.filter(r => r.id !== id) }));
+    await AsyncStorage.setItem('studyos_roadmaps', JSON.stringify(get().roadmaps));
   },
 
   setScrapedData: async (data) => {

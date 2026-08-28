@@ -1,24 +1,18 @@
-import { useEffect } from "react";
 import { View, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
+import { Redirect } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
-import { useStudySessionStore } from "../store/studySessionStore";
 import { Colors } from "../constants/theme";
 
 export default function Index() {
   const { isSignedIn, isLoaded } = useAuth();
-  const router = useRouter();
 
-  useEffect(() => {
-    if (!isLoaded) return;
-    if (isSignedIn) {
-      router.replace("/(app)/dashboard");
-    } else {
-      router.replace("/(auth)/sign-in");
-    }
-  }, [isSignedIn, isLoaded]);
+  if (!isLoaded) return <View style={styles.container} />;
 
-  return <View style={styles.container} />;
+  if (isSignedIn) {
+    return <Redirect href="/(app)/dashboard" />;
+  } else {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
 }
 
 const styles = StyleSheet.create({
