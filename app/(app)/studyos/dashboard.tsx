@@ -9,6 +9,7 @@ import { useStudySessionStore } from '../../../store/studySessionStore';
 import { useRouter, useFocusEffect } from 'expo-router';
 import Svg, { Circle } from 'react-native-svg';
 import * as Notifications from 'expo-notifications';
+import * as SplashScreen from 'expo-splash-screen';
 import { AutoSyncAttendance } from '../../../components/AutoSyncAttendance';
 import { DetailedAttendanceModal } from '../../../components/DetailedAttendanceModal';
 import { FacilitiesModal } from '../../../components/FacilitiesModal';
@@ -574,6 +575,14 @@ export default function StudyOSDashboard() {
       setCurrentMonth(today.substring(0, 7));
     }
   }, [isCalendarVisible]);
+
+  useEffect(() => {
+    // Hide splash screen after the dashboard has rendered!
+    // This prevents the black screen flash.
+    setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 100);
+  }, []);
 
   if (!isHydrated) {
     return (

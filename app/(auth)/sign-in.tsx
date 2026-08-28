@@ -24,6 +24,8 @@ import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import { GlassCard } from "../../components/ui/GlassCard";
 import AppLoading from "../../components/AppLoading";
+import * as SplashScreen from "expo-splash-screen";
+import { useEffect } from "react";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -48,6 +50,13 @@ export default function SignInScreen() {
   const [loading, setLoading] = useState(false);
   // OAuth-specific loading — shows full-screen AppLoading overlay
   const [oauthLoading, setOauthLoading] = useState(false);
+
+  useEffect(() => {
+    // Hide splash screen after the sign-in UI is ready
+    setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 100);
+  }, []);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
 

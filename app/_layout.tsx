@@ -171,10 +171,8 @@ function RootLayoutInner() {
   }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
 
   useEffect(() => {
-    // Hide splash as soon as Clerk is loaded — don't wait for anything else
-    if (isLoaded) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
+    // We intentionally DO NOT hide the splash screen here anymore.
+    // We will hide it inside dashboard.tsx or sign-in.tsx after the UI is actually mounted.
   }, [isLoaded]);
 
   // Show nothing until Clerk auth is resolved (needed for routing)
@@ -189,6 +187,7 @@ function RootLayoutInner() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },
+          animation: 'fade', // <-- Fade animation to prevent sliding stutter on launch
         }}
       >
         <Stack.Screen name="index" />
