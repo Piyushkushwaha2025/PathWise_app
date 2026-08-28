@@ -24,7 +24,6 @@ export default function WebViewLoginScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [isOnLms, setIsOnLms] = useState(false);
-  const [autoCreds, setAutoCreds] = useState<{u?: string, p?: string} | null>(null);
   const [webviewKey, setWebviewKey] = useState(Date.now());
 
   useFocusEffect(
@@ -35,12 +34,6 @@ export default function WebViewLoginScreen() {
         setLoadingMsg('');
         if (isMounted) setWebviewKey(Date.now());
         try {
-          const u = await SecureStore.getItemAsync('culko_u');
-          const p = await SecureStore.getItemAsync('culko_p');
-          if (isMounted) {
-            if (u && p) setAutoCreds({u, p});
-            else setAutoCreds(null);
-          }
           await SecureStore.deleteItemAsync('culko_cookies');
         } catch(e){}
       })();
@@ -97,77 +90,11 @@ export default function WebViewLoginScreen() {
       }, 1000);
     }
     
-    // Auto Login Injection
-    if (!navState.loading && (urlLower.includes('login') || urlLower.includes('ums'))) {
-      const uEnc = autoCreds?.u ? encodeURIComponent(autoCreds.u) : '';
-      const pEnc = autoCreds?.p ? encodeURIComponent(autoCreds.p) : '';
-      
-      const autoFillScript = `
-        try {
-          var userInp = document.querySelector('input[type="text"]') || document.querySelector('input[name*="user" i]') || document.querySelector('input[name*="uid" i]');
-          var passInp = document.querySelector('input[type="password"]');
-          var captchaInp = document.querySelector('input[name*="captcha" i]') || document.querySelector('input[placeholder*="captcha" i]') || document.querySelector('input[id*="captcha" i]');
-          var btn = document.querySelector('input[type="submit"]') || document.querySelector('button[type="submit"]') || document.getElementById('btnLogin');
-          
-          var hasCreds = "${uEnc}" !== "";
-          // Page 2 has both password AND captcha field — auto-click is dangerous there
-          var hasCaptcha = !!captchaInp;
-          // Page 1 has only UID field (no password, no captcha) — safe to auto-click
-          var isPage1 = !!userInp && !passInp && !hasCaptcha;
-
-          if (userInp && btn && !window.__autoLogStarted) {
-             window.__autoLogStarted = true;
-             
-             if (hasCreds) {
-               if (isPage1) {
-                 // Page 1: only UID field exists — fill it
-                 userInp.value = decodeURIComponent("${uEnc}");
-               } else if (hasCaptcha && passInp) {
-                 // Page 2: portal already fills UID from URL params — DON'T touch it
-                 // Only auto-fill password so user can freely edit UID if needed
-                 passInp.value = decodeURIComponent("${pEnc}");
-               }
-             }
-             
-             // Always add click listener to save/update credentials on login
-             btn.addEventListener('click', function() {
-                if (userInp && passInp) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                     type: 'SAVE_CREDS',
-                     u: userInp.value,
-                     p: passInp.value
-                  }));
-                }
-             });
-
-             if (hasCreds && isPage1) {
-               // Page 1: No captcha — safe to auto-click NEXT button
-               var errorMsg = document.querySelector('.text-danger') || document.querySelector('.error') || document.querySelector('#lblError');
-               var errorText = errorMsg ? errorMsg.innerText.trim() : '';
-               if (!errorText || errorText === '') {
-                 setTimeout(function() { btn.click(); }, 300);
-               }
-             }
-             // Page 2 (has captcha): Only auto-fill UID+Password, let user fill captcha and click LOGIN
-          }
-        } catch(e) {}
-        true;
-      `;
-      setTimeout(() => {
-        webViewRef.current?.injectJavaScript(autoFillScript);
-      }, 1000);
-    }
+    // Removed auto login injection per user request
   };
 
   const handleMessage = async (event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'SAVE_CREDS' && data.u && data.p) {
-         await SecureStore.setItemAsync('culko_u', data.u);
-         await SecureStore.setItemAsync('culko_p', data.p);
-         setAutoCreds({ u: data.u, p: data.p });
-      }
-    } catch (e) {}
+    // No-op since auto login is removed
   };
 
   const forceProceed = async () => {

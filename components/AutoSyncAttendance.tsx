@@ -210,8 +210,15 @@ const ATTENDANCE_SCRIPT = `
               return;
           }
           
+          var prm = window.Sys && window.Sys.WebForms && window.Sys.WebForms.PageRequestManager ? window.Sys.WebForms.PageRequestManager.getInstance() : null;
+          if (prm && prm.get_isInAsyncPostBack()) {
+              setTimeout(processNext, 500); // Wait until previous postback finishes
+              return;
+          }
+
           var qItem = queue[currentIdx];
           var cleanCode = qItem.code.replace(/^[A-Z]+_/, '').trim().toUpperCase();
+          var attData = attendanceData[qItem.code] || attendanceData[cleanCode];
           
           // 1. Find the button to click for this subject on the summary page
           var btn = document.querySelector('[name="' + qItem.target + '"], [id="' + qItem.target + '"]');
@@ -233,12 +240,25 @@ const ATTENDANCE_SCRIPT = `
               return;
           }
           
+          // If total classes is 0, skip it!
+          if (attData && attData.total === 0) {
+              currentIdx++;
+              setTimeout(processNext, 100);
+              return;
+          }
+          
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Clicking VIEW for ' + qItem.code }));
           
-          // 2. Click it! (Triggers ASP.NET UpdatePanel)
+          var oldTables = document.querySelectorAll('table');
+          for(var t=0; t<oldTables.length; t++) {
+             var txt = oldTables[t].textContent || '';
+             if (txt.indexOf('Marked By') > -1 || txt.indexOf('Time') > -1) {
+                 oldTables[t].innerHTML = ''; // Blank out
+             }
+          }
+          
           btn.click();
           
-          // 3. Wait for Details Table
           waitForTable('detail', function(detailTable) {
               if (detailTable) {
                   var records = [];
@@ -260,13 +280,10 @@ const ATTENDANCE_SCRIPT = `
                   
                   attendanceData[qItem.code].records = records;
                   window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Scraped ' + records.length + ' records for ' + qItem.code }));
-              } else {
-                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Timeout waiting for detail table for ' + qItem.code }));
               }
               
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: false }));
               
-              // 4. Click BACK button
               var allInputs = document.querySelectorAll('input[type="submit"], input[type="button"], button');
               var backBtn = null;
               for(var b2 = 0; b2 < allInputs.length; b2++) {
@@ -278,14 +295,11 @@ const ATTENDANCE_SCRIPT = `
               }
               
               if (backBtn) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Clicking BACK for ' + qItem.code }));
                   backBtn.click();
-                  waitForTable('summary', function() {
-                      currentIdx++;
-                      setTimeout(processNext, 500);
-                  });
+                  // We don't need to wait for summary table specifically, the prm.get_isInAsyncPostBack() check at the start of processNext will handle it!
+                  currentIdx++;
+                  setTimeout(processNext, 500);
               } else {
-                  // If we didn't find back button, we might still be on summary page (e.g. click failed)
                   currentIdx++;
                   setTimeout(processNext, 500);
               }
@@ -353,7 +367,7 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
     // Safety timeout. Detail history is fetched one subject at a time (ASP.NET
     // VIEWSTATE forces it), so allow room for a full pass; interim messages have
     // already persisted whatever landed before this fires.
-    const timer = setTimeout(() => finish(false), 60000);
+    const timer = setTimeout(() => finish(false), 120000);
     return () => clearTimeout(timer);
   }, []);
 
@@ -431,11 +445,12 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
                 dataChanged = true;
               }
               
-              // This refresh's portal rows are the source of truth for this
-              // subject — replace its history rather than merging into stale
-              // entries, so a record removed on the portal disappears here too.
-              if (att.records && att.records.length > 0) {
-                 newDetailedCache[subj.code] = att.records;
+              // Update the cache with this subject's detailed records
+              if (att.records) {
+                if (att.records.length > 0 || att.total === 0) {
+                  newDetailedCache[subj.code] = att.records;
+                  dataChanged = true;
+                }
               }
               
               return {

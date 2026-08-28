@@ -78,7 +78,16 @@ function parseRecordDate(d?: string, time?: string) {
   if (y < 100) y += 2000;
 
   const t = String(time || '').match(/(\d{1,2}):(\d{2})/);
-  return new Date(y, mo, day, t ? Number(t[1]) : 0, t ? Number(t[2]) : 0).getTime();
+    let hr = t ? Number(t[1]) : 0;
+    const min = t ? Number(t[2]) : 0;
+    
+    if (time) {
+      const timeUpper = time.toUpperCase();
+      if (timeUpper.includes('PM') && hr < 12) hr += 12;
+      if (timeUpper.includes('AM') && hr === 12) hr = 0;
+    }
+    
+    return new Date(y, mo, day, hr, min).getTime();
 }
 
 // Real chronological data only — no synthetic P/A blocks. Empty = show nothing.
@@ -545,14 +554,20 @@ export default function StudyOSDashboard() {
   useFocusEffect(
     React.useCallback(() => {
       // Show last-saved cache instantly, then refresh for new data.
-      // Re-hydrate from AsyncStorage in case the boot race lost (blank flash fix).
       useStudyOSStore.getState().loadGamification();
       const state = useStudyOSStore.getState();
-      // Only auto-sync on focus if we have no subjects data at all.
-      // Otherwise, let the user manually pull-to-refresh to save bandwidth and battery.
-      if (!state.subjects || state.subjects.length === 0) {
-        triggerSync(true);
-      }
+      
+      // Clear buggy detail cache from previous bugs ONCE
+      SecureStore.getItemAsync('cleared_buggy_cache_v2').then(val => {
+         if (!val) {
+             useStudyOSStore.getState().setScrapedData({ detailedAttendanceCache: {} });
+             SecureStore.setItemAsync('cleared_buggy_cache_v2', 'true');
+             triggerSync(true); // force a fresh sync
+         } else if (!state.subjects || state.subjects.length === 0) {
+             triggerSync(true);
+         }
+      });
+      
     }, [])
   );
 
