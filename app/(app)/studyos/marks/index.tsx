@@ -93,11 +93,16 @@ export default function MarksScreen() {
   // True when user is on the latest/current semester
   const isCurrentSemester = selectedSemIdx === derivedSemesters.length - 1;
 
-  // Auto-select latest semester whenever options first arrive
+  // Auto-select latest semester whenever options arrive OR if current selection has no match
   useEffect(() => {
-    if (derivedSemesters.length > 0 && !selectedSemester) {
-      const latest = derivedSemesters[derivedSemesters.length - 1];
-      setSelectedSemester(latest.value || latest.label);
+    if (derivedSemesters.length > 0) {
+      const hasMatch = derivedSemesters.some(
+        (d) => d.value === selectedSemester || d.label === selectedSemester
+      );
+      if (!selectedSemester || !hasMatch) {
+        const latest = derivedSemesters[derivedSemesters.length - 1];
+        setSelectedSemester(latest.value || latest.label);
+      }
     }
   }, [derivedSemesters]);
 
@@ -108,23 +113,16 @@ export default function MarksScreen() {
         return;
       }
 
-      // Returning to marks tab — reload data but keep latest semester selected
-      const latestFromCache = buildSemesterList(semesterOptionsCache || []);
+      // Returning to marks tab — just snap to the latest (Current) semester silently.
+      const currentOptions = useStudyOSStore.getState().semesterOptionsCache || [];
+      const latestFromCache = buildSemesterList(currentOptions);
       const latest = latestFromCache[latestFromCache.length - 1];
-      const latestVal = latest ? (latest.value || latest.label) : '';
-      setSelectedSemester(latestVal);
+      if (latest) {
+        setSelectedSemester(latest.value || latest.label);
+      }
       setResultData(null);
+      setIsLoading(false); 
       setRefreshing(false);
-      setIsLoading(true);
-
-      const t = setTimeout(() => {
-        webViewRef.current?.reload();
-        marksWebViewRef.current?.reload();
-      }, 300);
-
-      return () => {
-        clearTimeout(t);
-      };
     }, [])
   );
 
@@ -639,10 +637,19 @@ export default function MarksScreen() {
               <Text style={styles.headerSubtitle}>Tap points for details</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.semesterBtn} onPress={() => setIsModalVisible(true)}>
+          <TouchableOpacity 
+            style={styles.semesterBtn} 
+            onPress={() => {
+              if (isLoading && semesterOptions.length === 0) return;
+              setIsModalVisible(true);
+            }}
+            activeOpacity={isLoading && semesterOptions.length === 0 ? 1 : 0.7}
+          >
             <Ionicons name="trophy-outline" size={14} color={colors.primary} />
             <Text style={styles.semesterBtnText}>
-              {selectedSemLabel ? selectedSemLabel : 'View Final Results'}
+              {(isLoading && semesterOptions.length === 0) 
+                ? 'Loading Semesters...' 
+                : (selectedSemLabel ? selectedSemLabel : 'View Final Results')}
             </Text>
             <Ionicons name="chevron-down" size={14} color={colors.primary} />
           </TouchableOpacity>
@@ -651,6 +658,15 @@ export default function MarksScreen() {
         <View style={styles.radarContainer}>
           <RadarChart data={chartData} />
         </View>
+
+        {isLoading && (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={{ color: colors.textMuted, marginTop: 12, fontFamily: Typography.body.fontFamily }}>
+              Fetching results from portal...
+            </Text>
+          </View>
+        )}
 
         {resultData && resultData.subjects.length > 0 && !isLoading && (
           <View style={[styles.listContainer, { marginBottom: 24 }]}>

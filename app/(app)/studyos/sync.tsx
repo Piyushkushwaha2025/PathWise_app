@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useStudyOSStore } from '../../../store/studyosStore';
@@ -404,115 +404,134 @@ export default function SyncScreen() {
   const scrapedDataRef = useRef<any>({});
   const cookieRef = useRef<string>('');
   const finishedRef = useRef(false);
+  const stepIndexRef = useRef(0);
 
-  // Load any previously saved cookies into the ref immediately
+  // CRITICAL: Reset ALL refs and state every time this screen comes into focus.
+  // Without this, after disconnect → re-login without restarting the app,
+  // finishedRef stays true from the last sync and finalizeSync() silently returns,
+  // leaving the user stuck at 5/5 forever.
+  useFocusEffect(
+    useCallback(() => {
+      scrapedDataRef.current = {};
+      cookieRef.current = '';
+      finishedRef.current = false;
+      stepIndexRef.current = 0;
+      setCurrentStepIndex(0);
+      setScrapedDataState({});
+      setShowSkipButton(false);
+
+      // Reload any saved cookies for this new session
+      SecureStore.getItemAsync('culko_cookies').then((c) => {
+        if (c) {
+          cookieRef.current = c;
+          console.log('[Sync] Pre-loaded cookies from SecureStore');
+        }
+      });
+    }, [])
+  );
+
+  // Keep stepIndexRef in sync with state so async callbacks always see the latest index
   useEffect(() => {
-    SecureStore.getItemAsync('culko_cookies').then((c) => {
-      if (c) {
-        cookieRef.current = c;
-        console.log('[Sync] Pre-loaded cookies from SecureStore');
-      }
-    });
-  }, []);
+    stepIndexRef.current = currentStepIndex;
+  }, [currentStepIndex]);
 
   const finalizeSync = async () => {
     if (finishedRef.current) return;
     finishedRef.current = true;
 
-    const existing = useStudyOSStore.getState();
-    const newData = scrapedDataRef.current;
-    const subjList = newData.subjects?.list || [];
+    try {
+      const existing = useStudyOSStore.getState();
+      const newData = scrapedDataRef.current;
+      const subjList = newData.subjects?.list || [];
 
-    // Detect section from multiple sources, best to worst
-    const section =
-      newData.subjects?.section ||          // scraper found it in subjects page
-      newData.timetable?.section ||          // scraper found it in timetable page (new field)
-      existing.profile?.section ||           // already stored from previous sync
-      (() => {
-        // Derive section from subject codes (e.g. "25BCS-3-CSE101" → "25BCS-3")
-        const codes: string[] = (subjList.length > 0 ? subjList : existing.subjects || [])
-          .map((s: any) => s.code || '');
-        for (const code of codes) {
-          const m = code.match(/^(\d{2}[A-Z]{2,5}-[A-Z]{0,6}-?\d{1,2})/);
-          if (m) return m[1];
+      // Detect section from multiple sources, best to worst
+      const section =
+        newData.subjects?.section ||          
+        newData.timetable?.section ||          
+        existing.profile?.section ||           
+        (() => {
+          const codes: string[] = (subjList.length > 0 ? subjList : existing.subjects || [])
+            .map((s: any) => s.code || '');
+          for (const code of codes) {
+            const m = code.match(/^(\d{2}[A-Z]{2,5}-[A-Z]{0,6}-?\d{1,2})/);
+            if (m) return m[1];
+          }
+          return '';
+        })();
+
+      const baseSubjects = subjList.length > 0 ? subjList : existing.subjects;
+
+      const updatedSubjects = (baseSubjects || []).map((subj: any) => {
+        let att = newData.attendance?.[subj.code];
+        if (!att && subj.code) {
+          const cleanCode = subj.code.replace(/^[A-Z]+_/, '').trim();
+          att = newData.attendance?.[cleanCode];
+          if (!att) {
+            const matchingKey = Object.keys(newData.attendance || {}).find(k => subj.code?.includes(k) || k.includes(cleanCode));
+            if (matchingKey) att = newData.attendance[matchingKey];
+          }
         }
+        if (att) {
+          return { ...subj, attendancePercentage: att.percentage, attendedClasses: att.attended, totalClasses: att.total };
+        }
+        return subj;
+      });
+
+      if (newData.profile) newData.profile.section = section;
+
+      const hasValidTimetable = (tt: any) => {
+        if (!tt) return false;
+        return Object.values(tt).some((day: any) => Array.isArray(day) && day.length > 0);
+      };
+
+      const findBestTimetableSection = (sec: string) => {
+        const keys = Object.keys(timetableData as any);
+        if (!sec) return '';
+        if ((timetableData as any)[sec]) return sec;
+        const prefix = sec.replace(/-\d+$/, '');
+        const prefixMatch = keys.find(k => k.startsWith(prefix));
+        if (prefixMatch) return prefixMatch;
         return '';
-      })();
+      };
 
-    // If a step returned nothing (dead/unreachable link), fall back to whatever
-    // is already synced so we never wipe good data with an empty result.
-    const baseSubjects = subjList.length > 0 ? subjList : existing.subjects;
-
-    const updatedSubjects = (baseSubjects || []).map((subj: any) => {
-      let att = newData.attendance?.[subj.code];
-      if (!att && subj.code) {
-        const cleanCode = subj.code.replace(/^[A-Z]+_/, '').trim();
-        att = newData.attendance?.[cleanCode];
-        if (!att) {
-          const matchingKey = Object.keys(newData.attendance || {}).find(k => subj.code.includes(k) || k.includes(cleanCode));
-          if (matchingKey) att = newData.attendance[matchingKey];
+      let finalTimetable: any = {};
+      if (hasValidTimetable(newData.timetable)) {
+        finalTimetable = newData.timetable;
+      } else if (hasValidTimetable(existing.timetable) && !(existing.timetable as any)?.isStaticJSONFallback) {
+        finalTimetable = existing.timetable;
+      } else {
+        const bestSection = findBestTimetableSection(section);
+        if (bestSection && (timetableData as any)[bestSection]) {
+          finalTimetable = { ...(timetableData as any)[bestSection], isStaticJSONFallback: true };
         }
       }
-      if (att) {
-        return { ...subj, attendancePercentage: att.percentage, attendedClasses: att.attended, totalClasses: att.total };
+
+      await setScrapedData({
+        profile: newData.profile || existing.profile,
+        subjects: updatedSubjects,
+        timetable: finalTimetable,
+        marks: (newData.marks && newData.marks.length) ? newData.marks : existing.marks,
+        isScrapedDataLoaded: true
+      });
+
+      if (userId && section) {
+        syncUserWithDB(userId, section, newData.profile?.uid)
+          .catch(e => console.error('Failed to sync section to DB', e));
       }
-      return subj;
-    });
 
-    if (newData.profile) newData.profile.section = section;
+      await setSession('cu', 'culko-scraped', 0);
 
-    const hasValidTimetable = (tt: any) => {
-      if (!tt) return false;
-      return Object.values(tt).some((day: any) => Array.isArray(day) && day.length > 0);
-    };
-
-    // Exact section match, then prefix match (e.g. "25BCS-3" → "25BCS-3"), then first available
-    const findBestTimetableSection = (sec: string) => {
-      const keys = Object.keys(timetableData as any);
-      if (!sec) return '';
-      if ((timetableData as any)[sec]) return sec;
-      // Try prefix match
-      const prefix = sec.replace(/-\d+$/, '');
-      const prefixMatch = keys.find(k => k.startsWith(prefix));
-      if (prefixMatch) return prefixMatch;
-      return '';
-    };
-
-    let finalTimetable: any = {};
-    if (hasValidTimetable(newData.timetable)) {
-      finalTimetable = newData.timetable;
-    } else if (hasValidTimetable(existing.timetable) && !(existing.timetable as any)?.isStaticJSONFallback) {
-      finalTimetable = existing.timetable;
-    } else {
-      const bestSection = findBestTimetableSection(section);
-      if (bestSection && (timetableData as any)[bestSection]) {
-        finalTimetable = { ...(timetableData as any)[bestSection], isStaticJSONFallback: true };
+      if (cookieRef.current) {
+        await SecureStore.setItemAsync('culko_cookies', cookieRef.current).catch(() => {});
       }
+
+      setTimeout(() => {
+        router.navigate('/(app)/dashboard');
+      }, 100);
+    } catch (error: any) {
+      console.error('Finalize sync crashed:', error);
+      router.navigate('/(app)/dashboard');
     }
-
-    await setScrapedData({
-      profile: newData.profile || existing.profile,
-      subjects: updatedSubjects,
-      timetable: finalTimetable,
-      marks: (newData.marks && newData.marks.length) ? newData.marks : existing.marks,
-      isScrapedDataLoaded: true
-    });
-
-    if (userId && section) {
-      syncUserWithDB(userId, section, newData.profile?.uid)
-        .catch(e => console.error('Failed to sync section to DB', e));
-    }
-
-    await setSession('cu', 'culko-scraped', 0);
-
-    // Persist the freshest cookies we captured — never overwrite with empty,
-    // otherwise AutoSync / detail views lose the session (ponytail: this was
-    // the cookie-wipe bug; keep one source of truth in `culko_cookies`).
-    if (cookieRef.current) {
-      await SecureStore.setItemAsync('culko_cookies', cookieRef.current).catch(() => {});
-    }
-
-    router.replace('/(app)/studyos/dashboard');
   };
 
   const handleNavigationStateChange = (navState: WebViewNavigation) => {
@@ -550,12 +569,6 @@ export default function SyncScreen() {
     }
   };
 
-  const stepIndexRef = useRef(0);
-
-  // Keep ref in sync with state so async callbacks always see the latest index
-  useEffect(() => {
-    stepIndexRef.current = currentStepIndex;
-  }, [currentStepIndex]);
 
   const handleMessage = async (event: any) => {
     try {
@@ -596,14 +609,25 @@ export default function SyncScreen() {
     }
   };
 
-  // Per-step safety net: if a step's page hangs for more than 30 seconds, skip it.
+  const [showSkipButton, setShowSkipButton] = useState(false);
+
+  // Show a manual skip button after 5s on the last step (marks) so user never stays truly stuck
+  useEffect(() => {
+    setShowSkipButton(false);
+    if (currentStepIndex === SCRAPE_STEPS.length - 1) {
+      const t = setTimeout(() => setShowSkipButton(true), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [currentStepIndex]);
+
+  // Per-step safety net: if a step's page hangs for more than 8 seconds, skip it.
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!finishedRef.current && currentStep) {
          console.log('Step timeout:', currentStep.id);
          handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
       }
-    }, 30000);
+    }, 8000);
     return () => clearTimeout(timer);
   }, [currentStepIndex]);
 
@@ -614,6 +638,17 @@ export default function SyncScreen() {
         <Text style={styles.title}>Syncing College Data</Text>
         <Text style={styles.subtitle}>{currentStep?.msg || 'Finishing up...'}</Text>
         <Text style={styles.progressText}>{currentStepIndex + 1} / {SCRAPE_STEPS.length} Steps</Text>
+
+        {showSkipButton && (
+          <TouchableOpacity
+            onPress={() => finalizeSync()}
+            style={{ marginTop: 32, backgroundColor: colors.primary + '20', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20, borderWidth: 1, borderColor: colors.primary + '60' }}
+          >
+            <Text style={{ color: colors.primary, fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>
+              Continue to Dashboard →
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Hidden WebView to perform the actual scraping */}

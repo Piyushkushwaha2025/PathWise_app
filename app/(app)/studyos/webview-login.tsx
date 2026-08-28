@@ -23,7 +23,6 @@ export default function WebViewLoginScreen() {
   
   const [loadingMsg, setLoadingMsg] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [autoCreds, setAutoCreds] = useState<{u?: string, p?: string} | null>(null);
 
   const [isOnLms, setIsOnLms] = useState(false);
   const [webviewKey, setWebviewKey] = useState(Date.now());
@@ -35,15 +34,6 @@ export default function WebViewLoginScreen() {
         setIsProcessing(false);
         setLoadingMsg('');
         if (isMounted) setWebviewKey(Date.now());
-        
-        try {
-          const u = await SecureStore.getItemAsync('culko_u');
-          const p = await SecureStore.getItemAsync('culko_p');
-          if (isMounted) {
-            if (u && p) setAutoCreds({u, p});
-            else setAutoCreds(null);
-          }
-        } catch(e){}
       })();
       return () => { isMounted = false; };
     }, [])
@@ -56,9 +46,6 @@ export default function WebViewLoginScreen() {
   const handleClearData = async () => {
     await clearSession(true);
     await SecureStore.deleteItemAsync('culko_cookies');
-    await SecureStore.deleteItemAsync('culko_u');
-    await SecureStore.deleteItemAsync('culko_p');
-    setAutoCreds(null);
     setWebviewKey(Date.now()); // reload webview
   };
 
@@ -96,73 +83,11 @@ export default function WebViewLoginScreen() {
         router.replace('/(app)/studyos/sync');
       }, 1000);
     }
-    
-    // Auto Login Injection for Webview
-    if (!navState.loading && (urlLower.includes('login') || urlLower.includes('ums'))) {
-      const uEnc = autoCreds?.u ? encodeURIComponent(autoCreds.u) : '';
-      const pEnc = autoCreds?.p ? encodeURIComponent(autoCreds.p) : '';
-      
-      const autoFillScript = `
-        try {
-          var userInp = document.querySelector('input[type="text"]') || document.querySelector('input[name*="user" i]') || document.querySelector('input[name*="uid" i]');
-          var passInp = document.querySelector('input[type="password"]');
-          var captchaInp = document.querySelector('input[name*="captcha" i]') || document.querySelector('input[placeholder*="captcha" i]') || document.querySelector('input[id*="captcha" i]');
-          var btn = document.querySelector('input[type="submit"]') || document.querySelector('button[type="submit"]') || document.getElementById('btnLogin') || document.getElementById('btnNext');
-          
-          var hasCreds = "${uEnc}" !== "";
-          var hasCaptcha = !!captchaInp;
-          var isPage1 = !!userInp && !passInp && !hasCaptcha;
-
-          if (userInp && btn && !window.__autoLogStarted) {
-             window.__autoLogStarted = true;
-             
-             if (hasCreds) {
-               if (isPage1) {
-                 userInp.value = decodeURIComponent("${uEnc}");
-                 userInp.dispatchEvent(new Event('change', { bubbles: true }));
-               } else if (hasCaptcha && passInp) {
-                 passInp.value = decodeURIComponent("${pEnc}");
-                 passInp.dispatchEvent(new Event('change', { bubbles: true }));
-               }
-             }
-             
-             // Attach click listener to save/update credentials on login click
-             btn.addEventListener('click', function() {
-                if (userInp && passInp) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                     type: 'SAVE_CREDS',
-                     u: userInp.value,
-                     p: passInp.value
-                  }));
-                }
-             });
-
-             if (hasCreds && isPage1) {
-               // Safely auto-click NEXT button on page 1 only if there are no errors showing
-               var errorMsg = document.querySelector('.text-danger') || document.querySelector('.error') || document.querySelector('#lblError');
-               var errorText = errorMsg ? errorMsg.innerText.trim() : '';
-               if (!errorText) {
-                 setTimeout(function() { btn.click(); }, 400);
-               }
-             }
-          }
-        } catch(e) {}
-        true;
-      `;
-      setTimeout(() => {
-        webViewRef.current?.injectJavaScript(autoFillScript);
-      }, 800);
-    }
   };
 
   const handleMessage = async (event: any) => {
     try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'SAVE_CREDS' && data.u && data.p) {
-         await SecureStore.setItemAsync('culko_u', data.u);
-         await SecureStore.setItemAsync('culko_p', data.p);
-         setAutoCreds({ u: data.u, p: data.p });
-      }
+      // Add other message handlers here if needed in the future
     } catch (e) {}
   };
 
