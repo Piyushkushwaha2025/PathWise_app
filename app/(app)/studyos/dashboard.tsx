@@ -439,14 +439,7 @@ export default function StudyOSDashboard() {
     }, [userId, dbUser?.section_code, profile?.section])
   );
 
-  useEffect(() => {
-    SecureStore.getItemAsync('culko_cookies').then(c => {
-      if (c) setCookies(c);
-    });
-    SecureStore.getItemAsync('services_menu_closed').then(val => {
-      if (val === 'true') setIsServicesMenuVisible(false);
-    });
-  }, []);
+  // Old useEffect removed
 
   const currentHour = new Date().getHours();
   const greetingText = currentHour < 12 ? 'Good Morning' : currentHour < 17 ? 'Good Afternoon' : 'Good Evening';
@@ -551,25 +544,28 @@ export default function StudyOSDashboard() {
     setIsSessionModalVisible(true);
   };
 
-  useFocusEffect(
-    React.useCallback(() => {
-      // Show last-saved cache instantly, then refresh for new data.
-      useStudyOSStore.getState().loadGamification();
-      const state = useStudyOSStore.getState();
+  useEffect(() => {
+    SecureStore.getItemAsync('services_menu_closed').then(val => {
+      if (val === 'true') setIsServicesMenuVisible(false);
+    });
+
+    useStudyOSStore.getState().loadGamification();
+
+    SecureStore.getItemAsync('culko_cookies').then(async c => {
+      if (c) setCookies(c);
+
+      const val = await SecureStore.getItemAsync('cleared_buggy_cache_v2');
+      if (!val) {
+         useStudyOSStore.getState().setScrapedData({ detailedAttendanceCache: {} });
+         await SecureStore.setItemAsync('cleared_buggy_cache_v2', 'true');
+      }
       
-      // Clear buggy detail cache from previous bugs ONCE
-      SecureStore.getItemAsync('cleared_buggy_cache_v2').then(val => {
-         if (!val) {
-             useStudyOSStore.getState().setScrapedData({ detailedAttendanceCache: {} });
-             SecureStore.setItemAsync('cleared_buggy_cache_v2', 'true');
-             triggerSync(true); // force a fresh sync
-         } else if (!state.subjects || state.subjects.length === 0) {
-             triggerSync(true);
-         }
-      });
-      
-    }, [])
-  );
+      // trigger sync only after cookies are set
+      setTimeout(() => {
+          triggerSync(true);
+      }, 100);
+    });
+  }, []);
 
   useEffect(() => {
     if (isCalendarVisible) {
@@ -901,6 +897,7 @@ import { agendaItems, markedDates } from '../../../constants/calendar';
 function SubjectCard({ title, code, credits, leaves, status, statusType, progress, attended, total, history, updateBadge, onPress }: any) {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+  const showHistoryDates = useStudyOSStore(s => s.showHistoryDates);
   const isDanger = statusType === 'danger';
   const isNeutral = statusType === 'neutral';
   const color = isDanger ? '#ef4444' : isNeutral ? colors.textMuted : '#22c55e';
@@ -940,32 +937,35 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
         </View>
         
         {history && history.length > 0 && (
-          <View style={{ justifyContent: 'center', alignItems: 'center', marginLeft: 10, gap: 3.5 }}>
+          <View style={{ 
+            justifyContent: 'center', 
+            alignItems: showHistoryDates ? 'flex-start' : 'center', 
+            marginLeft: 10, 
+            gap: 3.5,
+            width: showHistoryDates ? 50 : undefined 
+          }}>
             {history.map((h: any, idx: number) => {
-              if (h.isToday) {
-                return (
-                  <View 
-                    key={idx} 
-                    style={{ 
-                      width: 14, 
-                      height: 14, 
-                      borderRadius: 7, 
-                      borderWidth: 1.5,
-                      borderColor: h.color,
-                      backgroundColor: 'transparent',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginBottom: 1
-                    }}
-                  >
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: h.color }} />
-                  </View>
-                );
-              }
-              
-              return (
+              const dateObj = new Date(h.parsedT);
+              const shortDate = !isNaN(dateObj.getTime()) ? dateObj.getDate() + ' ' + dateObj.toLocaleString('default', { month: 'short' }) : '?';
+
+              const dotContent = h.isToday ? (
                 <View 
-                  key={idx} 
+                  style={{ 
+                    width: 14, 
+                    height: 14, 
+                    borderRadius: 7, 
+                    borderWidth: 1.5,
+                    borderColor: h.color,
+                    backgroundColor: 'transparent',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: showHistoryDates ? 0 : 1
+                  }}
+                >
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: h.color }} />
+                </View>
+              ) : (
+                <View 
                   style={{ 
                     width: 8, 
                     height: 8, 
@@ -975,9 +975,25 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
                     shadowOffset: { width: 0, height: 1 },
                     shadowOpacity: 0.4,
                     shadowRadius: 1.5,
-                    elevation: 2
+                    elevation: 2,
+                    marginLeft: showHistoryDates && !h.isToday ? 3 : 0
                   }}
                 />
+              );
+
+              if (showHistoryDates) {
+                return (
+                  <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    {dotContent}
+                    <Text style={{ fontSize: 9, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>{shortDate}</Text>
+                  </View>
+                );
+              }
+
+              return (
+                <React.Fragment key={idx}>
+                  {dotContent}
+                </React.Fragment>
               );
             })}
           </View>
@@ -993,10 +1009,19 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
 
 function CircularProgress({ value, color }: { value: number, color: string }) {
   const colors = useThemeStore((s) => s.colors);
+  const roundAttendancePercentage = useStudyOSStore(s => s.roundAttendancePercentage);
   const radius = 24;
   const strokeWidth = 5;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (value / 100) * circumference;
+  
+  // Format the display value based on the setting
+  const displayValue = roundAttendancePercentage 
+    ? Math.round(value) 
+    : (value % 1 !== 0 ? value.toFixed(2) : value);
+  
+  // If showing decimals, we might need smaller font so it fits in the circle
+  const fontSize = !roundAttendancePercentage && value % 1 !== 0 ? 12 : 16;
   
   return (
     <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
@@ -1004,7 +1029,7 @@ function CircularProgress({ value, color }: { value: number, color: string }) {
         <Circle cx="30" cy="30" r={radius} stroke={colors.border} strokeWidth={strokeWidth} fill="none" />
         <Circle cx="30" cy="30" r={radius} stroke={color} strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" transform="rotate(-90 30 30)" />
       </Svg>
-      <Text style={{ position: 'absolute', color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>{value}</Text>
+      <Text style={{ position: 'absolute', color: colors.text, fontSize, fontFamily: 'SpaceGrotesk_700Bold' }}>{displayValue}</Text>
     </View>
   );
 }

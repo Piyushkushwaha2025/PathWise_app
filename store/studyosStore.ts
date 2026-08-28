@@ -74,10 +74,18 @@ interface StudyOSState {
   // Detailed Attendance Cache
   detailedAttendanceCache: Record<string, any[]>;
   
+  // Settings
+  showHistoryDates: boolean;
+  setShowHistoryDates: (show: boolean) => Promise<void>;
+  roundAttendancePercentage: boolean;
+  setRoundAttendancePercentage: (round: boolean) => Promise<void>;
+  
   addXP: (amount: number) => Promise<void>;
   recordActivity: () => Promise<void>;
   loadGamification: () => Promise<void>;
+  saveGamification: () => Promise<void>;
   addRoadmap: (roadmap: Omit<Roadmap, 'id' | 'createdAt'>) => Promise<void>;
+  removeRoadmap: (id: string) => Promise<void>;
   setScrapedData: (data: Partial<StudyOSState>) => Promise<void>;
   resetScrapedData: () => Promise<void>;
 }
@@ -87,6 +95,7 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
   xp: 0,
   lastActivityDate: null,
   roadmaps: [],
+  
   profile: null,
   subjects: [],
   timetable: {},
@@ -94,10 +103,24 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
   isScrapedDataLoaded: false,
   isHydrated: false,
   lmsCourses: [],
-  setLmsCourses: (courses) => set({ lmsCourses: courses }),
+  
   semesterOptionsCache: [],
   resultCache: {},
   detailedAttendanceCache: {},
+  showHistoryDates: false,
+  roundAttendancePercentage: true, // Default to true (whole numbers)
+
+  setLmsCourses: (courses) => set({ lmsCourses: courses }),
+
+  setShowHistoryDates: async (show) => {
+    set({ showHistoryDates: show });
+    await AsyncStorage.setItem('studyos_settings_history_dates', JSON.stringify(show));
+  },
+
+  setRoundAttendancePercentage: async (round) => {
+    set({ roundAttendancePercentage: round });
+    await AsyncStorage.setItem('studyos_settings_round_percentage', JSON.stringify(round));
+  },
 
   loadGamification: async () => {
     try {
@@ -106,12 +129,16 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
       const storedLastDate = await AsyncStorage.getItem('studyos_last_activity');
       const storedRoadmaps = await AsyncStorage.getItem('studyos_roadmaps');
       const storedScraped = await AsyncStorage.getItem('studyos_scraped_data');
+      const storedShowDates = await AsyncStorage.getItem('studyos_settings_history_dates');
+      const storedRoundPercentage = await AsyncStorage.getItem('studyos_settings_round_percentage');
 
       set({
         streak: storedStreak ? parseInt(storedStreak, 10) : 0,
         xp: storedXP ? parseInt(storedXP, 10) : 0,
         lastActivityDate: storedLastDate,
         roadmaps: storedRoadmaps ? JSON.parse(storedRoadmaps) : [],
+        showHistoryDates: storedShowDates === 'true',
+        roundAttendancePercentage: storedRoundPercentage !== 'false', // default true if null
         ...(storedScraped ? JSON.parse(storedScraped) : {}),
         isHydrated: true
       });

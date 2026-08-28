@@ -663,15 +663,35 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
             }
           >
             {safeAttendanceData.map((item, index) => {
-              const isPresent = String(item?.status || '').toLowerCase() === 'present';
-              const isLeave = String(item?.status || '').toLowerCase().includes('leave');
-              const color = isPresent ? '#22c55e' : isLeave ? '#f59e0b' : '#ef4444';
-              return (
-                <View key={index} style={[styles.card, { backgroundColor: colors.surface }]}>
-                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                     <Text style={[styles.date, { color: colors.text }]}>{item?.date}</Text>
-                     <View style={[styles.badge, { backgroundColor: color + '20' }]}>
-                       <Text style={[styles.badgeText, { color }]}>{item?.status}</Text>
+              const rawStatus = String(item?.status || '').toUpperCase().trim();
+                let displayStatus = rawStatus;
+                let color = '#ef4444'; // Default absent
+
+                if (rawStatus === 'P' || rawStatus === 'PRESENT') {
+                  displayStatus = 'Present';
+                  color = '#22c55e';
+                } else if (rawStatus === 'A' || rawStatus === 'ABSENT') {
+                  displayStatus = 'Absent';
+                  color = '#ef4444';
+                } else if (rawStatus === 'ML') {
+                  displayStatus = 'Medical Leave';
+                  color = '#3b82f6';
+                } else if (rawStatus === 'DL') {
+                  displayStatus = 'Duty Leave';
+                  color = '#8b5cf6';
+                } else if (rawStatus === 'L' || rawStatus.includes('LEAVE')) {
+                  displayStatus = 'Leave';
+                  color = '#f59e0b';
+                } else if (rawStatus) {
+                  color = '#f59e0b';
+                }
+
+                return (
+                  <View key={index} style={[styles.card, { backgroundColor: colors.surface }]}>
+                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                       <Text style={[styles.date, { color: colors.text }]}>{item?.date}</Text>
+                       <View style={[styles.badge, { backgroundColor: color + '20' }]}>
+                         <Text style={[styles.badgeText, { color }]}>{displayStatus}</Text>
                      </View>
                    </View>
                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>

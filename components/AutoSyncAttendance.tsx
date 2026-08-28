@@ -7,7 +7,7 @@ import * as SecureStore from 'expo-secure-store';
 
 const ATTENDANCE_URL = 'https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx?type=etgkYfqBdH1fSfc255iYGw==';
 
-const getAttendanceUrl = () => `${ATTENDANCE_URL}&_t=${Date.now()}`;
+const getAttendanceUrl = () => ATTENDANCE_URL;
 
 // Persisted signature = single source of truth for "did attendance really
 // change?". Survives tab refocus + app restart, which kills the repeated
@@ -26,7 +26,18 @@ const ATTENDANCE_SCRIPT = `
       // Find the VIEW/postback control in a summary row. Rows expose it as a
       // named submit, a __doPostBack link, or only via an 'obj'/id attribute.
       function viewActionTargetOf(row) {
-        var viewBtn = row.querySelector('input[value="VIEW"], input[value="View"], input[type="submit"]');
+        var viewBtn = row.querySelector('input[value="VIEW"], input[value="View"], input[type="button"][chk]');
+        
+        // New API format (UID in hidden input, course in chk attribute)
+        if (viewBtn && viewBtn.getAttribute('chk')) {
+           var chkVal = viewBtn.getAttribute('chk');
+           var hiddenInp = row.querySelector('input[type="hidden"]');
+           if (hiddenInp && hiddenInp.value) {
+              return hiddenInp.value + "|" + chkVal;
+           }
+        }
+        
+        // Fallbacks for older formats
         if (viewBtn) {
            if (viewBtn.name) return viewBtn.name;
            var ocb = viewBtn.getAttribute('onclick');
@@ -59,6 +70,13 @@ const ATTENDANCE_SCRIPT = `
            if (el.name) return el.name;
            if (el.id) return el.id.replace(/_/g, '$');
         }
+        
+        // Debug logging!
+        if (window.ReactNativeWebView) {
+           var gd = typeof window.getdata === 'function' ? window.getdata.toString() : 'not found';
+           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'getdata function: ' + gd }));
+        }
+        
         return '';
       }
 
@@ -163,151 +181,100 @@ const ATTENDANCE_SCRIPT = `
         }
       }
       
-      // Step 2: Extract detailed attendance by literally clicking VIEW, waiting, scraping, and clicking BACK
+      // Step 2: Fetch detailed attendance directly via the internal API! (Instantaneous JSON)
       var keys = Object.keys(attendanceData);
       var queue = [];
       for (var i = 0; i < keys.length; i++) {
          var k = keys[i];
-         var tl = attendanceData[k].targets || [];
-         if (tl.length > 0) {
+         var tl = attendanceData[k].targets || []; // We'll put 'uid|chk' inside tl[0] during parsing
+         var attD = attendanceData[k];
+         if (tl.length > 0 && attD.total > 0) {
             queue.push({ code: k, target: tl[0] });
          }
       }
-      
-      var currentIdx = 0;
-      
-      function waitForTable(type, callback) {
-          var attempts = 0;
-          var interval = setInterval(function() {
-              attempts++;
-              var tables = document.querySelectorAll('table');
-              var found = null;
-              for (var t = 0; t < tables.length; t++) {
-                  var txt = tables[t].textContent || '';
-                  if (type === 'detail' && (txt.indexOf('Marked By') > -1 || txt.indexOf('Time') > -1)) {
-                      found = tables[t];
-                      break;
-                  }
-                  if (type === 'summary' && txt.indexOf('Total Delivered') > -1 && txt.indexOf('Marked By') === -1) {
-                      found = tables[t];
-                      break;
-                  }
-              }
-              
-              if (found) {
-                  clearInterval(interval);
-                  callback(found);
-              } else if (attempts > 30) { // 15 seconds max wait
-                  clearInterval(interval);
-                  callback(null);
-              }
-          }, 500);
-      }
-      
-      function processNext() {
-          if (currentIdx >= queue.length) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: true }));
-              return;
-          }
-          
-          var prm = window.Sys && window.Sys.WebForms && window.Sys.WebForms.PageRequestManager ? window.Sys.WebForms.PageRequestManager.getInstance() : null;
-          if (prm && prm.get_isInAsyncPostBack()) {
-              setTimeout(processNext, 500); // Wait until previous postback finishes
-              return;
-          }
 
-          var qItem = queue[currentIdx];
-          var cleanCode = qItem.code.replace(/^[A-Z]+_/, '').trim().toUpperCase();
-          var attData = attendanceData[qItem.code] || attendanceData[cleanCode];
-          
-          // 1. Find the button to click for this subject on the summary page
-          var btn = document.querySelector('[name="' + qItem.target + '"], [id="' + qItem.target + '"]');
-          if (!btn) {
-              var allBtns = document.querySelectorAll('input, button, a, [obj]');
-              for(var b = 0; b < allBtns.length; b++) {
-                  var obj = (allBtns[b].getAttribute('obj') || '').toUpperCase();
-                  if (obj && obj.includes(cleanCode)) {
-                      btn = allBtns[b];
-                      break;
-                  }
-              }
-          }
-          
-          if (!btn) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Button not found for ' + qItem.code }));
-              currentIdx++;
-              setTimeout(processNext, 500);
-              return;
-          }
-          
-          // If total classes is 0, skip it!
-          if (attData && attData.total === 0) {
-              currentIdx++;
-              setTimeout(processNext, 100);
-              return;
-          }
-          
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Clicking VIEW for ' + qItem.code }));
-          
-          var oldTables = document.querySelectorAll('table');
-          for(var t=0; t<oldTables.length; t++) {
-             var txt = oldTables[t].textContent || '';
-             if (txt.indexOf('Marked By') > -1 || txt.indexOf('Time') > -1) {
-                 oldTables[t].innerHTML = ''; // Blank out
-             }
-          }
-          
-          btn.click();
-          
-          waitForTable('detail', function(detailTable) {
-              if (detailTable) {
-                  var records = [];
-                  var rows = detailTable.querySelectorAll('tr');
-                  for (var r = 1; r < rows.length; r++) {
-                      var cells = rows[r].querySelectorAll('td');
-                      if(cells.length < 4) continue;
-                      var dt = (cells[1] ? cells[1].textContent.trim() : '');
-                      var up = dt.toUpperCase();
-                      if (!dt || up === 'TITLE' || up === 'COURSE CODE' || up === 'DATE') continue;
-                      records.push({
-                          date: dt,
-                          type: cells[2] ? cells[2].textContent.trim() : '',
-                          time: cells[3] ? cells[3].textContent.trim() : '',
-                          status: cells[4] ? cells[4].textContent.trim() : (cells[2] ? cells[2].textContent.trim() : ''),
-                          markedBy: cells[7] ? cells[7].textContent.trim() : (cells[5] ? cells[5].textContent.trim() : '')
-                      });
-                  }
-                  
-                  attendanceData[qItem.code].records = records;
-                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Scraped ' + records.length + ' records for ' + qItem.code }));
-              }
-              
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: false }));
-              
-              var allInputs = document.querySelectorAll('input[type="submit"], input[type="button"], button');
-              var backBtn = null;
-              for(var b2 = 0; b2 < allInputs.length; b2++) {
-                  var v = (allInputs[b2].value || '').toUpperCase();
-                  var n = (allInputs[b2].name || '').toUpperCase();
-                  if (v.indexOf('BACK') > -1 || n.indexOf('BACK') > -1) {
-                      backBtn = allInputs[b2]; break;
-                  }
-              }
-              
-              if (backBtn) {
-                  backBtn.click();
-                  // We don't need to wait for summary table specifically, the prm.get_isInAsyncPostBack() check at the start of processNext will handle it!
-                  currentIdx++;
-                  setTimeout(processNext, 500);
-              } else {
-                  currentIdx++;
-                  setTimeout(processNext, 500);
-              }
-          });
+      if (queue.length === 0) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: true }));
+        return;
       }
-      
-      // Start the sequential UI scraping!
-      processNext();
+
+      var pageUrl = window.location.href.split('?')[0] + '/GetFullReport';
+      var Sel_Session = (document.querySelector('#ddlSession') && document.querySelector('#ddlSession').value) || (document.querySelector('#hfdbSelSes') && document.querySelector('#hfdbSelSes').value) || '';
+      var typeFilter = (document.querySelector('#drpfilter') && document.querySelector('#drpfilter').value) || '0';
+
+      var completed = 0;
+      var total = queue.length;
+
+      function fetchDetailJSON(qItem) {
+        // target is "uid_val|chk_val"
+        var parts = qItem.target.split('|');
+        var uidVal = parts[0];
+        var chkVal = parts[1];
+
+        var payload = JSON.stringify({
+          course: chkVal,
+          UID: uidVal,
+          fromDate: "0",
+          toDate: "0",
+          type: typeFilter,
+          Session: Sel_Session
+        });
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', pageUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
+
+        xhr.onreadystatechange = function() {
+          if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+              try {
+                var response = JSON.parse(xhr.responseText);
+                var objData = JSON.parse(response.d.Result);
+                // The JSON returns an array of records. Keys might be: "Date", "Timing", "Status", "Att Type", "Marked By"
+                var records = [];
+                if (objData.length > 0) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'First record raw: ' + JSON.stringify(objData[0]) }));
+                }
+                for(var j=0; j<objData.length; j++) {
+                  var r = objData[j];
+                  records.push({
+                    date: r["AttDate"] || '',
+                    type: r["AttendanceType"] || '',
+                    time: r["Timing"] || '',
+                    status: r["AttendanceCode"] || '',
+                    markedBy: r["Name"] || ''
+                  });
+                }
+                if (attendanceData[qItem.code]) {
+                  attendanceData[qItem.code].records = records;
+                }
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'API JSON: ' + records.length + ' records for ' + qItem.code }));
+              } catch(e) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'JSON parsing failed for ' + qItem.code }));
+              }
+            } else {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'API XHR failed for ' + qItem.code + ' status=' + xhr.status }));
+            }
+            completed++;
+            // Post intermediate update after each subject
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: completed >= total }));
+          }
+        };
+
+        xhr.onerror = function() {
+          completed++;
+          if (completed >= total) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: true }));
+          }
+        };
+
+        xhr.send(payload);
+      }
+
+      // Fire all requests in parallel!
+      for (var q = 0; q < queue.length; q++) {
+        fetchDetailJSON(queue[q]);
+      }
 
     } catch(e) {
       if (window.ReactNativeWebView) {

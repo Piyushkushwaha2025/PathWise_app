@@ -405,6 +405,16 @@ export default function SyncScreen() {
   const cookieRef = useRef<string>('');
   const finishedRef = useRef(false);
 
+  // Load any previously saved cookies into the ref immediately
+  useEffect(() => {
+    SecureStore.getItemAsync('culko_cookies').then((c) => {
+      if (c) {
+        cookieRef.current = c;
+        console.log('[Sync] Pre-loaded cookies from SecureStore');
+      }
+    });
+  }, []);
+
   const finalizeSync = async () => {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -551,6 +561,8 @@ export default function SyncScreen() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'COOKIES') {
+        if (finishedRef.current) return;
+        
         // Save latest cookies whenever we get them
         if (data.data) {
           cookieRef.current = data.data;
@@ -609,7 +621,7 @@ export default function SyncScreen() {
         <View style={styles.hiddenWebviewContainer}>
           <WebView
             ref={webViewRef}
-            source={{ uri: currentStep.url }}
+            source={{ uri: currentStep.url, headers: cookieRef.current ? { Cookie: cookieRef.current } : undefined }}
             onNavigationStateChange={handleNavigationStateChange}
             onMessage={handleMessage}
             onError={(e) => {

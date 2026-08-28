@@ -33,9 +33,7 @@ export default function WebViewLoginScreen() {
         setIsProcessing(false);
         setLoadingMsg('');
         if (isMounted) setWebviewKey(Date.now());
-        try {
-          await SecureStore.deleteItemAsync('culko_cookies');
-        } catch(e){}
+        // NOTE: Do NOT delete cookies here - they are needed by AutoSync!
       })();
       return () => { isMounted = false; };
     }, [])

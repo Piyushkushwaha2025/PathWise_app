@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, Pressable, Image } from 'react-native';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import { useStudyOSStore } from '../../../store/studyosStore';
@@ -55,9 +55,17 @@ export default function CollegeProfileScreen() {
               <Text style={styles.uniName}>{universityId?.toUpperCase() || 'UNIVERSITY'}</Text>
             </View>
             <View style={styles.idBody}>
-              <View style={styles.avatarPlaceholder}>
-                <Ionicons name="person" size={40} color={colors.background} />
-              </View>
+              {profile?.photoUrl ? (
+                <Image 
+                  source={{ uri: profile.photoUrl }} 
+                  style={{ width: 80, height: 100, borderRadius: 8, backgroundColor: colors.surfaceHigh }} 
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Ionicons name="person" size={40} color={colors.background} />
+                </View>
+              )}
               <View style={styles.infoCol}>
                 <Text style={styles.studentName}>{profile?.name || 'Student Name'}</Text>
                 <Text style={styles.infoText}>{profile?.course || 'No Course'}</Text>
@@ -82,6 +90,14 @@ export default function CollegeProfileScreen() {
           <Text style={styles.sectionTitle}>Account Actions</Text>
 
           <GlassCard style={styles.menuCard}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(app)/studyos/settings')}>
+              <Ionicons name="settings-outline" size={20} color={colors.primary} />
+              <Text style={styles.menuLabel}>Settings</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             <TouchableOpacity style={styles.menuItem} onPress={handleSwitch}>
               <Ionicons name="swap-horizontal" size={20} color={colors.primary} />
               <Text style={styles.menuLabel}>Switch to Pathwise Profile</Text>
