@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Animated, BackHandler, Linking } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Animated, BackHandler, Linking, DeviceEventEmitter, FlatList } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
@@ -16,6 +16,8 @@ import { generateAiResponse, reflectAndLearn } from '../../../../../lib/aiManage
 import { useAuth } from '@clerk/clerk-expo';
 import { useSubscription } from '../../../../../hooks/useSubscription';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 
 interface Message {
   id: string;
@@ -92,6 +94,46 @@ const renderUserMessage = (text: string) => {
     return { displayText, hiddenFiles };
 };
 
+const QuickChatOverlay = ({ colors, sessions, currentSessionId }: any) => {
+  const [visible, setVisible] = useState(false);
+  const [hoveredIndex, setHoveredIndex] = useState(-1);
+
+  useEffect(() => {
+    const sub1 = DeviceEventEmitter.addListener('quickMenuVisible', (v) => setVisible(v));
+    const sub2 = DeviceEventEmitter.addListener('quickMenuHover', (i) => setHoveredIndex(i));
+    return () => {
+      sub1.remove();
+      sub2.remove();
+    };
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, pointerEvents: 'none' }}>
+       {/* Pure Apple OS Frosted Glass Blur */}
+       <BlurView blurMethod="dimezisBlurView" intensity={80} style={StyleSheet.absoluteFill} tint={colors.text === '#FFFFFF' ? 'dark' : 'light'} />
+       
+       <View style={{ position: 'absolute', top: 70, right: 54, width: 240, backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.3, shadowRadius: 20 }}>
+          <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceHover || '#f1f5f9' }}>
+             <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, fontSize: 14 }}>Switch Chat</Text>
+             <Text style={{ fontFamily: 'Inter_400Regular', color: colors.textDim, fontSize: 11, marginTop: 2 }}>Slide down to select & release</Text>
+          </View>
+          {sessions.map((s: any, idx: number) => (
+             <View key={s.id} style={{ height: 65, paddingHorizontal: 16, justifyContent: 'center', backgroundColor: hoveredIndex === idx ? colors.primary + '20' : 'transparent', borderBottomWidth: idx < sessions.length - 1 ? 1 : 0, borderBottomColor: colors.border }}>
+                <Text style={{ fontFamily: hoveredIndex === idx ? 'Inter_700Bold' : 'Inter_500Medium', color: hoveredIndex === idx ? colors.primary : colors.text, fontSize: 15 }} numberOfLines={1}>
+                   {s.title}
+                </Text>
+                <Text style={{ fontFamily: 'Inter_400Regular', color: colors.textDim, fontSize: 12, marginTop: 2 }}>
+                   {s.id === currentSessionId ? 'Current Chat' : new Date(s.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </Text>
+             </View>
+          ))}
+       </View>
+    </View>
+  );
+};
+
 export default function AITutorChatScreen() {
   const { id, name } = useLocalSearchParams();
   const router = useRouter();
@@ -136,7 +178,7 @@ export default function AITutorChatScreen() {
   const [inputHeight, setInputHeight] = useState(44);
   const animatedHeight = useRef(new Animated.Value(44)).current;
   const [isTyping, setIsTyping] = useState(false);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<FlatList>(null);
 
   useEffect(() => {
     Animated.timing(animatedHeight, {
@@ -149,6 +191,21 @@ export default function AITutorChatScreen() {
   
   // File Selection State
   const [showFileModal, setShowFileModal] = useState(false);
+  const [showContextLimitModal, setShowContextLimitModal] = useState(false);
+  
+  // Quick Chat Switcher Refs (State handled by standalone overlay to prevent full re-renders)
+  const hoveredIndexRef = useRef(-1);
+  const isQuickMenuVisible = useRef(false);
+  const longPressTimer = useRef<any>(null);
+
+  const updateHoveredIndex = (index: number) => {
+     if (hoveredIndexRef.current !== index) {
+        hoveredIndexRef.current = index;
+        DeviceEventEmitter.emit('quickMenuHover', index);
+        if (index !== -1) Haptics.selectionAsync();
+     }
+  };
+
   const [availableFiles, setAvailableFiles] = useState<Record<string, string[]>>({});
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -573,8 +630,10 @@ export default function AITutorChatScreen() {
          errMsg = "Google Gemini is currently facing very high global demand and is overloaded. Please try again in 15 seconds, or switch to Groq in Settings for a faster experience.";
       } else if (error.message?.includes('Rate Limit Exceeded') || error.message?.includes('429') || error.message?.includes('Quota exceeded')) {
          errMsg = "Rate Limit Exceeded. You are sending messages too fast or the document is too large for this free API key.";
+         setShowContextLimitModal(true);
       } else if (error.message?.includes('Payload Too Large') || error.message?.includes('413')) {
          errMsg = "The document you attached is too large for this API key. Try asking a shorter question or use a more capable API Key.";
+         setShowContextLimitModal(true);
       } else if (error.message?.includes('NO_POOL_KEYS') || error.message?.includes('PROXY_ERROR') || error.message?.includes('NO_PROXY_URL')) {
          errMsg = "Please tap the Settings gear icon at the top right to enter your own free API Key.";
          setShowSettings(true);
@@ -799,7 +858,7 @@ export default function AITutorChatScreen() {
             <Ionicons name="arrow-back" size={22} color={colors.text} />
           </TouchableOpacity>
 
-          {/* Right: Active Model Selector & Settings */}
+          {/* Right: Active Model Selector, Quick Chat & Settings */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             {hasSavedKey && (
               <TouchableOpacity 
@@ -807,11 +866,66 @@ export default function AITutorChatScreen() {
                 onPress={() => setShowModelSwitcherModal(true)}
               >
                 <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold' }}>
-                  {connectedModels.find(m => m.id === activeProvider)?.icon || '⚡'} {connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}
+                  {connectedModels.find(m => m.id === activeProvider)?.icon || '🤖'} {connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}
                 </Text>
                 <Ionicons name="chevron-down" size={14} color={colors.primary} />
               </TouchableOpacity>
             )}
+
+            {/* Quick Chat Switcher Button (Gesture Enabled) */}
+            <View
+                 onStartShouldSetResponder={() => true}
+                 onResponderGrant={(e) => {
+                    longPressTimer.current = setTimeout(() => {
+                       isQuickMenuVisible.current = true;
+                       DeviceEventEmitter.emit('quickMenuVisible', true);
+                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                    }, 350);
+                 }}
+                 onResponderMove={(e) => {
+                    if (isQuickMenuVisible.current) {
+                       const y = e.nativeEvent.pageY;
+                       const menuStartY = 90; // Approximate start of dropdown
+                       const itemHeight = 65;
+                       if (y > menuStartY) {
+                           const index = Math.floor((y - menuStartY) / itemHeight);
+                           if (index >= 0 && index < sessions.length) {
+                               updateHoveredIndex(index);
+                           } else {
+                               updateHoveredIndex(-1);
+                           }
+                       } else {
+                           updateHoveredIndex(-1);
+                       }
+                    }
+                 }}
+                 onResponderRelease={(e) => {
+                    clearTimeout(longPressTimer.current);
+                    if (isQuickMenuVisible.current) {
+                        const finalIndex = hoveredIndexRef.current;
+                        if (finalIndex >= 0 && finalIndex < sessions.length) {
+                            setCurrentSessionId(sessions[finalIndex].id);
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        }
+                        isQuickMenuVisible.current = false;
+                        DeviceEventEmitter.emit('quickMenuVisible', false);
+                        updateHoveredIndex(-1);
+                    } else {
+                        // Short tap: just open normal history modal
+                        setShowHistoryModal(true);
+                    }
+                 }}
+                 onResponderTerminate={(e) => {
+                    clearTimeout(longPressTimer.current);
+                    isQuickMenuVisible.current = false;
+                    DeviceEventEmitter.emit('quickMenuVisible', false);
+                    updateHoveredIndex(-1);
+                 }}
+              >
+                <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface + '80', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="chatbubbles-outline" size={20} color={colors.text} />
+                </View>
+              </View>
 
             <TouchableOpacity
               style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface + '80', justifyContent: 'center', alignItems: 'center' }}
@@ -822,56 +936,58 @@ export default function AITutorChatScreen() {
           </View>
         </View>
 
-        <ScrollView 
-          style={styles.chatContainer} 
-          contentContainerStyle={styles.messagesList}
-          ref={scrollViewRef}
-          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-        >
-           {activeMessages.map(msg => {
-              const { displayText, hiddenFiles } = msg.role === 'user' ? renderUserMessage(msg.text) : { displayText: msg.text, hiddenFiles: [] };
-              return (
-              <View key={msg.id} style={[styles.messageBubble, msg.role === 'user' ? styles.userBubble : styles.aiBubble]}>
-                 {msg.role === 'user' ? (
-                    <View>
-                       {displayText ? <Text style={styles.userText}>{displayText}</Text> : <Text style={[styles.userText, { fontStyle: 'italic', opacity: 0.8 }]}>Can you explain this document?</Text>}
-                       {hiddenFiles.length > 0 && (
-                          <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                             {hiddenFiles.map((f, i) => {
-                                // Extract just the filename without path
-                                const rawName = f.trim().split('/').pop()?.split('\\').pop() || f;
-                                // Remove extension
-                                const nameNoExt = rawName.replace(/\.(pptx|pdf|docx|txt|ppt|xlsx|csv)$/i, '');
-                                // Remove "Topic X.X - " prefix if present
-                                const cleanName = nameNoExt.replace(/^Topic\s*\d+[\.\d]*\s*[-–]\s*/i, '').trim();
-                                // Truncate if too long
-                                const shortName = cleanName.length > 22 ? cleanName.substring(0, 20) + '…' : cleanName;
-                                // Pick icon by extension
-                                const ext = rawName.split('.').pop()?.toLowerCase() || '';
-                                const icon = ext === 'pdf' ? 'document-text' : ext === 'pptx' || ext === 'ppt' ? 'easel' : 'document-attach';
-                                return (
-                                   <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, gap: 5 }}>
-                                      <Ionicons name={icon as any} size={13} color="rgba(255,255,255,0.95)" />
-                                      <Text style={{ color: 'rgba(255,255,255,0.97)', fontSize: 12, fontFamily: 'Inter_600SemiBold' }} numberOfLines={1}>{shortName}</Text>
-                                   </View>
-                                );
-                             })}
-                          </View>
-                       )}
-                    </View>
-                 ) : (
-                    <Markdown style={markdownStyles}>
-                       {msg.text}
-                    </Markdown>
-                 )}
-              </View>
-           )})}
-           {isTyping && (
-             <View style={[styles.messageBubble, styles.aiBubble, { width: 80, alignItems: 'center' }]}>
-               <ActivityIndicator size="small" color={colors.primary} />
-             </View>
-           )}
-        </ScrollView>
+          <FlatList
+            style={styles.chatContainer} 
+            contentContainerStyle={styles.messagesList}
+            ref={scrollViewRef as any}
+            data={activeMessages}
+            keyExtractor={msg => msg.id}
+            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+            onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+            ListFooterComponent={isTyping ? (
+               <View style={[styles.messageBubble, styles.aiBubble, { width: 80, alignItems: 'center' }]}>
+                 <ActivityIndicator size="small" color={colors.primary} />
+               </View>
+            ) : null}
+            renderItem={({ item: msg }) => {
+                const { displayText, hiddenFiles } = msg.role === 'user' ? renderUserMessage(msg.text) : { displayText: msg.text, hiddenFiles: [] };
+                return (
+                <View style={[styles.messageBubble, msg.role === 'user' ? styles.userBubble : styles.aiBubble]}>
+                   {msg.role === 'user' ? (
+                      <View>
+                         {displayText ? <Text style={styles.userText}>{displayText}</Text> : <Text style={[styles.userText, { fontStyle: 'italic', opacity: 0.8 }]}>Can you explain this document?</Text>}
+                         {hiddenFiles.length > 0 && (
+                            <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                               {hiddenFiles.map((f, i) => {
+                                  // Extract just the filename without path
+                                  const rawName = f.trim().split('/').pop()?.split('\\').pop() || f;
+                                  // Remove extension
+                                  const nameNoExt = rawName.replace(/\.(pptx|pdf|docx|txt|ppt|xlsx|csv)$/i, '');
+                                  // Remove "Topic X.X - " prefix if present
+                                  const cleanName = nameNoExt.replace(/^Topic\s*\d+[\.\d]*\s*[-\:]\s*/i, '').trim();
+                                  // Truncate if too long
+                                  const shortName = cleanName.length > 22 ? cleanName.substring(0, 20) + '...' : cleanName;
+                                  // Pick icon by extension
+                                  const ext = rawName.split('.').pop()?.toLowerCase() || '';
+                                  const icon = ext === 'pdf' ? 'document-text' : ext === 'pptx' || ext === 'ppt' ? 'easel' : 'document-attach';
+                                  return (
+                                     <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, gap: 5 }}>
+                                        <Ionicons name={icon as any} size={13} color="rgba(255,255,255,0.95)" />
+                                        <Text style={{ color: 'rgba(255,255,255,0.97)', fontSize: 12, fontFamily: 'Inter_600SemiBold' }} numberOfLines={1}>{shortName}</Text>
+                                     </View>
+                                  );
+                               })}
+                            </View>
+                         )}
+                      </View>
+                   ) : (
+                      <Markdown style={markdownStyles}>
+                         {msg.text}
+                      </Markdown>
+                   )}
+                </View>
+             )}}
+          />
 
         <View style={styles.inputArea}>
            <TouchableOpacity 
@@ -1093,6 +1209,41 @@ export default function AITutorChatScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Context Limit Modal */}
+      <Modal visible={showContextLimitModal} animationType="fade" transparent={true} onRequestClose={() => setShowContextLimitModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>⚠️ Chat Limit Reached</Text>
+            </View>
+            <Text style={{ color: colors.text, fontSize: 15, marginBottom: 20, fontFamily: 'Inter_400Regular', lineHeight: 22 }}>
+              Your conversation history and attached PPTs are too large for this free API Key's memory context window. 
+              {"\n\n"}To continue chatting about this subject, please start a fresh new chat session.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity 
+                style={{ flex: 1, backgroundColor: colors.surfaceHover || '#f1f5f9', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => setShowContextLimitModal(false)}
+              >
+                <Text style={{ color: colors.text, fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ flex: 1, backgroundColor: colors.primary, paddingVertical: 12, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => {
+                  setShowContextLimitModal(false);
+                  createNewSession(false); // Just start a new chat tab, keeping previous ones
+                }}
+              >
+                <Text style={{ color: '#fff', fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Start New Chat</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Quick Chat Switcher Overlay (Gesture based - isolated to prevent re-renders) */}
+      <QuickChatOverlay colors={colors} sessions={sessions} currentSessionId={currentSessionId} />
 
     </View>
   );
