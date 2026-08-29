@@ -7,6 +7,8 @@ import {
   Platform,
   Animated,
   Image,
+  Dimensions,
+  DeviceEventEmitter,
 } from "react-native";
 import { type BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,10 +22,14 @@ import { useRouter } from "expo-router";
 
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { user } = useUser();
-  const { isConnected, isStudyOSMode } = useStudySessionStore();
+  const { isConnected, isStudyOSMode, setStudyOSMode } = useStudySessionStore();
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors, isStudyOSMode);
   const router = useRouter();
+
+  const profileLongPressTimer = useRef<any>(null);
+  const isProfileMenuVisible = useRef(false);
+  const profileHoveredRef = useRef<'studyos' | 'pathwise' | null>(null);
 
   // Tab config — only labels/icons change per mode, ORDER never changes.
   // Never reorder tabs array — reordering causes visual shift/glitch during mode transition.
@@ -107,6 +113,85 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           }
 
           // Normal Mode Default Design
+          
+          if (baseName === "profile") {
+             return (
+               <View
+                 key={route.key}
+                 style={styles.tab}
+                 accessibilityRole="button"
+                 accessibilityState={isFocused ? { selected: true } : {}}
+                 accessibilityLabel={options.tabBarAccessibilityLabel}
+                 onStartShouldSetResponder={() => true}
+                 onResponderGrant={(e) => {
+                    if (!isConnected) return;
+                    const { pageX, pageY } = e.nativeEvent;
+                    profileLongPressTimer.current = setTimeout(() => {
+                        isProfileMenuVisible.current = true;
+                        DeviceEventEmitter.emit('profileSwitchVisible', { visible: true, x: pageX, y: pageY });
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                    }, 400);
+                 }}
+                 onResponderMove={(e) => {
+                    if (isProfileMenuVisible.current) {
+                        const { pageX, pageY } = e.nativeEvent;
+                        const { width, height } = Dimensions.get('window');
+                        // Calculate distance from bottom right
+                        const distFromRight = width - pageX;
+                        const distFromBottom = height - pageY;
+
+                        let hovered: 'studyos' | 'pathwise' | null = null;
+
+                        if (distFromBottom > 65 && distFromRight < 75) {
+                            hovered = 'studyos'; // Slide UP
+                        } else if (distFromRight > 65 && distFromBottom < 75) {
+                            hovered = 'pathwise'; // Slide LEFT
+                        }
+                        
+                        if (hovered !== profileHoveredRef.current) {
+                            profileHoveredRef.current = hovered;
+                            DeviceEventEmitter.emit('profileSwitchHover', hovered);
+                        }
+                    }
+                 }}
+                 onResponderRelease={(e) => {
+                    clearTimeout(profileLongPressTimer.current);
+                    if (isProfileMenuVisible.current) {
+                        isProfileMenuVisible.current = false;
+                        DeviceEventEmitter.emit('profileSwitchVisible', { visible: false });
+                        const hovered = profileHoveredRef.current;
+                        profileHoveredRef.current = null;
+                        DeviceEventEmitter.emit('profileSwitchHover', null);
+                        
+                        if (hovered) {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            if (hovered === 'studyos' && !isStudyOSMode) {
+                                setStudyOSMode(true);
+                                router.replace('/(app)/studyos');
+                            } else if (hovered === 'pathwise' && isStudyOSMode) {
+                                setStudyOSMode(false);
+                                router.replace('/(app)/dashboard');
+                            }
+                        }
+                    } else {
+                        onPress(); // Normal tap
+                    }
+                 }}
+               >
+                 <View style={[styles.iconWrap, isFocused && styles.iconWrapActive]}>
+                   {user?.imageUrl ? (
+                     <Image source={{ uri: user.imageUrl }} style={{ width: 24, height: 24, borderRadius: 12, borderWidth: isFocused ? 2 : 0, borderColor: colors.primary }} />
+                   ) : (
+                     <Ionicons name={(isFocused ? tab.iconActive : tab.icon) as any} size={22} color={isFocused ? colors.primary : colors.textDim} />
+                   )}
+                 </View>
+                 <Text style={[styles.label, isFocused && styles.labelActive]}>
+                   {tab.label}
+                 </Text>
+               </View>
+             );
+          }
+
           return (
             <TouchableOpacity
               key={route.key}
@@ -118,24 +203,11 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               accessibilityLabel={options.tabBarAccessibilityLabel}
             >
               <View style={[styles.iconWrap, isFocused && styles.iconWrapActive]}>
-                {baseName === "profile" && user?.imageUrl ? (
-                  <Image
-                    source={{ uri: user.imageUrl }}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 12,
-                      borderWidth: isFocused ? 2 : 0,
-                      borderColor: colors.primary,
-                    }}
-                  />
-                ) : (
                   <Ionicons
                     name={(isFocused ? tab.iconActive : tab.icon) as any}
                     size={22}
                     color={isFocused ? colors.primary : colors.textDim}
                   />
-                )}
               </View>
               <Text style={[styles.label, isFocused && styles.labelActive]}>
                 {tab.label}

@@ -16,7 +16,7 @@ import { generateAiResponse, reflectAndLearn } from '../../../../../lib/aiManage
 import { useAuth } from '@clerk/clerk-expo';
 import { useSubscription } from '../../../../../hooks/useSubscription';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
+import { BlurView, BlurTargetView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 
 interface Message {
@@ -94,7 +94,7 @@ const renderUserMessage = (text: string) => {
     return { displayText, hiddenFiles };
 };
 
-const QuickChatOverlay = ({ colors, sessions, currentSessionId }: any) => {
+const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef }: any) => {
   const [visible, setVisible] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState(-1);
 
@@ -111,8 +111,8 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId }: any) => {
 
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, pointerEvents: 'none' }}>
-       {/* Pure Apple OS Frosted Glass Blur */}
-       <BlurView blurMethod="dimezisBlurView" intensity={80} style={StyleSheet.absoluteFill} tint={colors.text === '#FFFFFF' ? 'dark' : 'light'} />
+         {/* Pure Apple OS Frosted Glass Blur using BlurTargetView on SDK 56 */}
+         <BlurView blurTarget={blurTargetRef} blurMethod="dimezisBlurView" intensity={15} style={StyleSheet.absoluteFill} tint={colors.text === '#f0f0f0' || colors.text === '#FFFFFF' ? 'dark' : 'light'} />
        
        <View style={{ position: 'absolute', top: 70, right: 54, width: 240, backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.3, shadowRadius: 20 }}>
           <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceHover || '#f1f5f9' }}>
@@ -135,6 +135,7 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId }: any) => {
 };
 
 export default function AITutorChatScreen() {
+  const blurTargetRef = useRef<View>(null);
   const { id, name } = useLocalSearchParams();
   const router = useRouter();
   const colors = useThemeStore((state) => state.colors);
@@ -838,7 +839,8 @@ export default function AITutorChatScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={kbOffset}>
+      <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={kbOffset}>
         
         {/* Clean Fixed Top Controls Bar (No Tile, No Text Overlap) */}
         <View style={{ 
@@ -885,7 +887,8 @@ export default function AITutorChatScreen() {
                  onResponderMove={(e) => {
                     if (isQuickMenuVisible.current) {
                        const y = e.nativeEvent.pageY;
-                       const menuStartY = 90; // Approximate start of dropdown
+                       const baseOffset = Platform.OS === 'android' ? insets.top : 0;
+                       const menuStartY = baseOffset + 130; // 70 (menu top) + 60 (header height)
                        const itemHeight = 65;
                        if (y > menuStartY) {
                            const index = Math.floor((y - menuStartY) / itemHeight);
@@ -903,13 +906,19 @@ export default function AITutorChatScreen() {
                     clearTimeout(longPressTimer.current);
                     if (isQuickMenuVisible.current) {
                         const finalIndex = hoveredIndexRef.current;
-                        if (finalIndex >= 0 && finalIndex < sessions.length) {
-                            setCurrentSessionId(sessions[finalIndex].id);
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        }
+                        
                         isQuickMenuVisible.current = false;
                         DeviceEventEmitter.emit('quickMenuVisible', false);
                         updateHoveredIndex(-1);
+
+                        if (finalIndex >= 0 && finalIndex < sessions.length) {
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            
+                            // Defer the heavy chat state update so the overlay disappears instantly first!
+                            setTimeout(() => {
+                                setCurrentSessionId(sessions[finalIndex].id);
+                            }, 100);
+                        }
                     } else {
                         // Short tap: just open normal history modal
                         setShowHistoryModal(true);
@@ -1242,8 +1251,10 @@ export default function AITutorChatScreen() {
         </View>
       </Modal>
 
+      </BlurTargetView>
+
       {/* Quick Chat Switcher Overlay (Gesture based - isolated to prevent re-renders) */}
-      <QuickChatOverlay colors={colors} sessions={sessions} currentSessionId={currentSessionId} />
+      <QuickChatOverlay colors={colors} sessions={sessions} currentSessionId={currentSessionId} blurTargetRef={blurTargetRef} />
 
     </View>
   );

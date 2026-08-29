@@ -1,6 +1,7 @@
 import { Tabs, usePathname, useRouter } from "expo-router";
 import { TabBar } from "../../components/layout/TabBar";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { BlurTargetView } from "expo-blur";
 import { useUpdateStore } from "../../store/useUpdateStore";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeStore } from "../../store/useThemeStore";
@@ -9,8 +10,10 @@ import { useStudyOSStore } from "../../store/studyosStore";
 import { useBackgroundSync } from "../../hooks/useBackgroundSync";
 import { KeyboardAvoidingView, Platform, StyleSheet, View, BackHandler } from "react-native";
 import AppLoading from "../../components/AppLoading";
+import { ProfileArcSwitcher } from "../../components/layout/ProfileArcSwitcher";
 
 export default function AppLayout() {
+  const blurTargetRef = useRef<View>(null);
   const { checkForUpdates } = useUpdateStore();
   const { checkConnection, isSwitchingMode } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
@@ -69,10 +72,11 @@ export default function AppLayout() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
+        <KeyboardAvoidingView 
+          style={{ flex: 1 }} 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
         <Tabs
           // @ts-ignore - TS type mismatch between expo-router and @react-navigation/bottom-tabs
           tabBar={(props) => <TabBar {...props} />}
@@ -89,12 +93,14 @@ export default function AppLayout() {
         <Tabs.Screen name="subscription" options={{ title: "Subscription" }} />
         <Tabs.Screen name="profile" options={{ title: "Profile" }} />
         </Tabs>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </BlurTargetView>
       {isSwitchingMode && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
           <AppLoading />
         </View>
       )}
+      <ProfileArcSwitcher colors={colors} blurTargetRef={blurTargetRef} />
     </SafeAreaView>
   );
 }
