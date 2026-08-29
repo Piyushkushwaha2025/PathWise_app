@@ -4,7 +4,6 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
-const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
 export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
     const [visible, setVisible] = useState(false);
@@ -51,8 +50,10 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
     return (
         <View style={[StyleSheet.absoluteFill, { zIndex: 9999, pointerEvents: 'none' }]}>
             {/* Full Screen Blur Backdrop */}
-            <AnimatedBlurView blurTarget={blurTargetRef} blurMethod="dimezisBlurView" intensity={30} style={[StyleSheet.absoluteFill, { opacity: anim }]} tint={isDark ? 'dark' : 'light'} />
-            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)', opacity: anim }]} />
+            <Animated.View style={[StyleSheet.absoluteFill, { opacity: anim }]}>
+                <BlurView blurTarget={blurTargetRef} blurMethod="dimezisBlurView" intensity={30} style={StyleSheet.absoluteFill} tint={isDark ? 'dark' : 'light'} />
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)' }]} />
+            </Animated.View>
             
             {/* The Origin Container exactly centered on the User's Thumb! */}
             <View style={{

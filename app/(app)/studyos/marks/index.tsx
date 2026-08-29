@@ -104,11 +104,7 @@ export default function MarksScreen() {
 
       // Returning to marks tab — just snap to the latest (Current) semester silently.
       const currentOptions = useStudyOSStore.getState().semesterOptionsCache || [];
-      const latestFromCache = buildSemesterList(currentOptions);
-      const latest = latestFromCache[latestFromCache.length - 1];
-      if (latest) {
-        setSelectedSemester(latest.value || latest.label);
-      }
+      
       setResultData(null);
       setIsLoading(false); 
       setRefreshing(false);
@@ -453,9 +449,7 @@ export default function MarksScreen() {
           setSemesterOptions(data.options);
           setScrapedData({ semesterOptionsCache: data.options });
         }
-        if (data.selected) {
-           setSelectedSemester(data.selected);
-        }
+        
         if (data.subjects && data.subjects.length > 0) {
            const currentSelected = data.selected || selectedSemester;
            setResultData({ sgpa: data.sgpa, subjects: data.subjects });
