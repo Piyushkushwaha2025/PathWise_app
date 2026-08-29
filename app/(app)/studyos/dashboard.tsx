@@ -399,7 +399,7 @@ export default function StudyOSDashboard() {
   const { clearSession } = useStudySessionStore();
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [isSessionModalVisible, setIsSessionModalVisible] = useState(false);
+  
   const [syncKey, setSyncKey] = useState(0);
   const [toastVisible, setToastVisible] = useState(false);
   const [selectedSubjectDetails, setSelectedSubjectDetails] = useState<{code: string, name: string, viewActionTarget?: string} | null>(null);
@@ -540,9 +540,10 @@ export default function StudyOSDashboard() {
     }
   };
 
-  const handleSessionExpired = () => {
+  const handleSessionExpired = async () => {
     setRefreshing(false);
-    setIsSessionModalVisible(true);
+    await clearSession(true);
+    router.replace('/(app)/studyos/connect?reset=true' as any);
   };
 
   useEffect(() => {
@@ -848,40 +849,7 @@ export default function StudyOSDashboard() {
         onClose={() => setSelectedFacility(null)} 
       />
 
-      <Modal visible={isSessionModalVisible} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-          <View
-            style={{ backgroundColor: colors.surface, padding: 24, borderRadius: 24, width: '100%', borderWidth: 1, borderColor: colors.border }}
-          >
-            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#ef444420', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
-              <Ionicons name="key-outline" size={28} color="#ef4444" />
-            </View>
-            <Text style={{ color: colors.text, fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', marginBottom: 8 }}>Connection Lost</Text>
-            <Text style={{ color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_400Regular', lineHeight: 22, marginBottom: 24 }}>
-              For your security, your connection to the college portal has timed out. Please reconnect to continue syncing your latest academic data.
-            </Text>
-            
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity 
-                style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: colors.surfaceHigh, alignItems: 'center' }}
-                onPress={() => setIsSessionModalVisible(false)}
-              >
-                <Text style={{ color: colors.text, fontFamily: 'Inter_600SemiBold' }}>Not Now</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={{ flex: 1, padding: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' }}
-                onPress={async () => {
-                   setIsSessionModalVisible(false);
-                   await clearSession(true);
-                   router.replace('/(app)' as any);
-                }}
-              >
-                <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold' }}>Reconnect</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      
 
       <DetailedAttendanceModal 
         visible={!!selectedSubjectDetails} 

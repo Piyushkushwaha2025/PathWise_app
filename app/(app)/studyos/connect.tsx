@@ -18,23 +18,31 @@ export default function ConnectScreen() {
   const [showErrorModal, setShowErrorModal] = useState(false);
 
   useEffect(() => {
-    if (reset === 'true') {
-      setSelectedUni(null);
-      router.setParams({ reset: '' });
-    }
-    if (error === 'account_linked') {
-      setShowErrorModal(true);
-      router.setParams({ error: '' });
-    }
-    
-    // Auto-bypass if credentials exist and we're not resetting
-    if (reset !== 'true') {
-      SecureStore.getItemAsync('culko_u').then(u => {
-        if (u) {
-          router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: 'cu' } } as any);
-        }
-      });
-    }
+    let isMounted = true;
+    const timer = setTimeout(() => {
+      if (!isMounted) return;
+      if (reset === 'true') {
+        setSelectedUni(null);
+        router.setParams({ reset: '' });
+      }
+      if (error === 'account_linked') {
+        setShowErrorModal(true);
+        router.setParams({ error: '' });
+      }
+      
+      // Auto-bypass if credentials exist and we're not resetting
+      if (reset !== 'true') {
+        SecureStore.getItemAsync('culko_u').then(u => {
+          if (u && isMounted) {
+            router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: 'cu' } } as any);
+          }
+        });
+      }
+    }, 50); // Small delay to ensure Root Layout is fully mounted
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
   }, [reset, error]);
 
   useFocusEffect(
@@ -122,12 +130,7 @@ export default function ConnectScreen() {
               <ChevronRight color={colors.background} size={20} />
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.changeCollegeButton}
-              onPress={() => setSelectedUni(null)}
-            >
-              <Text style={styles.changeCollegeText}>Change College</Text>
-            </TouchableOpacity>
+
           </View>
         ) : (
           <View style={styles.listContainer}>
@@ -333,14 +336,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     color: colors.background,
     marginRight: Spacing.sm,
   },
-  changeCollegeButton: {
-    padding: Spacing.md,
-  },
-  changeCollegeText: {
-    ...Typography.body,
-    color: colors.textDim,
-    textDecorationLine: 'underline',
-  },
+
   uniName: {
     ...Typography.h3,
     color: colors.text,
