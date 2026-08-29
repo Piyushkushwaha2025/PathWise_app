@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import { useThemeStore } from '../../../store/useThemeStore';
@@ -9,6 +9,7 @@ import { GradientButton } from '../../../components/ui/GradientButton';
 import SubjectsScreen from './subjects';
 
 export default function StudyOSIndex() {
+  const router = useRouter();
   const { isConnected, isStudyOSMode, setStudyOSMode, universityId } = useStudySessionStore();
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
@@ -31,7 +32,10 @@ export default function StudyOSIndex() {
         <Text style={styles.subtitle}>Would you like to reopen StudyOS?</Text>
         <GradientButton 
           label="Reopen StudyOS" 
-          onPress={() => setStudyOSMode(true)} 
+          onPress={() => {
+            setStudyOSMode(true);
+            router.replace('/(app)/dashboard');
+          }} 
           style={{ width: '100%', marginTop: Spacing.xl }} 
         />
       </View>

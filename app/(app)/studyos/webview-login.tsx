@@ -39,47 +39,57 @@ export default function WebViewLoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [consent, setConsent] = useState(false);
 
-  // Auto-fetch saved credentials
-  useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      const savedU = await SecureStore.getItemAsync('culko_u');
-      const savedP = await SecureStore.getItemAsync('culko_p');
-      if (savedU && savedP && isMounted) {
-        setUid(savedU);
-        setPwd(savedP);
-        setConsent(true);
-        
-        // Auto-proceed to step 1 submission after a brief delay so webview mounts
-        setTimeout(() => {
-          if (!isMounted) return;
-          setInlineError('');
-          setIsProcessing(true);
-          setLoadingMsg('Fetching CAPTCHA...');
-          
-          const script = `
-            var uidField = document.getElementById('txtUserId');
-            var nextBtn = document.getElementById('btnNext');
-            if (uidField && nextBtn) {
-              uidField.value = '${savedU}';
-              nextBtn.click();
-            }
-            true;
-          `;
-          webViewRef.current?.injectJavaScript(script);
-        }, 1500);
-      }
-    })();
-    return () => { isMounted = false; };
-  }, []);
 
+
+  // Reset state and Auto-fetch credentials on screen focus
   useFocusEffect(
     React.useCallback(() => {
       let isMounted = true;
       (async () => {
+        // Reset state so old captchas don't stick around
+        setStep(1);
+        setCaptchaBase64(null);
+        setCaptchaInput('');
+        setUidError('');
+        setPwdError('');
+        setConsentError('');
+        setInlineError('');
         setIsProcessing(false);
         setLoadingMsg('');
+        
         if (isMounted) setWebviewKey(Date.now());
+
+        const savedU = await SecureStore.getItemAsync('culko_u');
+        const savedP = await SecureStore.getItemAsync('culko_p');
+        if (savedU && savedP && isMounted) {
+          setUid(savedU);
+          setPwd(savedP);
+          setConsent(true);
+          
+          setTimeout(() => {
+            if (!isMounted) return;
+            setInlineError('');
+            setIsProcessing(true);
+            setLoadingMsg('Fetching CAPTCHA...');
+            
+            const script = `
+              var uidField = document.getElementById('txtUserId');
+              var nextBtn = document.getElementById('btnNext');
+              if (uidField && nextBtn) {
+                uidField.value = '${savedU}';
+                nextBtn.click();
+              }
+              true;
+            `;
+            if (webViewRef.current) {
+                webViewRef.current.injectJavaScript(script);
+            }
+          }, 1500);
+        } else if (isMounted) {
+          setUid('');
+          setPwd('');
+          setConsent(false);
+        }
       })();
       return () => { isMounted = false; };
     }, [])

@@ -167,7 +167,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                             if (hovered === 'studyos' && !isStudyOSMode) {
                                 setStudyOSMode(true);
-                                router.replace('/(app)/studyos');
+                                router.replace('/(app)/dashboard');
                             } else if (hovered === 'pathwise' && isStudyOSMode) {
                                 setStudyOSMode(false);
                                 router.replace('/(app)/dashboard');

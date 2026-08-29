@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { GlassCard } from '../../../components/ui/GlassCard';
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 
 export default function CollegeProfileScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -34,8 +35,21 @@ export default function CollegeProfileScreen() {
 
   const confirmDisconnect = async () => {
     setDisconnectModalVisible(false);
-    await clearSession();
-    router.replace('/(app)/studyos/connect?reset=true');
+    // Show the global loading screen like profile switch
+    useStudySessionStore.getState().setSwitchingMode(true);
+    
+    try {
+      // Forcefully delete credentials here to guarantee they are wiped
+      await SecureStore.deleteItemAsync('culko_u');
+      await SecureStore.deleteItemAsync('culko_p');
+      await clearSession(false);
+    } catch(e) {}
+    
+    // Slight delay to allow UI to render loading and SecureStore to sync
+    setTimeout(() => {
+      useStudySessionStore.getState().setSwitchingMode(false);
+      router.replace('/(app)/studyos/connect?reset=true');
+    }, 1500);
   };
 
   return (
