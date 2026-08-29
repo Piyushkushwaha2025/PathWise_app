@@ -125,12 +125,14 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                  onStartShouldSetResponder={() => true}
                  onResponderGrant={(e) => {
                     if (!isConnected) return;
-                    const { pageX, pageY } = e.nativeEvent;
                     profileLongPressTimer.current = setTimeout(() => {
-                        isProfileMenuVisible.current = true;
-                        DeviceEventEmitter.emit('profileSwitchVisible', { visible: true, x: pageX, y: pageY });
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                    }, 400);
+                          isProfileMenuVisible.current = true;
+                          const { width, height } = Dimensions.get('window');
+                          const fixedX = width - (width / 10) - 15;
+                          const fixedY = height - 25;
+                          DeviceEventEmitter.emit('profileSwitchVisible', { visible: true, x: fixedX, y: fixedY });
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                      }, 400);
                  }}
                  onResponderMove={(e) => {
                     if (isProfileMenuVisible.current) {

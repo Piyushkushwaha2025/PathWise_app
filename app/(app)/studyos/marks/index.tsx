@@ -517,6 +517,15 @@ export default function MarksScreen() {
     }
   };
 
+  
+  useFocusEffect(
+    React.useCallback(() => {
+      // Reset to default internal marks / result button when returning to tab
+      setSelectedSemester('');
+      setResultData(null);
+    }, [])
+  );
+
   const selectSemester = (item: SemesterItem) => {
     // Upcoming semester that has no portal data yet — just show it as selected
     // with an empty result, no postback needed.
@@ -650,7 +659,7 @@ export default function MarksScreen() {
             <Text style={styles.semesterBtnText}>
               {(isLoading && semesterOptions.length === 0) 
                 ? 'Loading Semesters...' 
-                : (selectedSemLabel ? selectedSemLabel : 'View Final Results')}
+                : (selectedSemLabel ? selectedSemLabel : 'Result')}
             </Text>
             <Ionicons name="chevron-down" size={14} color={colors.primary} />
           </TouchableOpacity>
