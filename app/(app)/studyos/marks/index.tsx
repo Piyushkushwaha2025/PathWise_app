@@ -503,7 +503,7 @@ export default function MarksScreen() {
         setIsLoading(false);
         setRefreshing(false);
         useStudySessionStore.getState().clearSession(true).then(() => {
-          router.replace('/(app)/studyos/connect?reset=true' as any);
+          router.replace('/(app)/studyos/connect?expired=true' as any);
         });
         return;
       }

@@ -205,6 +205,7 @@ export default function ProfileScreen() {
     await SecureStore.deleteItemAsync('culko_cookies');
     await useStudyOSStore.getState().resetScrapedData();
     await AsyncStorage.removeItem('last_notif_sig');
+    await useStudySessionStore.getState().clearSession();
   };
 
   const handleConfirmDelete = async () => {

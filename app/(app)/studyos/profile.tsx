@@ -34,10 +34,8 @@ export default function CollegeProfileScreen() {
 
   const confirmDisconnect = async () => {
     setDisconnectModalVisible(false);
-    router.replace('/(app)/dashboard');
-    setTimeout(async () => {
-      await clearSession();
-    }, 50);
+    await clearSession();
+    router.replace('/(app)/studyos/connect?reset=true');
   };
 
   return (

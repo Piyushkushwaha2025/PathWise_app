@@ -543,7 +543,7 @@ export default function StudyOSDashboard() {
   const handleSessionExpired = async () => {
     setRefreshing(false);
     await clearSession(true);
-    router.replace('/(app)/studyos/connect?reset=true' as any);
+    router.replace('/(app)/studyos/connect?expired=true' as any);
   };
 
   useEffect(() => {

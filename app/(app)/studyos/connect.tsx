@@ -12,7 +12,8 @@ export default function ConnectScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
-  const { reset, error } = useLocalSearchParams<{ reset?: string; error?: string }>();
+  const { reset, error, expired } = useLocalSearchParams<{ reset?: string; error?: string; expired?: string }>();
+  const [isExpiredVisible, setIsExpiredVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUni, setSelectedUni] = useState<UniversityConfig | null>(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
@@ -24,6 +25,10 @@ export default function ConnectScreen() {
       if (reset === 'true') {
         setSelectedUni(null);
         router.setParams({ reset: '' });
+      }
+      if (expired === 'true') {
+        setIsExpiredVisible(true);
+        router.setParams({ expired: '' });
       }
       if (error === 'account_linked') {
         setShowErrorModal(true);
