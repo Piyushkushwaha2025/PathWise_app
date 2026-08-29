@@ -4,7 +4,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHand
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
-import { GraduationCap, ChevronRight, Search, X, ShieldAlert } from 'lucide-react-native';
+import { GraduationCap, ChevronRight, ChevronLeft, Search, X, ShieldAlert } from 'lucide-react-native';
 import { GlassCard } from '../../../components/ui/GlassCard';
 import { UNIVERSITIES, UniversityConfig } from '../../../constants/universities';
 
@@ -62,28 +62,42 @@ export default function ConnectScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>StudyOS</Text>
+        <View style={styles.headerTitleContainer}>
+          {selectedUni && (
+            <TouchableOpacity 
+              style={{ marginRight: 8, padding: 4 }} 
+              onPress={() => setSelectedUni(null)}
+              activeOpacity={0.7}
+            >
+              <ChevronLeft color={colors.text} size={32} />
+            </TouchableOpacity>
+          )}
+          <View style={styles.iconContainer}>
+            <GraduationCap color={colors.background} size={28} />
+          </View>
+          <Text style={styles.headerTitle}>Study<Text style={{ color: colors.primary }}>O</Text>S</Text>
+        </View>
+        <Text style={styles.headerSubtitle}>{selectedUni ? 'Connect your university portal' : 'Search & select your university'}</Text>
       </View>
       
       <View style={styles.content}>
-        <View style={styles.searchContainer}>
-          <Search color={colors.textDim} size={20} style={styles.searchIcon} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search your college..."
-            placeholderTextColor={colors.textDim}
-            value={searchQuery}
-            onChangeText={(text) => {
-              setSearchQuery(text);
-              if (selectedUni) setSelectedUni(null); // Reset selection on search
-            }}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearIcon}>
-              <X color={colors.textDim} size={20} />
-            </TouchableOpacity>
-          )}
-        </View>
+        {!selectedUni && (
+          <View style={styles.searchContainer}>
+            <Search color={colors.textDim} size={20} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search your college..."
+              placeholderTextColor={colors.textDim}
+              value={searchQuery}
+              onChangeText={(text) => setSearchQuery(text)}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearIcon}>
+                <X color={colors.textDim} size={20} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
         
         {selectedUni ? (
           <View style={styles.selectedContainer}>
@@ -117,12 +131,16 @@ export default function ConnectScreen() {
           </View>
         ) : (
           <View style={styles.listContainer}>
-            <Text style={styles.listTitle}>Select from below:</Text>
+            <Text style={styles.listTitle}>{searchQuery.length > 0 ? 'Search Results:' : 'Select from below:'}</Text>
             <FlatList
               data={filteredUniversities}
               keyExtractor={(item) => item.id}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.listContent}
+              ListEmptyComponent={() => (
+                <Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 20 }}>No university found</Text>
+              )}
               renderItem={({ item: uni }) => (
                 <TouchableOpacity 
                   style={styles.uniListItem}
@@ -175,19 +193,47 @@ const useStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    padding: Spacing.lg,
-    paddingTop: 20,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: 40,
+    paddingBottom: 20,
     backgroundColor: colors.surface,
   },
+  headerTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 4,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
   headerTitle: {
-    ...Typography.h2,
     color: colors.text,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 38,
+    letterSpacing: -1,
+  },
+  headerSubtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 16,
+    color: colors.textDim,
+    marginTop: 4,
   },
   content: {
     flex: 1,
     padding: Spacing.xl,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-start',
+    alignItems: 'stretch',
   },
   icon: {
     marginBottom: Spacing.xl,
@@ -222,9 +268,11 @@ const useStyles = (colors: any) => StyleSheet.create({
     borderRadius: Radius.full,
     paddingHorizontal: Spacing.md,
     height: 50,
-    marginBottom: Spacing.lg,
+    marginTop: 20,
+    marginBottom: Spacing.xl,
     borderWidth: 1,
     borderColor: colors.border,
+    width: '100%',
   },
   searchIcon: {
     marginRight: Spacing.sm,
@@ -246,6 +294,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   listContainer: {
     flex: 1,
+    width: '100%',
   },
   listTitle: {
     ...Typography.h3,
@@ -253,7 +302,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     marginBottom: Spacing.md,
   },
   listContent: {
-    gap: Spacing.sm,
+    gap: Spacing.md,
     paddingBottom: Spacing.xl,
   },
   uniListItem: {
@@ -261,10 +310,12 @@ const useStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: colors.surface,
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
+    paddingVertical: 36,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
+    minHeight: 130,
   },
   connectButton: {
     backgroundColor: colors.primary,

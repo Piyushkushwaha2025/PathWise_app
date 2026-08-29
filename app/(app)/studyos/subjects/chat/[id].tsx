@@ -115,7 +115,7 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef }:
          <BlurView blurTarget={blurTargetRef} blurMethod="dimezisBlurView" intensity={15} style={StyleSheet.absoluteFill} tint={colors.text === '#f0f0f0' || colors.text === '#FFFFFF' ? 'dark' : 'light'} />
        
        <View style={{ position: 'absolute', top: 70, right: 54, width: 240, backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.3, shadowRadius: 20 }}>
-          <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceHover || '#f1f5f9' }}>
+          <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceHigh || '#f1f5f9' }}>
              <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, fontSize: 14 }}>Switch Chat</Text>
              <Text style={{ fontFamily: 'Inter_400Regular', color: colors.textDim, fontSize: 11, marginTop: 2 }}>Slide down to select & release</Text>
           </View>
@@ -1232,7 +1232,7 @@ export default function AITutorChatScreen() {
             </Text>
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <TouchableOpacity 
-                style={{ flex: 1, backgroundColor: colors.surfaceHover || '#f1f5f9', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }}
+                style={{ flex: 1, backgroundColor: colors.surfaceHigh || '#f1f5f9', paddingVertical: 12, borderRadius: 8, alignItems: 'center' }}
                 onPress={() => setShowContextLimitModal(false)}
               >
                 <Text style={{ color: colors.text, fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Cancel</Text>
