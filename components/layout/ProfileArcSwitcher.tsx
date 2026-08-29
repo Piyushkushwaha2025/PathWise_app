@@ -4,6 +4,7 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
 export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
     const [visible, setVisible] = useState(false);
@@ -18,9 +19,9 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
             if (data.visible) {
                 setOrigin({ x: data.x, y: data.y });
                 setVisible(true);
-                Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 60 }).start();
+                Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 120 }).start();
             } else {
-                Animated.timing(anim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => setVisible(false));
+                Animated.timing(anim, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => setVisible(false));
                 setHovered(null);
             }
         });
@@ -50,7 +51,7 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
     return (
         <View style={[StyleSheet.absoluteFill, { zIndex: 9999, pointerEvents: 'none' }]}>
             {/* Full Screen Blur Backdrop */}
-            <BlurView blurTarget={blurTargetRef} blurMethod="dimezisBlurView" intensity={30} style={StyleSheet.absoluteFill} tint={isDark ? 'dark' : 'light'} />
+            <AnimatedBlurView blurTarget={blurTargetRef} blurMethod="dimezisBlurView" intensity={30} style={[StyleSheet.absoluteFill, { opacity: anim }]} tint={isDark ? 'dark' : 'light'} />
             <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)', opacity: anim }]} />
             
             {/* The Origin Container exactly centered on the User's Thumb! */}
@@ -96,10 +97,10 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                 </Animated.View>
             </View>
             
-            <View style={{ position: 'absolute', top: height / 2 - 20, width: '100%', alignItems: 'center' }}>
+            <Animated.View style={{ position: 'absolute', top: height / 2 - 20, width: '100%', alignItems: 'center', opacity: anim }}>
                 <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', fontSize: 24, color: colors.text }}>Switch Profile</Text>
                 <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, color: colors.textDim, marginTop: 8 }}>Slide Up for StudyOS, Left for PathWise</Text>
-            </View>
+            </Animated.View>
         </View>
     );
 };
