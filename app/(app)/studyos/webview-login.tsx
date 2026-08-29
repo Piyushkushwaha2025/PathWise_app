@@ -84,7 +84,7 @@ export default function WebViewLoginScreen() {
             if (webViewRef.current) {
                 webViewRef.current.injectJavaScript(script);
             }
-          }, 1500);
+          }, 600);
         } else if (isMounted) {
           setUid('');
           setPwd('');
@@ -157,7 +157,7 @@ export default function WebViewLoginScreen() {
       
       setTimeout(() => {
         router.replace('/(app)/studyos/sync');
-      }, 1000);
+      }, 100);
     } else if (!navState.loading) {
       // Re-inject the polling script on every page load to ensure we catch CAPTCHA after postback
       webViewRef.current?.injectJavaScript(injectedJs);

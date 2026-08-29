@@ -267,7 +267,7 @@ const SCRAPE_STEPS = [
           
           // Portal renders attendance via AJAX — wait up to 8s for tbody to fill
           var maxWait = 8000;
-          var interval = 500;
+          var interval = 150;
           var elapsed = 0;
           
           var tryParse = function() {
@@ -552,7 +552,7 @@ export default function SyncScreen() {
       }
 
       // For attendance, wait 2s for AJAX data to populate. For others, 100ms is enough.
-      const delay = step.id === 'attendance' ? 2000 : 100;
+      const delay = 100; // Fast execution, injected script has its own polling mechanism
 
       setTimeout(() => {
         const captureAndScrape = `
