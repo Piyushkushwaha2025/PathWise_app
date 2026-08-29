@@ -708,25 +708,7 @@ export default function LmsCoursesScreen() {
           </View>
          )}
 
-         {errorMsg === 'SESSION_EXPIRED' && (
-           <View style={{ backgroundColor: colors.error + '15', padding: 16, borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: colors.error + '40', marginTop: 16 }}>
-             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-               <Ionicons name="cloud-offline-outline" size={24} color={colors.error} />
-               <Text style={{ color: colors.error, marginLeft: 8, fontFamily: 'Inter_600SemiBold', flex: 1 }}>
-                 LMS Sync Error
-               </Text>
-             </View>
-             <Text style={{ color: colors.text, fontSize: 13, marginBottom: 12 }}>
-               LMS session expired. Grades will not update until re-connected.
-             </Text>
-             <TouchableOpacity 
-               style={{ backgroundColor: colors.error, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}
-               onPress={handleLogout}
-             >
-               <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Logout & Re-connect</Text>
-             </TouchableOpacity>
-           </View>
-         )}
+         
 
          <View style={{ height: 100 }} />
       </ScrollView>

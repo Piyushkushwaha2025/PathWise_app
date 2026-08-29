@@ -91,20 +91,9 @@ export default function MarksScreen() {
   const selectedSemLabel = selectedSemIdx >= 0 ? derivedSemesters[selectedSemIdx].label : undefined;
 
   // True when user is on the latest/current semester
-  const isCurrentSemester = selectedSemIdx === derivedSemesters.length - 1;
+  const isCurrentSemester = !selectedSemester || selectedSemIdx === derivedSemesters.length - 1;
 
-  // Auto-select latest semester whenever options arrive OR if current selection has no match
-  useEffect(() => {
-    if (derivedSemesters.length > 0) {
-      const hasMatch = derivedSemesters.some(
-        (d) => d.value === selectedSemester || d.label === selectedSemester
-      );
-      if (!selectedSemester || !hasMatch) {
-        const latest = derivedSemesters[derivedSemesters.length - 1];
-        setSelectedSemester(latest.value || latest.label);
-      }
-    }
-  }, [derivedSemesters]);
+  // (Removed auto-select so it defaults to the empty 'Result' state for current semester)
 
   useFocusEffect(
     React.useCallback(() => {
