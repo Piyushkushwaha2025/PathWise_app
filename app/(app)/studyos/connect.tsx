@@ -86,7 +86,7 @@ export default function ConnectScreen() {
             </TouchableOpacity>
           )}
           <View style={styles.iconContainer}>
-            <GraduationCap color={colors.background} size={28} />
+            <GraduationCap color={colors.background} size={22} />
           </View>
           <Text style={styles.headerTitle}>Study<Text style={{ color: colors.primary }}>O</Text>S</Text>
         </View>
@@ -202,8 +202,8 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   header: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: 40,
-    paddingBottom: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
     backgroundColor: colors.surface,
   },
   headerTitleContainer: {
@@ -215,7 +215,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   iconContainer: {
     width: 48,
     height: 48,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -228,7 +228,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   headerTitle: {
     color: colors.text,
     fontFamily: 'SpaceGrotesk_700Bold',
-    fontSize: 38,
+    fontSize: 32,
     letterSpacing: -1,
   },
   headerSubtitle: {
@@ -318,12 +318,12 @@ const useStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: colors.surface,
-    paddingVertical: 36,
+    paddingVertical: 20,
     paddingHorizontal: Spacing.xl,
     borderRadius: Radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
-    minHeight: 130,
+    minHeight: 80,
   },
   connectButton: {
     backgroundColor: colors.primary,

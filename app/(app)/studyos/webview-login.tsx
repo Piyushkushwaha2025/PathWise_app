@@ -17,6 +17,7 @@ export default function WebViewLoginScreen() {
   const styles = useStyles(colors);
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
+  const shouldAutoFillRef = useRef(false);
   const { clearSession } = useStudySessionStore();
   
   const [loadingMsg, setLoadingMsg] = useState('');
