@@ -783,13 +783,7 @@ export default function StudyOSDashboard() {
         )}
 
                 {/* TEST BUTTON */}
-        <TouchableOpacity 
-          style={{ backgroundColor: '#ef444420', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#ef4444', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 16 }}
-          onPress={() => useStudySessionStore.getState().setSessionExpired(true)}
-        >
-          <Ionicons name="warning-outline" size={20} color="#ef4444" />
-          <Text style={{ color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 14 }}>TEST SESSION EXPIRY</Text>
-        </TouchableOpacity>
+
 
         {/* Current Class Widget */}
         <CurrentClassWidget />
