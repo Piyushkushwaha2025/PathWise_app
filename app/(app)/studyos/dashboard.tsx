@@ -189,37 +189,8 @@ function CurrentClassWidget() {
     }
   }
 
-  let displayClass = activeClass || nextClass;
+  const displayClass = activeClass || nextClass;
   const isOngoing = !!activeClass;
-  let isTomorrow = false;
-  let tomorrowDayName = '';
-
-  if (!displayClass) {
-    const daysMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const todayIndex = new Date().getDay();
-    for (let i = 1; i <= 7; i++) {
-      const nextDayIndex = (todayIndex + i) % 7;
-      const nextDayName = daysMap[nextDayIndex];
-      const nextDayClasses = timetable[nextDayName] || [];
-      if (nextDayClasses.length > 0) {
-        let earliestClass = null;
-        let earliestTime = Infinity;
-        for (let cls of nextDayClasses) {
-           const { start } = parseTimeRange(cls.time);
-           if (start < earliestTime) {
-              earliestTime = start;
-              earliestClass = cls;
-           }
-        }
-        if (earliestClass) {
-          displayClass = earliestClass;
-          isTomorrow = true;
-          tomorrowDayName = i === 1 ? 'TOMORROW' : nextDayName.toUpperCase();
-          break;
-        }
-      }
-    }
-  }
 
   const progressAnim = useRef(new Animated.Value(0)).current;
 
@@ -329,7 +300,7 @@ function CurrentClassWidget() {
           </Text>
           <View style={{ backgroundColor: isOngoing ? '#22c55e20' : colors.primary + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: Radius.full }}>
             <Text style={{ color: isOngoing ? '#22c55e' : colors.primary, fontSize: 10, fontFamily: 'Inter_700Bold' }}>
-              {isOngoing ? 'LIVE' : isTomorrow ? tomorrowDayName : 'SCHEDULED'}
+              {isOngoing ? 'LIVE' : 'SCHEDULED'}
             </Text>
           </View>
         </View>
