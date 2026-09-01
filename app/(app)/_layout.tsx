@@ -1,6 +1,6 @@
 import { Tabs, usePathname, useRouter } from "expo-router";
 import { TabBar } from "../../components/layout/TabBar";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BlurTargetView } from "expo-blur";
 import { useUpdateStore } from "../../store/useUpdateStore";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -8,48 +8,18 @@ import { useThemeStore } from "../../store/useThemeStore";
 import { useStudySessionStore } from "../../store/studySessionStore";
 import { useStudyOSStore } from "../../store/studyosStore";
 import { useBackgroundSync } from "../../hooks/useBackgroundSync";
-import { KeyboardAvoidingView, Platform, StyleSheet, View, BackHandler, Modal, Text, TouchableOpacity } from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet, View, BackHandler, Modal, Text, TouchableOpacity, Animated } from "react-native";
 import { Clock, WifiOff } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { Radius, Spacing, Typography } from '../../constants/theme';
 import AppLoading from "../../components/AppLoading";
+import { SilentReconnectModal } from '../../components/studyos/SilentReconnectModal';
+
 import { ProfileArcSwitcher } from "../../components/layout/ProfileArcSwitcher";
 
 
-const SessionExpiredModal = ({ visible, onClose, colors, onReconnect, onLeave }: any) => (
-  <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-    <View style={styles.modalOverlay}>
-      <View style={[styles.modalCard, { backgroundColor: colors.surfaceHigh || colors.surface, borderColor: colors.border }]}>
-        <View style={{ alignItems: 'center', marginBottom: 24, width: '100%' }}>
-          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.primary + '15', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
-            <Clock color={colors.primary} size={40} />
-          </View>
-          <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 24, color: colors.text, textAlign: 'center', marginBottom: 12 }}>Session Expired</Text>
-          <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 15, color: colors.textDim, textAlign: 'center', lineHeight: 22, paddingHorizontal: 12 }}>
-            For your security, your university portal session has timed out. Reconnect to resume syncing your academic data in real-time.
-          </Text>
-        </View>
-        <View style={{ flexDirection: 'row', gap: 12, width: '100%', marginTop: 8 }}>
-          <TouchableOpacity 
-            style={{ flex: 1, paddingVertical: 14, backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border, borderRadius: 100, justifyContent: 'center', alignItems: 'center' }}
-            activeOpacity={0.8}
-            onPress={onLeave}
-          >
-            <Text style={{ color: colors.text, fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Leave</Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={{ flex: 1, paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 100, justifyContent: 'center', alignItems: 'center' }}
-            activeOpacity={0.8}
-            onPress={onReconnect}
-          >
-            <Text style={{ color: '#fff', fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Reconnect</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  </Modal>
-);
 
 
 const DisconnectedBubble = ({ onPress, colors }: any) => (
@@ -90,6 +60,29 @@ export default function AppLayout() {
   useBackgroundSync();
 
   const colors = useThemeStore((s) => s.colors);
+
+  const [showToast, setShowToast] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
+  const toastAnim = useRef(new Animated.Value(-150)).current;
+
+  const triggerReconnectToast = () => {
+    const msgs = [
+      "We're back baby! 🚀",
+      "Connection restored! The Matrix has you again. 💊",
+      "Ta-da! Connected faster than your ex replies! 🏃‍♂️💨",
+      "A wild connection appeared! 🎮",
+      "Wifi gods are happy today! 📶🙌",
+      "Hooray! Data is flowing again! 🌊"
+    ];
+    setToastMsg(msgs[Math.floor(Math.random() * msgs.length)]);
+    setShowToast(true);
+    Animated.sequence([
+      Animated.spring(toastAnim, { toValue: Platform.OS === 'ios' ? 60 : 40, useNativeDriver: true }),
+      Animated.delay(3500),
+      Animated.timing(toastAnim, { toValue: -150, duration: 400, useNativeDriver: true })
+    ]).start(() => setShowToast(false));
+  };
+
 
   useEffect(() => {
     // Single auto-check on app load — delayed so app fully renders first
@@ -172,19 +165,67 @@ export default function AppLayout() {
       {isStudyOSMode && isSessionDisconnected && !isSessionExpired && (
         <DisconnectedBubble onPress={() => setSessionExpired(true)} colors={colors} />
       )}
-      <SessionExpiredModal 
+      <SilentReconnectModal 
         visible={isSessionExpired} 
-        onClose={() => {}} 
+        onClose={() => {
+          setSessionExpired(false);
+          router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: 'cu' } } as any);
+        }} 
         colors={colors}
-        onLeave={() => {
+        onLeave={() => setSessionExpired(false)}
+        onSuccess={() => {
           setSessionExpired(false);
-        }}
-        onReconnect={async () => {
-          setSessionExpired(false);
-          const savedUni = await SecureStore.getItemAsync('study_university_id');
-          router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: savedUni || 'cu' } } as any);
+          useStudySessionStore.getState().setSessionDisconnected(false);
+          triggerReconnectToast();
         }}
       />
+
+      {/* Premium Shape Toast Notification */}
+      {showToast && (
+        <Animated.View style={{
+          position: 'absolute',
+          top: 0,
+          alignSelf: 'center',
+          width: '88%',
+          transform: [{ translateY: toastAnim }],
+          backgroundColor: colors.surfaceHigh || '#111827',
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.08)',
+          borderBottomWidth: 4,
+          borderBottomColor: '#22c55e',
+          paddingVertical: 14,
+          paddingHorizontal: 18,
+          flexDirection: 'row',
+          alignItems: 'center',
+          shadowColor: '#22c55e',
+          shadowOffset: { width: 0, height: 16 },
+          shadowOpacity: 0.25,
+          shadowRadius: 24,
+          elevation: 14,
+          zIndex: 9999
+        }}>
+          <View style={{
+            width: 46,
+            height: 46,
+            borderRadius: 16,
+            backgroundColor: '#22c55e15',
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginRight: 16
+          }}>
+            <Ionicons name="checkmark-done-circle" size={26} color="#22c55e" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text || '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 16, letterSpacing: 0.3, marginBottom: 2 }}>
+              Online & Synced
+            </Text>
+            <Text style={{ color: colors.textDim, fontFamily: 'Inter_500Medium', fontSize: 12, lineHeight: 16, paddingRight: 4 }}>
+              {toastMsg}
+            </Text>
+          </View>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }

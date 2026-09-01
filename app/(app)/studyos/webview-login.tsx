@@ -11,7 +11,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 
 export default function WebViewLoginScreen() {
-  const { uniId } = useLocalSearchParams<{ uniId: string }>();
+  const { uniId, isReconnect } = useLocalSearchParams<{ uniId: string, isReconnect?: string }>();
   const activeUni = UNIVERSITIES[uniId || 'cu'];
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
@@ -157,7 +157,13 @@ export default function WebViewLoginScreen() {
       }
       
       setTimeout(() => {
-        router.replace('/(app)/studyos/sync');
+        
+        if (isReconnect === 'true') {
+          useStudySessionStore.getState().setSessionDisconnected(false);
+          router.replace('/(app)/studyos/dashboard');
+        } else {
+          router.replace('/(app)/studyos/sync');
+        }
       }, 100);
     } else if (!navState.loading) {
       // Re-inject the polling script on every page load to ensure we catch CAPTCHA after postback
@@ -182,7 +188,13 @@ export default function WebViewLoginScreen() {
   const forceProceed = async () => {
     setIsProcessing(true);
     setLoadingMsg('Bypassing... preparing to sync');
-    router.replace('/(app)/studyos/sync');
+    
+        if (isReconnect === 'true') {
+          useStudySessionStore.getState().setSessionDisconnected(false);
+          router.replace('/(app)/studyos/dashboard');
+        } else {
+          router.replace('/(app)/studyos/sync');
+        }
   };
 
   const handleNextStep1 = () => {

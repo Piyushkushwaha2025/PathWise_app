@@ -425,7 +425,7 @@ export default function StudyOSDashboard() {
   const router = useRouter();
   const { isPro, isTrialActive, trialDaysLeft, isSubscribed, plan } = useSubscription();
   const { roadmaps, profile, subjects, detailedAttendanceCache, isHydrated } = useStudyOSStore();
-  const { clearSession } = useStudySessionStore();
+  const { clearSession, isSessionDisconnected } = useStudySessionStore();
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   
@@ -507,6 +507,17 @@ export default function StudyOSDashboard() {
     setSyncKey(prev => prev + 1);
     setRefreshing(true);
   };
+
+  // Auto-refresh when user successfully reconnects from a disconnected state
+  const wasDisconnected = useRef(isSessionDisconnected);
+  useEffect(() => {
+    if (wasDisconnected.current && !isSessionDisconnected) {
+      console.log('[Dashboard] Reconnected! Triggering auto-refresh...');
+      // Small delay to let the toast animation finish and UI settle
+      setTimeout(() => triggerSync(true), 1500);
+    }
+    wasDisconnected.current = isSessionDisconnected;
+  }, [isSessionDisconnected]);
 
   // Auto-sync when app comes to foreground (only if inactive for > 15 mins)
   const lastBackgroundTime = useRef<number>(0);
@@ -770,6 +781,15 @@ export default function StudyOSDashboard() {
             </ScrollView>
           </>
         )}
+
+                {/* TEST BUTTON */}
+        <TouchableOpacity 
+          style={{ backgroundColor: '#ef444420', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#ef4444', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 16 }}
+          onPress={() => useStudySessionStore.getState().setSessionExpired(true)}
+        >
+          <Ionicons name="warning-outline" size={20} color="#ef4444" />
+          <Text style={{ color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 14 }}>TEST SESSION EXPIRY</Text>
+        </TouchableOpacity>
 
         {/* Current Class Widget */}
         <CurrentClassWidget />
