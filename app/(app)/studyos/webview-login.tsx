@@ -71,7 +71,7 @@ export default function WebViewLoginScreen() {
             if (!isMounted) return;
             setInlineError('');
             setIsProcessing(true);
-            setLoadingMsg('Fetching CAPTCHA...');
+            setLoadingMsg('Restoring Connection...');
             
             const script = `
               var uidField = document.getElementById('txtUserId');
@@ -195,7 +195,7 @@ export default function WebViewLoginScreen() {
     
     setInlineError('');
     setIsProcessing(true);
-    setLoadingMsg('Fetching CAPTCHA...');
+    setLoadingMsg('Restoring Connection...');
     
     const script = `
       var uidField = document.getElementById('txtUserId');
@@ -428,7 +428,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   closeBtn: { padding: 8, marginLeft: -12 },
-  headerTitle: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 22, color: colors.text },
+  headerTitle: { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 22, color: colors.text },
   clearBtn: { padding: 8, marginRight: 8 },
   proceedBtn: { padding: 8, marginRight: -8, backgroundColor: `\${colors.primary}20`, borderRadius: 8 },
   proceedText: { ...Typography.body, color: colors.primary, fontFamily: 'Inter_600SemiBold' },

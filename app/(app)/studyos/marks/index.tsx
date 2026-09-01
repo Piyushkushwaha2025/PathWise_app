@@ -486,7 +486,7 @@ export default function MarksScreen() {
         setIsLoading(false);
         setRefreshing(false);
         useStudySessionStore.getState().clearSession(true).then(() => {
-          router.replace('/(app)/studyos/connect?expired=true' as any);
+          useStudySessionStore.getState().setSessionExpired(true);
         });
         return;
       }
@@ -762,7 +762,7 @@ export default function MarksScreen() {
               }) : (
                 <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 40, padding: 20 }}>
                   <Ionicons name="document-text-outline" size={64} color="#3b82f640" />
-                  <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 16 }}>No Marks Uploaded Yet</Text>
+                  <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginTop: 16 }}>No Marks Uploaded Yet</Text>
                   <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 8, fontSize: 13, lineHeight: 20 }}>
                     There are no internal marks uploaded for the current session yet. You can check back later, or select a past semester from the top right to view your final results.
                   </Text>
@@ -920,7 +920,7 @@ function RadarChart({ data }: { data: { subject: string, score: number, hasMarks
               {d.subject}
             </Text>
             {d.hasMarks && (
-              <Text style={{ color: percentColor, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 2 }}>
+              <Text style={{ color: percentColor, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginTop: 2 }}>
                 {d.score.toFixed(0)}%
               </Text>
             )}
@@ -935,7 +935,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: Spacing.lg, paddingTop: 20, paddingBottom: 100 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl },
-  headerTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
+  headerTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
   headerSubtitle: { color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_400Regular' },
   semesterBtn: {
     backgroundColor: colors.primary + '15',
@@ -959,7 +959,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   chartContainer: { alignItems: 'center', justifyContent: 'center' },
   
   listContainer: { marginTop: Spacing.sm },
-  listTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginBottom: Spacing.md },
+  listTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginBottom: Spacing.md },
   
   accordionCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: colors.border },
   accordionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
@@ -970,17 +970,17 @@ const useStyles = (colors: any) => StyleSheet.create({
   markValue: { color: colors.text, fontSize: 13, fontFamily: 'Inter_600SemiBold' },
 
   sgpaBadge: { backgroundColor: '#3b82f620', paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, borderWidth: 1, borderColor: '#3b82f640' },
-  sgpaText: { color: '#3b82f6', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' },
+  sgpaText: { color: '#3b82f6', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
   resultCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center' },
-  resultSubName: { color: colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 4 },
+  resultSubName: { color: colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, marginBottom: 4 },
   resultSubCode: { color: colors.textMuted, fontSize: 12 },
   gradeBadge: { backgroundColor: '#22c55e20', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#22c55e' },
-  gradeText: { color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' },
+  gradeText: { color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.xl, paddingBottom: Spacing.xl + 8, maxHeight: '70%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
-  modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
+  modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
   modalOption: { paddingVertical: Spacing.md, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.border },
   modalOptionText: { color: '#d1d5db', fontSize: 15, fontFamily: 'Inter_500Medium' },
   modalOptionTextSelected: { color: colors.primary, fontFamily: 'Inter_700Bold' },

@@ -15,12 +15,18 @@ interface StudySessionState {
   setSession: (universityId: string, sesskey: string, userId: number) => Promise<void>;
   setStudyOSMode: (mode: boolean) => void;
   setSwitchingMode: (switching: boolean) => void;
+  isSessionExpired: boolean;
+  isSessionDisconnected: boolean;
+  setSessionDisconnected: (disconnected: boolean) => void;
+  setSessionExpired: (expired: boolean) => void;
 }
 
 export const useStudySessionStore = create<StudySessionState>((set) => ({
   isConnected: false,
   isStudyOSMode: false,
   isSwitchingMode: false,
+  isSessionExpired: false,
+  isSessionDisconnected: false,
   universityId: null,
   lmsSesskey: null,
   lmsUserId: null,
@@ -49,7 +55,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
     await SecureStore.setItemAsync('study_university_id', universityId);
     await SecureStore.setItemAsync('lms_sesskey', sesskey);
     await SecureStore.setItemAsync('lms_userid', userId.toString());
-    set({ isConnected: true, isStudyOSMode: true, universityId, lmsSesskey: sesskey, lmsUserId: userId });
+    set({ isConnected: true, isStudyOSMode: true, universityId, lmsSesskey: sesskey, lmsUserId: userId, isSessionDisconnected: false });
   },
 
   clearSession: async (keepCreds: boolean = false) => {
@@ -67,7 +73,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
       
       await SecureStore.deleteItemAsync('culko_cookies');
       await useStudyOSStore.getState().resetScrapedData();
-      set({ isConnected: false, isStudyOSMode: false, universityId: null, lmsSesskey: null, lmsUserId: null });
+      set({ isConnected: false, isStudyOSMode: false, universityId: null, lmsSesskey: null, lmsUserId: null, isSessionDisconnected: false });
     } catch (error) {
       console.error('Error clearing session:', error);
     }
@@ -83,5 +89,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
     }, 1500);
   },
   
-  setSwitchingMode: (switching: boolean) => set({ isSwitchingMode: switching })
+  setSwitchingMode: (switching: boolean) => set({ isSwitchingMode: switching }),
+  setSessionExpired: (expired: boolean) => set({ isSessionExpired: expired, isSessionDisconnected: expired ? true : useStudySessionStore.getState().isSessionDisconnected }),
+  setSessionDisconnected: (disconnected: boolean) => set({ isSessionDisconnected: disconnected })
 }));

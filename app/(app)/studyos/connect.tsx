@@ -1,5 +1,5 @@
 import { useThemeStore } from '../../../store/useThemeStore';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler, Modal } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
@@ -12,31 +12,30 @@ export default function ConnectScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const router = useRouter();
-  const { reset, error, expired } = useLocalSearchParams<{ reset?: string; error?: string; expired?: string }>();
-  const [isExpiredVisible, setIsExpiredVisible] = useState(false);
+  const { reset, error } = useLocalSearchParams<{ reset?: string; error?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUni, setSelectedUni] = useState<UniversityConfig | null>(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
 
+  const blockAutoLogin = useRef(false);
   useEffect(() => {
     let isMounted = true;
     const timer = setTimeout(() => {
       if (!isMounted) return;
+      
       if (reset === 'true') {
         setSelectedUni(null);
+        blockAutoLogin.current = true;
         router.setParams({ reset: '' });
-      }
-      if (expired === 'true') {
-        setIsExpiredVisible(true);
-        router.setParams({ expired: '' });
       }
       if (error === 'account_linked') {
         setShowErrorModal(true);
+        blockAutoLogin.current = true;
         router.setParams({ error: '' });
       }
       
-      // Auto-bypass if credentials exist and we're not resetting
-      if (reset !== 'true') {
+      // Auto-bypass if credentials exist and we haven't blocked it (due to expired/reset)
+      if (!blockAutoLogin.current) {
         SecureStore.getItemAsync('culko_u').then(u => {
           if (u && isMounted) {
             router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: 'cu' } } as any);
@@ -167,7 +166,9 @@ export default function ConnectScreen() {
         )}
       </View>
 
-      {/* Custom Account Already Linked Modal */}
+      
+        {/* Custom Account Already Linked Modal */}
+
       <Modal visible={showErrorModal} transparent animationType="fade" onRequestClose={() => setShowErrorModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -227,7 +228,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   headerTitle: {
     color: colors.text,
-    fontFamily: 'SpaceGrotesk_700Bold',
+    fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4,
     fontSize: 32,
     letterSpacing: -1,
   },

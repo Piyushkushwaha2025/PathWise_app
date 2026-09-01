@@ -252,7 +252,7 @@ export default function TimetableScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: Spacing.lg }}>
           <View style={{ backgroundColor: colors.background, padding: Spacing.lg, borderRadius: Radius.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>Set Saturday Timetable</Text>
+              <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text }}>Set Saturday Timetable</Text>
               <TouchableOpacity onPress={() => setOverrideModalVisible(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
@@ -288,7 +288,7 @@ export default function TimetableScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: Spacing.lg }}>
           <View style={{ backgroundColor: colors.background, padding: Spacing.lg, borderRadius: Radius.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>Remove Schedule</Text>
+              <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text }}>Remove Schedule</Text>
             </View>
             <Text style={{ color: colors.textMuted, marginBottom: 24, fontFamily: 'Inter_400Regular', lineHeight: 20 }}>
               Are you sure you want to remove the mapped schedule for this Saturday? Students will see an empty schedule again.
@@ -409,9 +409,9 @@ const useStyles = (colors: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: { paddingTop: 20, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
-  headerDate: { color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold' },
+  headerDate: { color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
   todayBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  todayText: { fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold' },
+  todayText: { fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
   headerSubtitle: { color: colors.textMuted, fontSize: 14, marginBottom: Spacing.lg },
   
   daysScroll: { flexDirection: 'row' },
@@ -431,7 +431,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   
   emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 80 },
   emptyIconBg: { width: 100, height: 100, borderRadius: 50, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  emptyText: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 8 },
+  emptyText: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, marginBottom: 8 },
   emptySubtext: { color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_500Medium' },
   
   timeCardContainer: { 
@@ -449,7 +449,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   startTimeText: { 
     color: colors.text, 
     fontSize: 14, 
-    fontFamily: 'SpaceGrotesk_700Bold', 
+    fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, 
     lineHeight: 18,
   },
   endTimeText: {

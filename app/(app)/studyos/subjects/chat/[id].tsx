@@ -116,7 +116,7 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef }:
        
        <View style={{ position: 'absolute', top: 70, right: 54, width: 240, backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.3, shadowRadius: 20 }}>
           <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceHigh || '#f1f5f9' }}>
-             <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, fontSize: 14 }}>Switch Chat</Text>
+             <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, fontSize: 14 }}>Switch Chat</Text>
              <Text style={{ fontFamily: 'Inter_400Regular', color: colors.textDim, fontSize: 11, marginTop: 2 }}>Slide down to select & release</Text>
           </View>
           {sessions.map((s: any, idx: number) => (
@@ -661,7 +661,7 @@ export default function AITutorChatScreen() {
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, padding: 20 },
     setupContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, padding: 24 },
     setupCard: { backgroundColor: colors.surface, padding: 24, borderRadius: 16, width: '100%', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8 },
-    title: { fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, marginBottom: 8 },
+    title: { fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, marginBottom: 8 },
     subtitle: { fontSize: 14, fontFamily: 'Inter_400Regular', color: colors.textDim, marginBottom: 24, lineHeight: 20 },
     input: { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 12, color: colors.text, fontFamily: 'Inter_400Regular', marginBottom: 16 },
     button: { backgroundColor: colors.primary, padding: 14, borderRadius: 8, alignItems: 'center' },
@@ -684,7 +684,7 @@ export default function AITutorChatScreen() {
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
     modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: (insets.bottom || 20) + 70, maxHeight: '75%' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
+    modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
     modalOption: { paddingVertical: 16, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.border },
     modalOptionText: { color: '#d1d5db', fontSize: 15, fontFamily: 'Inter_500Medium' },
     modalOptionTextSelected: { color: colors.primary, fontFamily: 'Inter_700Bold' },
@@ -692,9 +692,9 @@ export default function AITutorChatScreen() {
 
   const markdownStyles = {
     body: { color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 22 },
-    heading1: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 20, color: colors.text, marginVertical: 8 },
-    heading2: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 18, color: colors.text, marginVertical: 8 },
-    heading3: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 16, color: colors.text, marginVertical: 8 },
+    heading1: { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 20, color: colors.text, marginVertical: 8 },
+    heading2: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 18, color: colors.text, marginVertical: 8 },
+    heading3: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 16, color: colors.text, marginVertical: 8 },
     paragraph: { marginTop: 0, marginBottom: 10 },
     code_inline: { backgroundColor: colors.background, fontFamily: 'JetBrainsMono_400Regular', color: colors.primary, padding: 4, borderRadius: 4 },
     code_block: { backgroundColor: colors.background, fontFamily: 'JetBrainsMono_400Regular', color: colors.text, padding: 12, borderRadius: 8, marginVertical: 8 },
@@ -720,13 +720,13 @@ export default function AITutorChatScreen() {
                     style={{ flex: 1, backgroundColor: colors.primary + '20', borderWidth: 1, borderColor: colors.primary, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' }}
                     onPress={() => Linking.openURL('https://aistudio.google.com/app/apikey')}
                   >
-                    <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>⚡ Free Gemini Key</Text>
+                    <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 13 }}>⚡ Free Gemini Key</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={{ flex: 1, backgroundColor: '#f59e0b20', borderWidth: 1, borderColor: '#f59e0b', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' }}
                     onPress={() => Linking.openURL('https://console.groq.com/keys')}
                   >
-                    <Text style={{ color: '#f59e0b', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>🔥 Free Groq Key</Text>
+                    <Text style={{ color: '#f59e0b', fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 13 }}>🔥 Free Groq Key</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -803,7 +803,7 @@ export default function AITutorChatScreen() {
         <CenterPopModal isVisible={showClearConfirm} onClose={() => setShowClearConfirm(false)}>
            <View style={{ backgroundColor: colors.surface, padding: 24, borderRadius: 16, alignItems: 'center' }}>
               <Ionicons name="warning" size={48} color={colors.error} style={{ marginBottom: 16 }} />
-              <Text style={{ fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, marginBottom: 8, textAlign: 'center' }}>Delete Chat History?</Text>
+              <Text style={{ fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, marginBottom: 8, textAlign: 'center' }}>Delete Chat History?</Text>
               <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: colors.textDim, marginBottom: 24, textAlign: 'center' }}>Are you sure you want to permanently delete all chat history for this subject? This cannot be undone.</Text>
               <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
                  <TouchableOpacity style={{ flex: 1, padding: 12, borderRadius: 8, backgroundColor: colors.background, alignItems: 'center' }} onPress={() => setShowClearConfirm(false)}>
@@ -822,7 +822,7 @@ export default function AITutorChatScreen() {
               <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.success + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
                  <Ionicons name="checkmark" size={32} color={colors.success} />
               </View>
-              <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, textAlign: 'center' }}>Chats Deleted</Text>
+              <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, textAlign: 'center' }}>Chats Deleted</Text>
            </View>
         </CenterPopModal>
 
@@ -867,7 +867,7 @@ export default function AITutorChatScreen() {
                 style={{ backgroundColor: colors.primary + '15', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18, borderWidth: 1, borderColor: colors.primary + '40', flexDirection: 'row', alignItems: 'center', gap: 6 }}
                 onPress={() => setShowModelSwitcherModal(true)}
               >
-                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold' }}>
+                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>
                   {connectedModels.find(m => m.id === activeProvider)?.icon || '🤖'} {connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}
                 </Text>
                 <Ionicons name="chevron-down" size={14} color={colors.primary} />
@@ -1013,7 +1013,7 @@ export default function AITutorChatScreen() {
                  <Ionicons name="document-attach-outline" size={20} color={colors.primary} />
                  {selectedFiles.length > 0 && (
                     <View style={{ position: 'absolute', top: -6, right: -6, backgroundColor: colors.error || 'red', borderRadius: 10, width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}>
-                       <Text style={{ color: 'white', fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold' }}>{selectedFiles.length}</Text>
+                       <Text style={{ color: 'white', fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{selectedFiles.length}</Text>
                     </View>
                  )}
               </View>
@@ -1078,7 +1078,7 @@ export default function AITutorChatScreen() {
                           style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
                           onPress={() => setExpandedUnits(prev => isExpanded ? prev.filter(u => u !== unit) : [...prev, unit])}
                        >
-                          <Text style={{ fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>{unit}</Text>
+                          <Text style={{ fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text }}>{unit}</Text>
                           <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textDim} />
                        </TouchableOpacity>
                        
@@ -1150,7 +1150,7 @@ export default function AITutorChatScreen() {
                   style={[styles.modalOption, { borderBottomWidth: 0, marginTop: 12, paddingVertical: 14, backgroundColor: colors.primary + '15', borderRadius: 12, alignItems: 'center' }]} 
                   onPress={() => createNewSession()}
                 >
-                   <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>+ Create New Chat</Text>
+                   <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>+ Create New Chat</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
@@ -1212,7 +1212,7 @@ export default function AITutorChatScreen() {
                  }}
                >
                  <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
-                 <Text style={{ color: colors.primary, fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold' }}>+ Connect Another AI Model</Text>
+                 <Text style={{ color: colors.primary, fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>+ Connect Another AI Model</Text>
                </TouchableOpacity>
             </ScrollView>
           </View>

@@ -73,8 +73,8 @@ export const Themes: Record<"black" | "white" | "cream", ThemeColors> = {
 export const Colors = Themes.black;
 
 export const Typography = {
-  h1:    { fontFamily: 'SpaceGrotesk_700Bold',    fontSize: 32, letterSpacing: -0.5 },
-  h2:    { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 24 },
+  h1:    { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4,    fontSize: 32, letterSpacing: -0.5 },
+  h2:    { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 24 },
   h3:    { fontFamily: 'SpaceGrotesk_500Medium',  fontSize: 18 },
   body:  { fontFamily: 'Inter_400Regular',        fontSize: 15, lineHeight: 24 },
   small: { fontFamily: 'Inter_400Regular',        fontSize: 13 },

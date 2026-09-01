@@ -213,7 +213,7 @@ function CurrentClassWidget() {
       return (
         <View style={{ marginBottom: Spacing.xl }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md, marginTop: Spacing.sm }}>
-            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>Today's Schedule</Text>
+            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4 }}>Today's Schedule </Text>
             <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>No classes</Text>
           </View>
           <View style={{
@@ -228,7 +228,7 @@ function CurrentClassWidget() {
                 <Ionicons name="cafe-outline" size={20} color={colors.textMuted} />
               </View>
               <View>
-                <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>No Classes Today!</Text>
+                <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>No Classes Today!</Text>
                 <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' }}>Enjoy your free time.</Text>
               </View>
             </View>
@@ -241,7 +241,7 @@ function CurrentClassWidget() {
     return (
       <View style={{ marginBottom: Spacing.xl }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md, marginTop: Spacing.sm }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>Today's Schedule</Text>
+          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4 }}>Today's Schedule </Text>
           <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Completed</Text>
         </View>
         <View style={{
@@ -256,7 +256,7 @@ function CurrentClassWidget() {
               <Ionicons name="checkmark-done" size={20} color={colors.textMuted} />
             </View>
             <View>
-              <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>All Done for Today!</Text>
+              <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>All Done for Today!</Text>
               <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' }}>You have completed {classesToday.length} classes today.</Text>
             </View>
           </View>
@@ -274,13 +274,22 @@ function CurrentClassWidget() {
   const fullNameToDisplay = matchedSubject ? `${matchedSubject.name}${suffix}` : rawSubjectName;
   const history = matchedSubject ? getHistoryStatuses(detailedAttendanceCache?.[matchedSubject.code]) : [];
 
+  let whatIfAttend = null;
+  let whatIfMiss = null;
+  if (matchedSubject && typeof matchedSubject.attendedClasses === 'number' && typeof matchedSubject.totalClasses === 'number') {
+    const A = matchedSubject.attendedClasses;
+    const T = matchedSubject.totalClasses;
+    whatIfAttend = (((A + 1) / (T + 1)) * 100).toFixed(1) + '%';
+    whatIfMiss = ((A / (T + 1)) * 100).toFixed(1) + '%';
+  }
+
   return (
     <View style={{ marginBottom: 16 }}>
       {/* Section Header positioned above tile just like Your Subjects */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>
-            {isOngoing ? 'Ongoing' : 'Up Next'}
+          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4 }}>
+            {isOngoing ? 'Ongoing ' : 'Up Next '}
           </Text>
           <View style={{ backgroundColor: isOngoing ? '#22c55e20' : colors.primary + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: Radius.full }}>
             <Text style={{ color: isOngoing ? '#22c55e' : colors.primary, fontSize: 10, fontFamily: 'Inter_700Bold' }}>
@@ -352,7 +361,7 @@ function CurrentClassWidget() {
                      value={matchedSubject.attendancePercentage} 
                      color={matchedSubject.attendancePercentage < 75 ? '#ef4444' : '#22c55e'} 
                   />
-                  <Text style={{ color: colors.text, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 2 }}>
+                  <Text style={{ color: colors.text, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginTop: 2 }}>
                     {matchedSubject.attendedClasses}/{matchedSubject.totalClasses}
                   </Text>
                 </View>
@@ -385,6 +394,25 @@ function CurrentClassWidget() {
             )}
           </View>
         </View>
+        
+        {/* What-If Prediction Strip */}
+        {matchedSubject && whatIfAttend && whatIfMiss && (
+          <View style={{ 
+            flexDirection: 'row', 
+            borderTopWidth: 1, 
+            borderTopColor: colors.border + '50', 
+            backgroundColor: colors.border + '20' 
+          }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 6, borderRightWidth: 1, borderRightColor: colors.border + '50' }}>
+               <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
+               <Text style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>If Attend: <Text style={{ color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{whatIfAttend}</Text></Text>
+            </View>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 6 }}>
+               <Ionicons name="close-circle" size={14} color="#ef4444" />
+               <Text style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>If Miss: <Text style={{ color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{whatIfMiss}</Text></Text>
+            </View>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -408,6 +436,15 @@ export default function StudyOSDashboard() {
   // sync that just completed. Cleared at the START of the next pull-to-refresh
   // so the indicator never repeats on a later refresh.
   const [justUpdated, setJustUpdated] = useState<Record<string, string>>({});
+  const [showFilters, setShowFilters] = useState(false);
+  const [subjectFilter, setSubjectFilter] = useState('All');
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setShowFilters(false);
+      setSubjectFilter('All');
+    }, [])
+  );
   const toastOpacity = useRef(new Animated.Value(0)).current;
   const appState = useRef(AppState.currentState);
   const lastSyncTime = useRef(0);
@@ -543,7 +580,7 @@ export default function StudyOSDashboard() {
   const handleSessionExpired = async () => {
     setRefreshing(false);
     await clearSession(true);
-    router.replace('/(app)/studyos/connect?expired=true' as any);
+    useStudySessionStore.getState().setSessionExpired(true);
   };
 
   useEffect(() => {
@@ -604,6 +641,9 @@ export default function StudyOSDashboard() {
       >
         
         {/* Header */}
+          <View style={{ marginBottom: 16 }}>
+            
+          </View>
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <View style={[styles.owlIcon, { backgroundColor: '#000' }]}>
@@ -734,14 +774,56 @@ export default function StudyOSDashboard() {
         <CurrentClassWidget />
 
         {/* Your Subjects List */}
-        <View style={[styles.sectionHeader, { marginTop: Spacing.md, marginBottom: Spacing.md }]}>
+        <View style={[styles.sectionHeader, { marginTop: Spacing.md, marginBottom: showFilters ? 12 : Spacing.md }]}>
           <View>
-            <Text style={styles.sectionTitle}>Your Subjects</Text>
-            <Text style={styles.filterText}>{subjects?.length || 0} subjects</Text>
+            <Text style={styles.sectionTitle}>Your Subjects </Text>
+            <Text style={styles.filterText}>{subjects?.length || 0} subjects total</Text>
           </View>
+          <TouchableOpacity 
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: showFilters ? colors.primary + '20' : colors.surfaceHigh, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, borderWidth: 1, borderColor: showFilters ? colors.primary : colors.border }}
+            onPress={() => setShowFilters(!showFilters)}
+          >
+            <Ionicons name="filter-outline" size={14} color={showFilters ? colors.primary : colors.text} />
+            <Text style={{ color: showFilters ? colors.primary : colors.text, fontSize: 13, fontFamily: 'Inter_600SemiBold' }}>Filter</Text>
+          </TouchableOpacity>
         </View>
 
-        {subjects && subjects.length > 0 ? subjects.map((sub, idx) => {
+        {showFilters && (
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md, paddingHorizontal: 2 }}>
+            {['All', 'Danger', 'Safe'].map(f => (
+              <TouchableOpacity 
+                key={f}
+                onPress={() => setSubjectFilter(f)}
+                style={{ 
+                  paddingHorizontal: 12, 
+                  paddingVertical: 6, 
+                  borderRadius: 20, 
+                  backgroundColor: subjectFilter === f ? colors.primary : 'transparent',
+                  borderWidth: 1,
+                  borderColor: subjectFilter === f ? colors.primary : colors.border
+                }}
+              >
+                <Text style={{ color: subjectFilter === f ? '#fff' : colors.textMuted, fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>
+                   {f === 'Danger' ? 'Danger (< 75%)' : f === 'Safe' ? 'Safe (>= 75%)' : 'All'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {(() => {
+           const filteredSubjects = subjects?.filter(sub => {
+             if (subjectFilter === 'All') return true;
+             if (subjectFilter === 'Danger') return (sub.attendancePercentage || 0) < 75;
+             if (subjectFilter === 'Safe') return (sub.attendancePercentage || 0) >= 75;
+             return true;
+           });
+           
+           if (!filteredSubjects || filteredSubjects.length === 0) {
+             return <Text style={{ color: colors.textMuted, fontFamily: 'Inter_500Medium', textAlign: 'center', padding: 20 }}>No subjects match this filter.</Text>;
+           }
+
+           return filteredSubjects.map((sub, idx) => {
           const prediction = getAttendancePrediction(sub.totalClasses || 0, sub.attendedClasses || 0);
           const history = getHistoryStatuses(detailedAttendanceCache?.[sub.code]);
           return (
@@ -762,7 +844,10 @@ export default function StudyOSDashboard() {
               }}
             />
           );
-        }) : (
+           });
+        })()}
+        
+        {(!subjects || subjects.length === 0) && (
            <Text style={{ color: colors.textMuted, textAlign: 'center', marginVertical: 20 }}>Syncing subjects from ERP...</Text>
         )}
 
@@ -772,7 +857,7 @@ export default function StudyOSDashboard() {
         <View style={{ flex: 1, backgroundColor: colors.background }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.xl, paddingTop: 60, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <View>
-              <Text style={{ color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold' }}>Academic Calendar</Text>
+              <Text style={{ color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>Academic Calendar</Text>
               <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>Session 2026-27 • Chandigarh University</Text>
             </View>
             <TouchableOpacity onPress={() => setIsCalendarVisible(false)} style={{ backgroundColor: colors.surfaceHigh, padding: 8, borderRadius: 20 }}>
@@ -813,7 +898,7 @@ export default function StudyOSDashboard() {
             }}
           />
           <ScrollView style={{ flex: 1, padding: Spacing.lg, backgroundColor: colors.background }}>
-            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginBottom: 12 }}>
+            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginBottom: 12 }}>
               Events for this Month
             </Text>
             {Object.keys(agendaItems).filter(date => date.startsWith(currentMonth)).flatMap(date => agendaItems[date]).length > 0 ? (
@@ -1006,7 +1091,7 @@ function CircularProgress({ value, color }: { value: number, color: string }) {
         <Circle cx="30" cy="30" r={radius} stroke={colors.border} strokeWidth={strokeWidth} fill="none" />
         <Circle cx="30" cy="30" r={radius} stroke={color} strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" transform="rotate(-90 30 30)" />
       </Svg>
-      <Text style={{ position: 'absolute', color: colors.text, fontSize, fontFamily: 'SpaceGrotesk_700Bold' }}>{displayValue}</Text>
+      <Text style={{ position: 'absolute', color: colors.text, fontSize, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{displayValue}</Text>
     </View>
   );
 }
@@ -1018,13 +1103,13 @@ const useStyles = (colors: any) => StyleSheet.create({
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   owlIcon: { width: 48, height: 48, backgroundColor: colors.text, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   greeting: { color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' },
-  userName: { color: colors.primary, fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold' },
+  userName: { color: colors.primary, fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
   sectionText: { color: colors.textDim, fontSize: 11, fontFamily: 'Inter_400Regular' },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   
   profileCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.xl },
   profileCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  courseName: { color: '#d1d5db', fontSize: 14, fontFamily: 'SpaceGrotesk_600SemiBold' },
+  courseName: { color: '#d1d5db', fontSize: 14, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4 },
   cgpaText: { color: colors.textDim, fontSize: 12, position: 'absolute', right: 0, top: 0 },
   mentorText: { color: colors.textMuted, fontSize: 12 },
   cgpaValue: { color: colors.text, fontSize: 16, position: 'absolute', right: 0, fontWeight: 'bold' },
@@ -1032,11 +1117,11 @@ const useStyles = (colors: any) => StyleSheet.create({
   
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
   upNextBadge: { backgroundColor: '#16653430', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#166534' },
-  upNextText: { color: '#22c55e', fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold' },
+  upNextText: { color: '#22c55e', fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
   inTimeText: { color: colors.textMuted, fontSize: 12 },
   
   upNextCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.xl },
-  className: { color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 4 },
+  className: { color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, marginBottom: 4 },
   teacherName: { color: colors.textMuted, fontSize: 13, marginBottom: 12 },
   classDetailsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.lg },
   detailText: { color: colors.textMuted, fontSize: 12, marginLeft: 4, marginRight: 12 },
@@ -1047,18 +1132,18 @@ const useStyles = (colors: any) => StyleSheet.create({
   predBarBg: { height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
   predBarFill: { height: '100%', borderRadius: 2 },
   
-  sectionTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' },
+  sectionTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4 },
   filterText: { color: colors.textMuted, fontSize: 12 },
   
   subjectCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center' },
-  subCardTitle: { color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 2 },
+  subCardTitle: { color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, marginBottom: 2 },
   subCardMeta: { color: colors.textDim, fontSize: 11.5, marginBottom: 6 },
   subCardStatusPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.full, alignSelf: 'flex-start', gap: 4 },
   subCardStatusText: { fontSize: 10.5, fontFamily: 'Inter_600SemiBold' },
   subCardFraction: { color: colors.textMuted, fontSize: 11, marginTop: 2, fontFamily: 'Inter_500Medium' },
 
   roadmapCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, width: 250, marginRight: Spacing.md, borderWidth: 1, borderColor: colors.primary + '40' },
-  roadmapSubject: { color: colors.text, fontSize: 15, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 4 },
+  roadmapSubject: { color: colors.text, fontSize: 15, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, marginBottom: 4 },
   roadmapReq: { color: colors.primary, fontSize: 12, marginBottom: 8 },
   roadmapContent: { color: '#d1d5db', fontSize: 13, lineHeight: 18 },
 
@@ -1079,7 +1164,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     shadowRadius: 12,
     elevation: 10,
   },
-  toastText: { color: '#ffffff', fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', flexShrink: 1 },
+  toastText: { color: '#ffffff', fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, flexShrink: 1 },
   inlineServicesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',

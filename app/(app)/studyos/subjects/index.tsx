@@ -617,7 +617,7 @@ export default function LmsCoursesScreen() {
                  }}
               >
                  <Ionicons name="reader" size={20} color={colors.primary} />
-                 <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13, marginLeft: 6 }}>Tasks</Text>
+                 <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 13, marginLeft: 6 }}>Tasks</Text>
                  {pendingCount > 0 && (
                     <View style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 6 }}>
                        <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'Inter_700Bold' }}>{pendingCount}</Text>
@@ -640,7 +640,7 @@ export default function LmsCoursesScreen() {
                   }}
                >
                   <Ionicons name="stats-chart" size={20} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13, marginLeft: 6 }}>Grades</Text>
+                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 13, marginLeft: 6 }}>Grades</Text>
                </TouchableOpacity>
            </View>
         </View>
