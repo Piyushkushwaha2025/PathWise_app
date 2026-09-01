@@ -189,8 +189,38 @@ function CurrentClassWidget() {
     }
   }
 
-  const displayClass = activeClass || nextClass;
+  let displayClass = activeClass || nextClass;
   const isOngoing = !!activeClass;
+  let isTomorrow = false;
+  let tomorrowDayName = '';
+
+  if (!displayClass) {
+    const daysMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const todayIndex = new Date().getDay();
+    for (let i = 1; i <= 7; i++) {
+      const nextDayIndex = (todayIndex + i) % 7;
+      const nextDayName = daysMap[nextDayIndex];
+      const nextDayClasses = timetable[nextDayName] || [];
+      if (nextDayClasses.length > 0) {
+        let earliestClass = null;
+        let earliestTime = Infinity;
+        for (let cls of nextDayClasses) {
+           const { start } = parseTimeRange(cls.time);
+           if (start < earliestTime) {
+              earliestTime = start;
+              earliestClass = cls;
+           }
+        }
+        if (earliestClass) {
+          displayClass = earliestClass;
+          isTomorrow = true;
+          tomorrowDayName = i === 1 ? 'TOMORROW' : nextDayName.toUpperCase();
+          break;
+        }
+      }
+    }
+  }
+
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -276,11 +306,17 @@ function CurrentClassWidget() {
 
   let whatIfAttend = null;
   let whatIfMiss = null;
+  let attendPctNum = 0;
+  let missPctNum = 0;
+  let currentPctNum = 0;
   if (matchedSubject && typeof matchedSubject.attendedClasses === 'number' && typeof matchedSubject.totalClasses === 'number') {
     const A = matchedSubject.attendedClasses;
     const T = matchedSubject.totalClasses;
-    whatIfAttend = (((A + 1) / (T + 1)) * 100).toFixed(1) + '%';
-    whatIfMiss = ((A / (T + 1)) * 100).toFixed(1) + '%';
+    currentPctNum = T > 0 ? (A / T) * 100 : 0;
+    attendPctNum = ((A + 1) / (T + 1)) * 100;
+    missPctNum = ((A / (T + 1)) * 100);
+    whatIfAttend = attendPctNum.toFixed(1) + '%';
+    whatIfMiss = missPctNum.toFixed(1) + '%';
   }
 
   return (
@@ -289,11 +325,11 @@ function CurrentClassWidget() {
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4 }}>
-            {isOngoing ? 'Ongoing ' : 'Up Next '}
+            {isOngoing ? 'Ongoing Class' : 'Upcoming Class'}
           </Text>
           <View style={{ backgroundColor: isOngoing ? '#22c55e20' : colors.primary + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: Radius.full }}>
             <Text style={{ color: isOngoing ? '#22c55e' : colors.primary, fontSize: 10, fontFamily: 'Inter_700Bold' }}>
-              {isOngoing ? 'LIVE' : 'SCHEDULED'}
+              {isOngoing ? 'LIVE' : isTomorrow ? tomorrowDayName : 'SCHEDULED'}
             </Text>
           </View>
         </View>
@@ -340,16 +376,9 @@ function CurrentClassWidget() {
               </Text>
             )}
             
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Ionicons name="time-outline" size={13} color={colors.textMuted} style={{ marginRight: 5 }} />
               <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>{displayClass.time}</Text>
-            </View>
-            
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="location-outline" size={13} color={colors.textMuted} style={{ marginRight: 5 }} />
-              <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>
-                {displayClass.room} • {displayClass.teacher}
-              </Text>
             </View>
           </View>
 
@@ -366,26 +395,7 @@ function CurrentClassWidget() {
                   </Text>
                 </View>
 
-                {history && history.length > 0 && (
-                  <View style={{ justifyContent: 'center', alignItems: 'center', marginLeft: 10, gap: 3.5 }}>
-                    {history.map((h: any, idx: number) => (
-                      <View 
-                        key={idx} 
-                        style={{ 
-                          width: 8, 
-                          height: 8, 
-                          borderRadius: 2.5, 
-                          backgroundColor: h.color, 
-                          shadowColor: h.color,
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.4,
-                          shadowRadius: 1.5,
-                          elevation: 2
-                        }}
-                      />
-                    ))}
-                  </View>
-                )}
+                
               </View>
             ) : (
               <View style={{ padding: 10 }}>
@@ -395,22 +405,42 @@ function CurrentClassWidget() {
           </View>
         </View>
         
-        {/* What-If Prediction Strip */}
+        {/* What-If Prediction Strip - Visual Layout */}
         {matchedSubject && whatIfAttend && whatIfMiss && (
-          <View style={{ 
-            flexDirection: 'row', 
-            borderTopWidth: 1, 
-            borderTopColor: colors.border + '50', 
-            backgroundColor: colors.border + '20' 
-          }}>
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 6, borderRightWidth: 1, borderRightColor: colors.border + '50' }}>
-               <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
-               <Text style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>If Attend: <Text style={{ color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{whatIfAttend}</Text></Text>
+          <View style={{ flexDirection: 'row', padding: 12, backgroundColor: colors.surfaceHigh, borderTopWidth: 1, borderTopColor: colors.border + '50' }}>
+            
+            {/* If Attend Block */}
+            <View style={{ flex: 1, paddingRight: 12, borderRightWidth: 1, borderRightColor: colors.border + '50' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="checkmark-circle" size={14} color="#22c55e" style={{ marginRight: 4 }} />
+                    <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>If Attend</Text>
+                  </View>
+                  <Text style={{ fontSize: 14, color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{whatIfAttend}</Text>
+                </View>
+              {/* Visual Bar */}
+              <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
+                 <View style={{ height: '100%', width: `${Math.min(currentPctNum, 100)}%`, backgroundColor: '#22c55e', opacity: 0.4 }} />
+                 <View style={{ height: '100%', width: `${Math.max(0, attendPctNum - currentPctNum)}%`, backgroundColor: '#22c55e' }} />
+              </View>
             </View>
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 6 }}>
-               <Ionicons name="close-circle" size={14} color="#ef4444" />
-               <Text style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>If Miss: <Text style={{ color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{whatIfMiss}</Text></Text>
+
+            {/* If Miss Block */}
+            <View style={{ flex: 1, paddingLeft: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="close-circle" size={14} color="#ef4444" style={{ marginRight: 4 }} />
+                    <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>If Miss</Text>
+                  </View>
+                  <Text style={{ fontSize: 14, color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{whatIfMiss}</Text>
+                </View>
+              {/* Visual Bar */}
+              <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
+                 <View style={{ height: '100%', width: `${Math.min(missPctNum, 100)}%`, backgroundColor: '#ef4444' }} />
+                 <View style={{ height: '100%', width: `${Math.max(0, currentPctNum - missPctNum)}%`, backgroundColor: '#ef4444', opacity: 0.3 }} />
+              </View>
             </View>
+
           </View>
         )}
       </View>
