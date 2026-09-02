@@ -43,6 +43,28 @@ const UserSchema = new mongoose.Schema({
   section_code: {
     type: String,
     default: null  // e.g. "CSE-B-2025" — the class/section this CR manages
+  },
+
+  // 🪙 Reward System
+  token_balance: {
+    type: Number,
+    default: 0
+  },
+  ads_watched_today: {
+    type: Number,
+    default: 0
+  },
+  last_ad_watch_date: {
+    type: String,
+    default: null  // "2026-09-02" format — reset daily
+  },
+  last_daily_bonus_date: {
+    type: String,
+    default: null  // "2026-09-02" format
+  },
+  premium_expires_at: {
+    type: Number,
+    default: null  // Unix timestamp ms — for token-earned premium
   }
 }, { timestamps: true });
 

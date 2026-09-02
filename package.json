@@ -50,6 +50,7 @@
     "react-native": "0.85.3",
     "react-native-calendars": "^1.1314.0",
     "react-native-gesture-handler": "~2.31.1",
+    "react-native-google-mobile-ads": "^16.3.4",
     "react-native-keyboard-aware-scroll-view": "^0.9.5",
     "react-native-markdown-display": "^7.0.2",
     "react-native-modal": "^14.0.0-rc.1",

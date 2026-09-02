@@ -704,10 +704,156 @@ app.delete('/api/user', getClerkId, async (req, res) => {
   }
 });
 
+// ==================== REWARDS & ADS ====================
+
+const MAX_ADS_PER_DAY = 5;
+const REDEMPTION_PLANS = {
+  one_day:   { tokens: 50,  days: 1  },
+  one_week:  { tokens: 200, days: 7  },
+  two_weeks: { tokens: 350, days: 14 },
+  one_month: { tokens: 500, days: 30 },
+};
+
+// GET /api/rewards/status - get current token balance & premium status
+app.get('/api/rewards/status', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const today = new Date().toISOString().split('T')[0];
+    if (user.last_ad_watch_date !== today) {
+      user.ads_watched_today = 0;
+      user.last_ad_watch_date = today;
+      await user.save();
+    }
+
+    const isPremiumActive = user.premium_expires_at && user.premium_expires_at > Date.now();
+
+    res.json({
+      token_balance: user.token_balance || 0,
+      ads_watched_today: user.ads_watched_today || 0,
+      ads_remaining_today: Math.max(0, MAX_ADS_PER_DAY - (user.ads_watched_today || 0)),
+      max_ads_per_day: MAX_ADS_PER_DAY,
+      premium_expires_at: user.premium_expires_at || null,
+      is_reward_premium_active: !!isPremiumActive,
+      plans: REDEMPTION_PLANS,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/rewards/daily-bonus
+app.post('/api/rewards/daily-bonus', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const today = new Date().toISOString().split('T')[0];
+
+    if (user.last_daily_bonus_date === today) {
+      return res.status(400).json({ error: 'ALREADY_CLAIMED', message: 'Daily bonus already claimed today.' });
+    }
+
+    user.token_balance = (user.token_balance || 0) + 10;
+    user.last_daily_bonus_date = today;
+    await user.save();
+
+    res.json({
+      success: true,
+      tokens_earned: 10,
+      token_balance: user.token_balance,
+      ads_watched_today: user.ads_watched_today || 0,
+      ads_remaining_today: Math.max(0, MAX_ADS_PER_DAY - (user.ads_watched_today || 0)),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/rewards/watch-ad - Dynamic tokens based on ad_type
+app.post('/api/rewards/watch-ad', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const today = new Date().toISOString().split('T')[0];
+
+    if (user.last_ad_watch_date !== today) {
+      user.ads_watched_today = 0;
+      user.last_ad_watch_date = today;
+    }
+
+    if (user.ads_watched_today >= MAX_ADS_PER_DAY) {
+      return res.status(429).json({
+        error: 'DAILY_LIMIT_REACHED',
+        message: `Aaj ke liye max ${MAX_ADS_PER_DAY} ads dekh liye!`,
+      });
+    }
+
+    const adType = req.body.ad_type;
+    let tokensToCredit = 10;
+    if (adType === '30sec') tokensToCredit = 15;
+    else if (adType === '60sec') tokensToCredit = 30;
+    else if (adType === '10sec') tokensToCredit = 5;
+
+    user.token_balance = (user.token_balance || 0) + tokensToCredit;
+    user.ads_watched_today = (user.ads_watched_today || 0) + 1;
+    user.last_ad_watch_date = today;
+    await user.save();
+
+    res.json({
+      success: true,
+      tokens_earned: tokensToCredit,
+      token_balance: user.token_balance,
+      ads_watched_today: user.ads_watched_today,
+      ads_remaining_today: Math.max(0, MAX_ADS_PER_DAY - user.ads_watched_today),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/rewards/redeem
+app.post('/api/rewards/redeem', getClerkId, async (req, res) => {
+  try {
+    const { plan_key } = req.body;
+    const plan = REDEMPTION_PLANS[plan_key];
+    if (!plan) return res.status(400).json({ error: 'Invalid plan' });
+
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if ((user.token_balance || 0) < plan.tokens) {
+      return res.status(400).json({ error: 'NOT_ENOUGH_TOKENS' });
+    }
+
+    user.token_balance -= plan.tokens;
+    const now = Date.now();
+    const currentExpiry = user.premium_expires_at || now;
+    const startFrom = currentExpiry > now ? currentExpiry : now;
+    user.premium_expires_at = startFrom + plan.days * 24 * 60 * 60 * 1000;
+    
+    await user.save();
+
+    res.json({
+      success: true,
+      token_balance: user.token_balance,
+      premium_expires_at: user.premium_expires_at,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Export for Vercel serverless; also listen locally
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`dYs? Server running on port ${PORT}`);
   });
 }
 

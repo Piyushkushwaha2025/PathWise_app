@@ -28,7 +28,8 @@ import { JetBrainsMono_400Regular } from "@expo-google-fonts/jetbrains-mono";
 import { tokenCache } from "../lib/clerk";
 import { Colors } from "../constants/theme";
 import * as Notifications from "expo-notifications";
-import { Platform } from "react-native";
+import { Platform, AppState } from "react-native";
+import { AppOpenAd, TestIds, AdEventType } from "react-native-google-mobile-ads";
 
 // Global notification handler — show banner even when app is open
 Notifications.setNotificationHandler({
@@ -120,6 +121,65 @@ function RootLayoutInner() {
       useStudySessionStore.getState().checkConnection(),
       useStudyOSStore.getState().loadGamification(),
     ]).catch(e => console.warn("Store init warning:", e));
+  }, []);
+
+  useEffect(() => {
+    let appOpenAd: AppOpenAd | null = null;
+    let isAdLoaded = false;
+    let isShowingAd = false;
+    let hasShownInitialAd = false; // Track cold start ad
+
+    if (Platform.OS !== "web") {
+      const adUnitId = __DEV__
+        ? TestIds.APP_OPEN
+        : "ca-app-pub-4632911659428084/4454731771";
+
+      try {
+        appOpenAd = AppOpenAd.createForAdRequest(adUnitId, {
+          requestNonPersonalizedAdsOnly: true,
+        });
+
+        appOpenAd.addAdEventListener(AdEventType.LOADED, () => {
+          isAdLoaded = true;
+          // Show immediately on cold start if app is active
+          if (!hasShownInitialAd && AppState.currentState === 'active' && !isShowingAd && !(global as any).isAdShowing) {
+            hasShownInitialAd = true;
+            isShowingAd = true;
+            appOpenAd?.show();
+          }
+        });
+        
+        appOpenAd.addAdEventListener(AdEventType.CLOSED, () => {
+          isShowingAd = false;
+          isAdLoaded = false;
+          appOpenAd?.load(); // Load next ad
+        });
+
+        appOpenAd.addAdEventListener(AdEventType.ERROR, (error) => {
+          isShowingAd = false;
+          isAdLoaded = false;
+          console.warn("AppOpenAd error:", error);
+        });
+
+        // Load the first ad
+        appOpenAd.load();
+      } catch (e) {
+        console.warn("Could not initialize AppOpenAd", e);
+      }
+
+      const appStateSubscription = AppState.addEventListener("change", (nextAppState) => {
+        // Show the ad when app comes to foreground (active), EXCEPT if a rewarded ad is showing
+        if (nextAppState === "active" && appOpenAd && isAdLoaded && !isShowingAd && !(global as any).isAdShowing) {
+          hasShownInitialAd = true;
+          isShowingAd = true;
+          appOpenAd.show();
+        }
+      });
+
+      return () => {
+        appStateSubscription.remove();
+      };
+    }
   }, []);
 
   useEffect(() => {

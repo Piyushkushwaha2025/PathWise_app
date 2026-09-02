@@ -110,6 +110,14 @@ export default function CollegeProfileScreen() {
 
             <View style={styles.divider} />
 
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(app)/rewards')}>
+              <Text style={{ fontSize: 20 }}>🪙</Text>
+              <Text style={styles.menuLabel}>Rewards & Free Premium</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             <TouchableOpacity style={styles.menuItem} onPress={handleSwitch}>
               <Ionicons name="swap-horizontal" size={20} color={colors.primary} />
               <Text style={styles.menuLabel}>Switch to Pathwise Profile</Text>

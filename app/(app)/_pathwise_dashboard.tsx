@@ -27,6 +27,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
 import { LockedRoadmapModal } from "../../components/modals/LockedRoadmapModal";
 import { AppUpdateModal } from "../../components/modals/AppUpdateModal";
+import { getRewardStatus } from "../../lib/db";
+import { useUser } from "@clerk/clerk-expo";
 import {
   BrainCircuit,
   Star,
@@ -46,6 +48,7 @@ const IconMap: Record<string, any> = {
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const { user } = useUser();
   const [topic, setTopic] = useState("");
   const [isNotificationsVisible, setNotificationsVisible] = useState(false);
   const [lockedModalVisible, setLockedModalVisible] = useState(false);
@@ -54,6 +57,20 @@ export default function DashboardScreen() {
 
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+  const { isStudyOSMode, toggleMode } = useStudySessionStore();
+  
+  const [isPremium, setIsPremium] = useState(false);
+
+  React.useEffect(() => {
+    if (!user?.id) return;
+    if (user.unsafeMetadata?.isSubscribed) {
+      setIsPremium(true);
+    } else {
+      getRewardStatus(user.id)
+        .then((res: any) => setIsPremium(res.is_reward_premium_active))
+        .catch(() => {});
+    }
+  }, [user]);
 
   const { data: roadmapsCatalog = [], isLoading: isLoadingCatalog } =
     useRoadmapsCatalog();
@@ -93,9 +110,18 @@ export default function DashboardScreen() {
           <BrainCircuit size={40} color={colors.primary} />
           <Text style={styles.title}>Your Dashboard</Text>
         </View>
-        <TouchableOpacity onPress={() => setNotificationsVisible(true)} style={{ padding: 8 }}>
-          <Ionicons name="notifications-outline" size={28} color={colors.text} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+          <TouchableOpacity onPress={() => router.push('/(app)/rewards')} style={{ backgroundColor: isPremium ? '#FBBF24' : colors.surfaceHigh, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', borderRadius: 25, borderWidth: 1, borderColor: isPremium ? '#F59E0B' : colors.border }}>
+            {isPremium ? (
+              <Ionicons name="star" size={28} color="#fff" />
+            ) : (
+              <Ionicons name="diamond" size={32} color="#FBBF24" />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setNotificationsVisible(true)} style={{ padding: 6 }}>
+            <Ionicons name="notifications-outline" size={28} color={colors.text} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.section}>

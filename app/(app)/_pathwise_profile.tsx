@@ -511,6 +511,21 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.menuItem}
+              onPress={() => router.push("/(app)/rewards")}
+            >
+              <Text style={{ fontSize: 20 }}>🪙</Text>
+              <Text style={styles.menuLabel}>Rewards & Free Premium</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => setNotificationsVisible(true)}
             >
               <Ionicons

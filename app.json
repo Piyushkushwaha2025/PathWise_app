@@ -91,6 +91,20 @@
           "organization": "pathwise-po",
           "project": "react-native"
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-4632911659428084~2374423991"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.0.0"
+          }
+        }
       ]
     ],
     "experiments": {

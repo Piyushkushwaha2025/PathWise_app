@@ -15,6 +15,7 @@ import { DetailedAttendanceModal } from '../../../components/DetailedAttendanceM
 import { FacilitiesModal } from '../../../components/FacilitiesModal';
 import * as SecureStore from 'expo-secure-store';
 import { useUser, useAuth } from '@clerk/clerk-expo';
+import { getRewardStatus, RewardStatus } from '../../../lib/db';
 import { fetchNotifications, useDBProfile } from '../../../lib/db';
 import { useSubscription } from '../../../hooks/useSubscription';
 
@@ -430,6 +431,18 @@ export default function StudyOSDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   
   const [syncKey, setSyncKey] = useState(0);
+  const { user } = useUser();
+  const [isRewardPremium, setIsRewardPremium] = useState(false);
+  const isActuallyPro = isPro || isRewardPremium;
+
+  useEffect(() => {
+    if (user?.id) {
+      getRewardStatus(user.id)
+        .then((res: RewardStatus) => setIsRewardPremium(res.is_reward_premium_active))
+        .catch(() => {});
+    }
+  }, [user]);
+
   const [toastVisible, setToastVisible] = useState(false);
   const [selectedSubjectDetails, setSelectedSubjectDetails] = useState<{code: string, name: string, viewActionTarget?: string} | null>(null);
   const [toastMsg, setToastMsg] = useState('');
@@ -677,19 +690,28 @@ export default function StudyOSDashboard() {
           </View>
 
           <View style={styles.headerRight}>
-                <TouchableOpacity onPress={() => router.push('/(app)/_pathwise_subscription' as any)}>
-                  {isSubscribed ? (
-                    <View style={{ backgroundColor: '#22c55e20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#22c55e40' }}>
-                      <Text style={{ color: '#22c55e', fontSize: 12, fontFamily: 'Inter_700Bold' }}>PRO</Text>
-                    </View>
-                  ) : isTrialActive ? (
-                    <View style={{ backgroundColor: '#eab30820', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#eab30840' }}>
-                      <Text style={{ color: '#eab308', fontSize: 12, fontFamily: 'Inter_700Bold' }}>{trialDaysLeft}D Trial</Text>
-                    </View>
-                  ) : null}
-                </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TouchableOpacity onPress={() => router.push('/(app)/_pathwise_subscription' as any)}>
+                    {isSubscribed ? (
+                      <View style={{ backgroundColor: '#22c55e20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#22c55e40' }}>
+                        <Text style={{ color: '#22c55e', fontSize: 12, fontFamily: 'Inter_700Bold' }}>PRO</Text>
+                      </View>
+                    ) : isTrialActive ? (
+                      <View style={{ backgroundColor: '#eab30820', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#eab30840' }}>
+                        <Text style={{ color: '#eab308', fontSize: 12, fontFamily: 'Inter_700Bold' }}>{trialDaysLeft}D Trial</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
 
-                <TouchableOpacity style={{ marginLeft: 16 }} onPress={() => router.push('/studyos/notifications' as any)}>
+                  <TouchableOpacity onPress={() => router.push('/(app)/rewards' as any)} style={{ marginLeft: 8, backgroundColor: isActuallyPro ? '#FBBF24' : colors.surfaceHigh, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', borderRadius: 25, borderWidth: 1, borderColor: isActuallyPro ? '#F59E0B' : colors.border }}>
+                    {isActuallyPro ? (
+                      <Ionicons name="star" size={28} color="#fff" />
+                    ) : (
+                      <Ionicons name="diamond" size={32} color="#FBBF24" />
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={{ marginLeft: 16 }} onPress={() => router.push('/studyos/notifications' as any)}>
                   <View>
                     <Ionicons name="notifications-outline" size={26} color={colors.text} />
                     {unreadCount > 0 && (
@@ -724,6 +746,7 @@ export default function StudyOSDashboard() {
                 }}>
                   <Ionicons name="menu" size={28} color={colors.text} />
                 </TouchableOpacity>
+              </View>
           </View>
         </View>
 

@@ -314,3 +314,92 @@ export function useDBProfile() {
 
   return { dbUser, loading, setDbUser };
 }
+
+// ==========================================
+// 🪙 REWARD SYSTEM API FUNCTIONS
+// ==========================================
+
+export interface RewardStatus {
+  token_balance: number;
+  ads_watched_today: number;
+  ads_remaining_today: number;
+  max_ads_per_day: number;
+  tokens_per_ad: number;
+  premium_expires_at: number | null;
+  is_reward_premium_active: boolean;
+  plans: {
+    one_day:   { tokens: number; days: number };
+    one_week:  { tokens: number; days: number };
+    two_weeks: { tokens: number; days: number };
+    one_month: { tokens: number; days: number };
+  };
+}
+
+export async function getRewardStatus(clerkId: string): Promise<RewardStatus> {
+  const res = await fetch(`${API_URL}/rewards/status`, {
+    method: 'GET',
+    headers: { 'x-clerk-user-id': clerkId },
+  });
+  if (!res.ok) throw new Error('Failed to fetch reward status');
+  return res.json();
+}
+
+export async function claimDailyBonus(clerkId: string): Promise<{
+  success: boolean;
+  tokens_earned: number;
+  token_balance: number;
+  ads_watched_today: number;
+  ads_remaining_today: number;
+}> {
+  const res = await fetch(`${API_URL}/rewards/daily-bonus`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-clerk-user-id': clerkId,
+    },
+  });
+  const data = await res.json();
+  if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
+  return data;
+}
+
+export async function claimAdReward(clerkId: string, adType: string): Promise<{
+  success: boolean;
+  tokens_earned: number;
+  token_balance: number;
+  ads_watched_today: number;
+  ads_remaining_today: number;
+}> {
+  const res = await fetch(`${API_URL}/rewards/watch-ad`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-clerk-user-id': clerkId,
+    },
+    body: JSON.stringify({ ad_type: adType }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
+  return data;
+}
+
+export async function redeemTokensForPremium(clerkId: string, plan: 'one_day' | 'one_week' | 'two_weeks' | 'one_month'): Promise<{
+  success: boolean;
+  tokens_spent: number;
+  days_added: number;
+  token_balance: number;
+  premium_expires_at: number;
+  message: string;
+}> {
+  const res = await fetch(`${API_URL}/rewards/redeem`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-clerk-user-id': clerkId,
+    },
+    body: JSON.stringify({ plan }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
+  return data;
+}
