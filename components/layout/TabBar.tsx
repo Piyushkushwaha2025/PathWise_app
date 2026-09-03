@@ -167,13 +167,15 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                         
                         if (hovered) {
                             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                            if (hovered === 'studyos' && !isStudyOSMode) {
-                                setStudyOSMode(true);
-                                router.replace('/(app)/dashboard');
-                            } else if (hovered === 'pathwise' && isStudyOSMode) {
-                                setStudyOSMode(false);
-                                router.replace('/(app)/dashboard');
-                            }
+                            setTimeout(() => {
+                                if (hovered === 'studyos' && !isStudyOSMode) {
+                                    setStudyOSMode(true);
+                                    router.replace('/(app)/dashboard');
+                                } else if (hovered === 'pathwise' && isStudyOSMode) {
+                                    setStudyOSMode(false);
+                                    router.replace('/(app)/dashboard');
+                                }
+                            }, 150);
                         }
                     } else {
                         onPress(); // Normal tap
@@ -350,3 +352,4 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     paddingHorizontal: 2,
   },
 });
+
