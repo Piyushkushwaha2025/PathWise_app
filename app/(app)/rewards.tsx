@@ -22,8 +22,8 @@ const PLANS = [
 
 const AD_OPTIONS = [
   { id: '10sec', label: '10 sec Ad', tokens: 5,  icon: 'play-outline' as const  },
-  { id: '30sec', label: '30 sec Ad', tokens: 15, icon: 'play-circle-outline' as const },
-  { id: '60sec', label: '60 sec Ad', tokens: 30, icon: 'tv-outline' as const },
+  { id: '30sec', label: '30 sec Ad', tokens: 10, icon: 'play-circle-outline' as const },
+  { id: '60sec', label: '60 sec Ad', tokens: 20, icon: 'tv-outline' as const },
 ];
 
 export default function RewardsScreen() {

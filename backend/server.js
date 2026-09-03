@@ -789,14 +789,14 @@ app.post('/api/rewards/watch-ad', getClerkId, async (req, res) => {
     if (user.ads_watched_today >= MAX_ADS_PER_DAY) {
       return res.status(429).json({
         error: 'DAILY_LIMIT_REACHED',
-        message: `Aaj ke liye max ${MAX_ADS_PER_DAY} ads dekh liye!`,
+        message: 'Aaj ke liye max ' + MAX_ADS_PER_DAY + ' ads dekh liye!',
       });
     }
 
     const adType = req.body.ad_type;
     let tokensToCredit = 10;
-    if (adType === '30sec') tokensToCredit = 15;
-    else if (adType === '60sec') tokensToCredit = 30;
+    if (adType === '30sec') tokensToCredit = 10;
+    else if (adType === '60sec') tokensToCredit = 20;
     else if (adType === '10sec') tokensToCredit = 5;
 
     user.token_balance = (user.token_balance || 0) + tokensToCredit;

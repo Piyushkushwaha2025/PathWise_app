@@ -20,7 +20,7 @@ import {
 } from "../../hooks/useRoadmaps";
 import { useEnrollments } from "../../hooks/useEnrollments";
 import { useProgress } from "../../hooks/useProgress";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useStudySessionStore } from "../../store/studySessionStore";
 import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
@@ -60,17 +60,23 @@ export default function DashboardScreen() {
   const { isStudyOSMode, toggleMode } = useStudySessionStore();
   
   const [isPremium, setIsPremium] = useState(false);
+  const [tokenBalance, setTokenBalance] = useState(0);
 
-  React.useEffect(() => {
-    if (!user?.id) return;
-    if (user.unsafeMetadata?.isSubscribed) {
-      setIsPremium(true);
-    } else {
-      getRewardStatus(user.id)
-        .then((res: any) => setIsPremium(res.is_reward_premium_active))
-        .catch(() => {});
-    }
-  }, [user]);
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!user?.id) return;
+      if (user.unsafeMetadata?.isSubscribed) {
+        setIsPremium(true);
+      } else {
+        getRewardStatus(user.id)
+          .then((res: any) => {
+            setIsPremium(res.is_reward_premium_active);
+            setTokenBalance(res.token_balance || 0);
+          })
+          .catch(() => {});
+      }
+    }, [user])
+  );
 
   const { data: roadmapsCatalog = [], isLoading: isLoadingCatalog } =
     useRoadmapsCatalog();
@@ -110,14 +116,20 @@ export default function DashboardScreen() {
           <BrainCircuit size={40} color={colors.primary} />
           <Text style={styles.title}>Your Dashboard</Text>
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
-          <TouchableOpacity onPress={() => router.push('/(app)/rewards')} style={{ backgroundColor: isPremium ? '#FBBF24' : colors.surfaceHigh, width: 50, height: 50, justifyContent: 'center', alignItems: 'center', borderRadius: 25, borderWidth: 1, borderColor: isPremium ? '#F59E0B' : colors.border }}>
-            {isPremium ? (
-              <Ionicons name="star" size={28} color="#fff" />
-            ) : (
-              <Ionicons name="diamond" size={32} color="#FBBF24" />
-            )}
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+            <TouchableOpacity onPress={() => router.push('/(app)/rewards')} style={{ backgroundColor: isPremium ? '#FBBF24' : colors.surfaceHigh, flexDirection: 'row', height: 42, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 21, borderWidth: 1, borderColor: isPremium ? '#F59E0B' : colors.border, gap: 8 }}>
+              {isPremium ? (
+                <>
+                  <Ionicons name="star" size={18} color="#fff" />
+                  <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Pro</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="diamond" size={20} color="#FBBF24" />
+                  <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 16 }}>{tokenBalance}</Text>
+                </>
+              )}
+            </TouchableOpacity>
           <TouchableOpacity onPress={() => setNotificationsVisible(true)} style={{ padding: 6 }}>
             <Ionicons name="notifications-outline" size={28} color={colors.text} />
           </TouchableOpacity>

@@ -308,6 +308,7 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     fontSize: 10,
     fontFamily: "Inter_500Medium",
     color: colors.textDim,
+    paddingHorizontal: 2,
   },
   labelActive: {
     color: colors.primary,
@@ -346,5 +347,6 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     color: colors.primary,
     position: "absolute",
     bottom: -4,
+    paddingHorizontal: 2,
   },
 });
