@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { MotiView, AnimatePresence } from 'moti';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRewardStatus, claimAdReward, claimDailyBonus, redeemTokensForPremium, RewardStatus } from '../../lib/db';
+import { useQueryClient } from '@tanstack/react-query';
 
 const PLANS = [
   { key: 'one_day' as const,   label: '1 Day',   tokens: 50,  days: 1  },
@@ -30,6 +31,7 @@ export default function RewardsScreen() {
   const colors = useThemeStore((s) => s.colors);
   const { user } = useUser();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const [status, setStatus] = useState<RewardStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -236,6 +238,7 @@ export default function RewardsScreen() {
         premium_expires_at: result.premium_expires_at,
         is_reward_premium_active: true,
       } : prev);
+      queryClient.invalidateQueries({ queryKey: ['rewardStatus', user.id] });
       showToast('Premium Unlocked! ⭐', `${confirmRedeemPlan.days} Days of Pro added!`);
     } catch (e: any) {
       showToast('Error', 'Could not redeem tokens.', true);
@@ -414,15 +417,15 @@ export default function RewardsScreen() {
             disabled={dailyClaimed}
           >
             <View style={s.dailyLeft}>
-              <Text style={s.dailyIcon}>🎁</Text>
+              <Text style={[s.dailyIcon, dailyClaimed && { opacity: 0.5 }]}>🎁</Text>
               <View>
-                <Text style={s.dailyTitle}>Daily Bonus</Text>
-                <Text style={s.dailySub}>{dailyClaimed ? 'Come back tomorrow!' : 'Tap to collect your daily tokens'}</Text>
+                <Text style={[s.dailyTitle, dailyClaimed && { color: colors.text }]}>Daily Bonus</Text>
+                <Text style={[s.dailySub, dailyClaimed && { color: colors.textMuted }]}>{dailyClaimed ? 'Come back tomorrow!' : 'Tap to collect your daily tokens'}</Text>
               </View>
             </View>
             <View style={s.dailyRight}>
-              <Text style={s.dailyTokens}>+10</Text>
-              <Text style={s.dailyTokenLabel}>tokens</Text>
+              <Text style={[s.dailyTokens, dailyClaimed && { color: colors.textDim }]}>+10</Text>
+              <Text style={[s.dailyTokenLabel, dailyClaimed && { color: colors.textMuted }]}>tokens</Text>
             </View>
           </TouchableOpacity>
         </MotiView>

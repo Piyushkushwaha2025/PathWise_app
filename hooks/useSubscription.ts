@@ -1,11 +1,20 @@
-import { useUser } from '@clerk/clerk-expo';
+﻿import { useUser } from '@clerk/clerk-expo';
 import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getRewardStatus } from '../lib/db';
 
 const TRIAL_DAYS = 3; // 3 days free trial for new users
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 export function useSubscription() {
   const { user } = useUser();
+
+  const { data: rewardStatus } = useQuery({
+    queryKey: ['rewardStatus', user?.id],
+    queryFn: () => getRewardStatus(user!.id),
+    enabled: !!user?.id,
+    staleTime: 1000 * 60 * 5, // 5 mins
+  });
 
   const subscriptionStatus = useMemo(() => {
     if (!user) {
@@ -47,19 +56,20 @@ export function useSubscription() {
       }
     }
 
-    const isPro = isSubscribed || isTrialActive;
-    const plan = isSubscribed ? rawPlan : null;
+    const isRewardPro = !!rewardStatus?.is_reward_premium_active;
+    const isPro = isSubscribed || isTrialActive || isRewardPro;
+    const plan = isSubscribed ? rawPlan : (isRewardPro ? 'reward' : null);
 
     return {
       isPro,
       trialDaysLeft,
       isTrialActive,
       isSubscribed,
-      isSubscriptionRequired: !isPro, // if neither subscribed nor in trial
+      isSubscriptionRequired: !isPro, // if neither subscribed nor in trial nor reward premium
       plan,
       subscriptionDaysLeft,
     };
-  }, [user, user?.unsafeMetadata]);
+  }, [user, user?.unsafeMetadata, rewardStatus]);
 
   return subscriptionStatus;
 }

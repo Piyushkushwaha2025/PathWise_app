@@ -397,7 +397,7 @@ export async function redeemTokensForPremium(clerkId: string, plan: 'one_day' | 
       'Content-Type': 'application/json',
       'x-clerk-user-id': clerkId,
     },
-    body: JSON.stringify({ plan }),
+    body: JSON.stringify({ plan_key: plan }),
   });
   const data = await res.json();
   if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });

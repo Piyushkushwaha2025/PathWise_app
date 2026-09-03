@@ -154,6 +154,7 @@ export default function AITutorChatScreen() {
 
   const [apiKey, setApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [isInitializingSettings, setIsInitializingSettings] = useState(true);
   const [isEditingKey, setIsEditingKey] = useState(false);
   const [hasSavedKey, setHasSavedKey] = useState(false);
   const [keyError, setKeyError] = useState('');
@@ -401,6 +402,7 @@ export default function AITutorChatScreen() {
        setIsEditingKey(true);
        setShowSettings(true);
     }
+    setIsInitializingSettings(false);
   };
 
   const saveApiKey = async () => {
@@ -701,6 +703,14 @@ export default function AITutorChatScreen() {
     strong: { fontFamily: 'Inter_600SemiBold' },
     link: { color: colors.primary, textDecorationLine: 'underline' } as const
   };
+
+  if (!isAccessGranted || isInitializingSettings) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
 
   if (showSettings) {
     return (
