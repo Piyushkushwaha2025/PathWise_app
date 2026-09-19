@@ -54,9 +54,17 @@ const UserSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  daily_ad_views: {
+    type: Number,
+    default: 0
+  },
   last_ad_watch_date: {
     type: String,
     default: null  // "2026-09-02" format — reset daily
+  },
+  last_ad_watch_time: {
+    type: Date,
+    default: null
   },
   last_daily_bonus_date: {
     type: String,

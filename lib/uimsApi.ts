@@ -49,6 +49,16 @@ export async function fetchAttendance(): Promise<AttendanceData[]> {
 
     if (!response.data || (!Array.isArray(response.data) && typeof response.data !== 'object')) {
       if (typeof response.data === 'string' && (response.data.toLowerCase().includes('login') || response.data.toLowerCase().includes('html'))) {
+         const savedAt = await SecureStore.getItemAsync('session_saved_at');
+         if (savedAt) {
+           const ageHours = (Date.now() - parseInt(savedAt)) / (1000 * 60 * 60);
+           // If session is less than 20 hours old, this is likely a flaky network WAF block.
+           // Don't expire the session, just fallback to cache.
+           if (ageHours < 20) {
+             console.warn(`[UIMS] Session is young (${ageHours.toFixed(2)}h) but got HTML/login. Treating as network error to preserve session.`);
+             throw new NetworkError('UIMS Flaky Network');
+           }
+         }
          throw new SessionExpiredError('UIMS Session expired');
       }
       throw new Error('Invalid response from Attendance API');
@@ -135,10 +145,21 @@ export async function fetchAttendance(): Promise<AttendanceData[]> {
     return attendance;
   } catch (error: any) {
     if (error instanceof SessionExpiredError) throw error;
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
-      throw new SessionExpiredError('UIMS Session expired');
-    }
-    if (error?.message?.toLowerCase()?.includes('expired') || error?.message?.toLowerCase()?.includes('login')) {
+    if (error instanceof NetworkError) throw error; // Allow NetworkError (from young session check) to propagate to cache fallback
+
+    const isAuthError = (error.response && (error.response.status === 401 || error.response.status === 403)) || 
+                        error?.message?.toLowerCase()?.includes('expired') || 
+                        error?.message?.toLowerCase()?.includes('login');
+    
+    if (isAuthError) {
+      const savedAt = await SecureStore.getItemAsync('session_saved_at');
+      if (savedAt) {
+        const ageHours = (Date.now() - parseInt(savedAt)) / (1000 * 60 * 60);
+        if (ageHours < 20) {
+          console.warn(`[UIMS] Network/401 auth error, but session is young (${ageHours.toFixed(2)}h). Treating as NetworkError.`);
+          throw new NetworkError('UIMS Flaky Network');
+        }
+      }
       throw new SessionExpiredError('UIMS Session expired');
     }
     
@@ -174,7 +195,15 @@ export async function fetchTimetable(): Promise<TimetableSlot[]> {
     });
 
     if (!response.data || !Array.isArray(response.data)) {
-      if (typeof response.data === 'string' && response.data.includes('login')) {
+      if (typeof response.data === 'string' && (response.data.toLowerCase().includes('login') || response.data.toLowerCase().includes('html'))) {
+         const savedAt = await SecureStore.getItemAsync('session_saved_at');
+         if (savedAt) {
+           const ageHours = (Date.now() - parseInt(savedAt)) / (1000 * 60 * 60);
+           if (ageHours < 20) {
+             console.warn(`[UIMS] Timetable: Session is young (${ageHours.toFixed(2)}h) but got HTML/login. Treating as network error.`);
+             throw new NetworkError('UIMS Flaky Network');
+           }
+         }
          throw new SessionExpiredError('UIMS Session expired');
       }
       throw new Error('Invalid response from Timetable API');
@@ -195,7 +224,21 @@ export async function fetchTimetable(): Promise<TimetableSlot[]> {
     return timetable;
   } catch (error: any) {
     if (error instanceof SessionExpiredError) throw error;
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+    if (error instanceof NetworkError) throw error;
+
+    const isAuthError = (error.response && (error.response.status === 401 || error.response.status === 403)) || 
+                        error?.message?.toLowerCase()?.includes('expired') || 
+                        error?.message?.toLowerCase()?.includes('login');
+    
+    if (isAuthError) {
+      const savedAt = await SecureStore.getItemAsync('session_saved_at');
+      if (savedAt) {
+        const ageHours = (Date.now() - parseInt(savedAt)) / (1000 * 60 * 60);
+        if (ageHours < 20) {
+          console.warn(`[UIMS] Timetable: Network/401 error, but session is young (${ageHours.toFixed(2)}h). Treating as NetworkError.`);
+          throw new NetworkError('UIMS Flaky Network');
+        }
+      }
       throw new SessionExpiredError('UIMS Session expired');
     }
     

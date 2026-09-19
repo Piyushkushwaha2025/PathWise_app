@@ -176,10 +176,17 @@ export default function WebViewLoginScreen() {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'CAPTCHA_SRC') {
         setCaptchaBase64(data.src);
+        if (step === 2 && isProcessing && loadingMsg === 'Authenticating...') {
+          setInlineError('Invalid CAPTCHA or credentials. Please try again with the new image.');
+          setCaptchaInput('');
+        } else if (step === 1) {
+          setInlineError('');
+        }
         setStep(2);
         setIsProcessing(false);
       } else if (data.type === 'ERROR') {
         setInlineError(data.msg);
+        setCaptchaInput(''); // Clear the old input
         setIsProcessing(false);
       }
     } catch (e) {}
@@ -207,14 +214,15 @@ export default function WebViewLoginScreen() {
     
     setInlineError('');
     setIsProcessing(true);
-    setLoadingMsg('Restoring Connection...');
+    setLoadingMsg('Connecting...');
     
     const script = `
-      var uidField = document.getElementById('txtUserId');
-      var nextBtn = document.getElementById('btnNext');
+      var uidField = document.getElementById('txtUserId') || document.querySelector('input[name*="UserId"]');
+      var nextBtn = document.getElementById('btnNext') || document.querySelector('input[type="submit"][value="Next"]');
       if (uidField && nextBtn) {
         uidField.value = '${uid.trim()}';
-        nextBtn.click();
+        uidField.dispatchEvent(new Event('change', { bubbles: true }));
+        setTimeout(function() { nextBtn.click(); }, 100);
       }
       true;
     `;
@@ -230,15 +238,58 @@ export default function WebViewLoginScreen() {
     setIsProcessing(true);
     setLoadingMsg('Authenticating...');
 
+    const safeUid = uid.trim().replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safePwd = pwd.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeCaptcha = captchaInput.trim().replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
     const script = `
-      var pwdField = document.getElementById('txtLoginPassword');
-      var captchaField = document.getElementById('txtcaptcha');
-      var loginBtn = document.getElementById('btnLogin');
-      if (pwdField && captchaField && loginBtn) {
-        pwdField.value = '${pwd.replace(/'/g, "\\\\'")}';
-        captchaField.value = '${captchaInput.trim()}';
-        loginBtn.click();
-      }
+      (function() {
+        try {
+          var uidField = document.getElementById('txtUserId') || document.querySelector('input[name*="UserId"]');
+          if (uidField && !uidField.value) {
+            uidField.value = '${safeUid}';
+            uidField.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          var pwdField = document.getElementById('txtLoginPassword') || document.getElementById('txtPassword') || document.querySelector('input[type="password"]');
+          var captchaField = document.getElementById('txtcaptcha') || document.getElementById('txtCaptcha') || document.querySelector('input[name*="captcha"]');
+          
+          var loginBtn = document.getElementById('btnLogin') || document.getElementById('btnSubmit');
+          if (!loginBtn) {
+            var submits = document.querySelectorAll('input[type="submit"], button[type="submit"]');
+            for (var i = 0; i < submits.length; i++) {
+              if (submits[i].id !== 'btnNext' && submits[i].name !== 'btnNext') {
+                loginBtn = submits[i];
+                break;
+              }
+            }
+          }
+
+          if (pwdField && captchaField && loginBtn) {
+            pwdField.value = '${safePwd}';
+            pwdField.dispatchEvent(new Event('input', { bubbles: true }));
+            pwdField.dispatchEvent(new Event('change', { bubbles: true }));
+
+            captchaField.value = '${safeCaptcha}';
+            captchaField.dispatchEvent(new Event('input', { bubbles: true }));
+            captchaField.dispatchEvent(new Event('change', { bubbles: true }));
+
+            setTimeout(function() {
+              loginBtn.click();
+            }, 100);
+          } else {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ 
+              type: 'ERROR', 
+              msg: 'Login fields not found on page.' 
+            }));
+          }
+        } catch(err) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ 
+            type: 'ERROR', 
+            msg: err.message || 'Error submitting form' 
+          }));
+        }
+      })();
       true;
     `;
     webViewRef.current?.injectJavaScript(script);
@@ -249,31 +300,42 @@ export default function WebViewLoginScreen() {
       let lastError = '';
       let lastCaptcha = '';
       
+      // Intercept window.alert for UIMS popups
+      const originalAlert = window.alert;
+      window.alert = function(msg) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', msg: msg }));
+        if (originalAlert) {}
+      };
+
       setInterval(function() {
         try {
-          var errorLbl = document.getElementById('lblMessage');
-          if (errorLbl && errorLbl.innerText.trim() !== '' && errorLbl.innerText.trim() !== lastError) {
+          var errorLbl = document.getElementById('lblMessage') || document.getElementById('lblMsg') || document.getElementById('lblError');
+          if (errorLbl && errorLbl.innerText && errorLbl.innerText.trim() !== '' && errorLbl.innerText.trim() !== lastError) {
              lastError = errorLbl.innerText.trim();
-             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', msg: lastError }));
+             if (!lastError.toLowerCase().includes('success') && !lastError.toLowerCase().includes('wait')) {
+               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', msg: lastError }));
+             }
           }
 
-          var captchaImg = document.getElementById('imgCaptcha');
-          if (captchaImg && captchaImg.src && captchaImg.src !== lastCaptcha) {
+          var captchaImg = document.getElementById('imgCaptcha') || document.querySelector('img[src*="Captcha"]') || document.querySelector('img[src*="captcha"]');
+          if (captchaImg && captchaImg.src && captchaImg.src !== lastCaptcha && captchaImg.complete && captchaImg.naturalWidth > 0) {
              lastCaptcha = captchaImg.src;
              try {
                var canvas = document.createElement('canvas');
-               canvas.width = captchaImg.width || 150;
-               canvas.height = captchaImg.height || 50;
+               canvas.width = captchaImg.naturalWidth;
+               canvas.height = captchaImg.naturalHeight;
                var ctx = canvas.getContext('2d');
-               ctx.drawImage(captchaImg, 0, 0, canvas.width, canvas.height);
+               ctx.drawImage(captchaImg, 0, 0);
                var base64 = canvas.toDataURL('image/png');
-               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CAPTCHA_SRC', src: base64 }));
+               if (base64 && base64.length > 100) {
+                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CAPTCHA_SRC', src: base64 }));
+               }
              } catch(e) {
                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CAPTCHA_SRC', src: lastCaptcha }));
              }
           }
         } catch(e) {}
-      }, 500);
+      }, 600);
     })();
     true;
   `;
@@ -399,12 +461,12 @@ export default function WebViewLoginScreen() {
         </ScrollView>
       </View>
 
-      <View style={{ position: 'absolute', width: 0, height: 0, opacity: 0, overflow: 'hidden' }}>
+      <View style={{ position: 'absolute', top: -9999, left: -9999, width: 400, height: 800, opacity: 0 }}>
         <WebView
           key={webviewKey}
           ref={webViewRef}
           source={{ uri: activeUni.loginUrl }}
-          style={{ width: 0, height: 0, backgroundColor: 'transparent' }}
+          style={{ width: 400, height: 800 }}
           onNavigationStateChange={handleNavigationStateChange}
           onMessage={handleMessage}
           injectedJavaScript={injectedJs}

@@ -1,9 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
 import { useStudyOSStore } from '../store/studyosStore';
+import { useStudySessionStore } from '../store/studySessionStore';
 import { Spacing, Radius } from '../constants/theme';
 import * as SecureStore from 'expo-secure-store';
 import { useRouter } from 'expo-router';
@@ -11,12 +12,13 @@ import { useSubscription } from '../hooks/useSubscription';
 import { usePaywallStore } from '../store/usePaywallStore';
 import { isHolidayOrExam } from '../constants/calendar';
 import Slider from '@react-native-community/slider';
-import { Svg, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { Svg, Path, Defs, LinearGradient, Stop, Polygon, Circle, G, Text as SvgText } from 'react-native-svg';
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedProps, withTiming, withSpring, Easing, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { CheckCircle2, XCircle, Stethoscope, Briefcase } from 'lucide-react-native';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedG = Animated.createAnimatedComponent(G);
 
 const PremiumSlider = ({ value, onValueChange, min = 1, max = 30, colors }: any) => {
   const trackWidth = useSharedValue(0);
@@ -67,28 +69,28 @@ const PremiumSlider = ({ value, onValueChange, min = 1, max = 30, colors }: any)
   const thumbStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: progress.value * trackWidth.value },
-      { scale: withSpring(isDragging.value ? 1.3 : 1) }
+      { scale: withSpring(isDragging.value ? 1.2 : 1) }
     ]
   }));
 
   return (
     <GestureDetector gesture={composed}>
       <View 
-        style={{ height: 40, justifyContent: 'center', paddingHorizontal: 12, marginVertical: 8 }}
-        onLayout={(e) => { trackWidth.value = e.nativeEvent.layout.width - 24; }}
+        style={{ height: 16, justifyContent: 'center', paddingHorizontal: 2, marginVertical: 1 }}
+        onLayout={(e) => { trackWidth.value = e.nativeEvent.layout.width - 10; }}
       >
-        <View style={{ height: 8, backgroundColor: colors.border, borderRadius: 4, overflow: 'hidden' }}>
-          <Animated.View style={[{ height: '100%', backgroundColor: colors.primary, borderRadius: 4 }, fillStyle]} />
+        <View style={{ height: 3, backgroundColor: colors.border, borderRadius: 1.5, overflow: 'hidden' }}>
+          <Animated.View style={[{ height: '100%', backgroundColor: colors.primary, borderRadius: 1.5 }, fillStyle]} />
         </View>
         <Animated.View style={[{
           position: 'absolute',
           left: 0, 
-          width: 24, height: 24,
-          borderRadius: 12,
+          width: 10, height: 10,
+          borderRadius: 5,
           backgroundColor: '#fff',
           shadowColor: colors.primary, shadowOpacity: 0.8, shadowRadius: 10, shadowOffset: { width: 0, height: 0 },
           elevation: 5,
-          borderWidth: 2,
+          borderWidth: 1.5,
           borderColor: colors.primary,
         }, thumbStyle]} />
       </View>
@@ -96,23 +98,204 @@ const PremiumSlider = ({ value, onValueChange, min = 1, max = 30, colors }: any)
   );
 };
 
+const SpeedometerDual = ({ currentPct, attendPct, missPct, colors }: { currentPct: number, attendPct: number, missPct: number | null, colors: any }) => {
+  const radius = 50;
+  const strokeWidth = 10;
+  const arcLength = Math.PI * radius;
+  const isSafe = currentPct >= 75;
+  const isWarning = currentPct >= 60 && currentPct < 75;
+  
+  const gradientStart = isSafe ? '#0d9488' : isWarning ? '#f59e0b' : '#ef4444';
+  const gradientEnd = isSafe ? '#4ade80' : isWarning ? '#fbbf24' : '#f87171';
+  const baseColor = isSafe ? '#22c55e' : isWarning ? '#f59e0b' : '#ef4444';
+
+  const getMarkerTransform = (pct: number) => {
+    const angleDeg = -180 + (Math.max(0, Math.min(100, pct)) / 100) * 180;
+    const rad = (angleDeg * Math.PI) / 180;
+    const x = 60 + Math.cos(rad) * 58;
+    const y = 60 + Math.sin(rad) * 58;
+    // Bring text closer to the arrow to avoid clipping outside SVG bounds
+    const textX = 60 + Math.cos(rad) * 66;
+    const textY = 60 + Math.sin(rad) * 66;
+    
+    // Smart text anchor based on which side of the speedometer the marker is on
+    let anchor = "middle";
+    if (angleDeg > -80 && angleDeg <= 0) anchor = "start"; // Right half
+    else if (angleDeg < -100 && angleDeg >= -180) anchor = "end"; // Left half
+    
+    return { x, y, textX, textY, rotation: angleDeg + 90, anchor };
+  };
+
+  const animatedProgress = useSharedValue(0);
+  const needleRot = useSharedValue(-90);
+  
+  useEffect(() => {
+    // Reset to 0 just in case
+    animatedProgress.value = 0;
+    needleRot.value = -90;
+    // Animate smoothly after a longer delay (let the modal slide up first)
+    animatedProgress.value = withDelay(600, withTiming(currentPct, { duration: 1500, easing: Easing.out(Easing.cubic) }));
+    const target = -90 + (Math.max(0, Math.min(100, currentPct)) / 100) * 180;
+    needleRot.value = withDelay(600, withTiming(target, { duration: 1500, easing: Easing.out(Easing.cubic) }));
+  }, [currentPct]);
+  
+  const animatedArcProps = useAnimatedProps(() => {
+    const safePct = Math.max(0, Math.min(100, animatedProgress.value));
+    return {
+      strokeDashoffset: arcLength - (arcLength * safePct) / 100,
+    } as any;
+  });
+  
+  const animatedNeedleProps = useAnimatedProps(() => ({
+    rotation: needleRot.value,
+  } as any));
+
+  const attendMarker = getMarkerTransform(attendPct);
+  const missMarker = missPct !== null ? getMarkerTransform(missPct) : null;
+
+  return (
+    <View style={{ width: '100%', alignItems: 'center', justifyContent: 'flex-start', overflow: 'visible' }}>
+      <View style={{ width: '100%', aspectRatio: 1.6, overflow: 'visible' }}>
+        {/* Tighter viewBox so the speedometer draws MUCH larger relative to its container */}
+        <Svg viewBox="-12 -5 144 85" width="100%" height="100%" style={{ overflow: 'visible' }}>
+          <Defs>
+            <LinearGradient id="gradModern" x1="0" y1="0" x2="1" y2="0">
+              <Stop offset="0" stopColor={isSafe ? "#3b82f6" : gradientStart} stopOpacity="1" />
+              <Stop offset="0.5" stopColor={isSafe ? "#06b6d4" : gradientStart} stopOpacity="1" />
+              <Stop offset="1" stopColor={isSafe ? "#22c55e" : gradientEnd} stopOpacity="1" />
+            </LinearGradient>
+          </Defs>
+          
+          {/* Background Track (Faint, sleek line without dark borders) */}
+          <Path d={`M 10 60 A ${radius} ${radius} 0 0 1 110 60`} stroke="rgba(255,255,255,0.08)" strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
+          
+          {/* Animated Progress Arc (Glows beautifully without ugly borders underneath) */}
+          <AnimatedPath 
+            d={`M 10 60 A ${radius} ${radius} 0 0 1 110 60`} 
+            stroke="url(#gradModern)" 
+            strokeWidth={strokeWidth} 
+            strokeLinecap="round" 
+            fill="none"
+            strokeDasharray={arcLength} 
+            animatedProps={animatedArcProps} 
+          />
+
+          {/* Tick Marks and Labels */}
+          {[0, 20, 40, 60, 80, 100].map((val) => {
+            const angleDeg = -180 + (val / 100) * 180;
+            const rad = (angleDeg * Math.PI) / 180;
+            const tickOut = 44; 
+            const tickIn = 39;
+            const textR = 25; 
+            const x1 = 60 + Math.cos(rad) * tickIn;
+            const y1 = 60 + Math.sin(rad) * tickIn;
+            const x2 = 60 + Math.cos(rad) * tickOut;
+            const y2 = 60 + Math.sin(rad) * tickOut;
+            const tx = 60 + Math.cos(rad) * textR;
+            const ty = 60 + Math.sin(rad) * textR;
+            return (
+              <G key={`maj_${val}`}>
+                <Path d={`M ${x1} ${y1} L ${x2} ${y2}`} stroke={colors.textMuted} strokeWidth={1.5} opacity={0.6} />
+                <SvgText x={tx} y={ty} fill={colors.textMuted} fontSize="9" fontWeight="bold" textAnchor="middle" alignmentBaseline="middle">
+                  {val}
+                </SvgText>
+              </G>
+            );
+          })}
+          
+          {/* Minor ticks */}
+          {Array.from({length: 21}).map((_, i) => {
+            const val = i * 5;
+            if (val % 20 === 0) return null;
+            const angleDeg = -180 + (val / 100) * 180;
+            const rad = (angleDeg * Math.PI) / 180;
+            const x1 = 60 + Math.cos(rad) * 42;
+            const y1 = 60 + Math.sin(rad) * 42;
+            const x2 = 60 + Math.cos(rad) * 44;
+            const y2 = 60 + Math.sin(rad) * 44;
+            return <Path key={`min_${val}`} d={`M ${x1} ${y1} L ${x2} ${y2}`} stroke={colors.textMuted} strokeWidth={1} opacity={0.3} />;
+          })}
+          
+          {/* Attend Marker */}
+          <G x={attendMarker.x} y={attendMarker.y} rotation={attendMarker.rotation} origin="0, 0">
+            <Polygon points="-4,-10 4,-10 0,-1" fill="#22c55e" />
+          </G>
+          <SvgText x={attendMarker.textX} y={attendMarker.textY} fill="#22c55e" fontSize="11" fontWeight="900" textAnchor={attendMarker.anchor as any} alignmentBaseline="middle">
+            {attendPct}%
+          </SvgText>
+          
+          {/* Miss Marker */}
+          {missMarker && (
+            <>
+              <G x={missMarker.x} y={missMarker.y} rotation={missMarker.rotation} origin="0, 0">
+                <Polygon points="-4,-10 4,-10 0,-1" fill="#ef4444" />
+              </G>
+              <SvgText x={missMarker.textX} y={missMarker.textY} fill="#ef4444" fontSize="11" fontWeight="900" textAnchor={missMarker.anchor as any} alignmentBaseline="middle">
+                {missPct}%
+              </SvgText>
+            </>
+          )}
+
+          {/* Elegant Animated Needle */}
+          <AnimatedG origin="60, 60" animatedProps={animatedNeedleProps}>
+            <Path d="M 59,60 L 61,60 L 60.5,18 L 59.5,18 Z" fill={isSafe ? "#06b6d4" : baseColor} />
+            <Path d="M 59,60 L 61,60 L 60.5,18 L 59.5,18 Z" fill={isSafe ? "#06b6d4" : baseColor} opacity={0.6} stroke={isSafe ? "#06b6d4" : baseColor} strokeWidth={2} />
+            <Circle cx="60" cy="60" r="4.5" fill={colors.surface} stroke={isSafe ? "#06b6d4" : baseColor} strokeWidth="2.5" />
+          </AnimatedG>
+        </Svg>
+      </View>
+      
+      {/* Transparent Text below with Text Glow */}
+      <View style={{ marginTop: -15, alignItems: 'center' }}>
+        <Text style={{ 
+          color: baseColor,
+          textShadowColor: baseColor,
+          textShadowOffset: { width: 0, height: 0 },
+          textShadowRadius: 8
+        }}>
+          <Text style={{ fontSize: 26, fontFamily: 'SpaceGrotesk_700Bold' }}>{currentPct}</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', opacity: 0.8 }}>%</Text>
+        </Text>
+        <Text style={{ fontSize: 9, color: colors.textMuted, fontFamily: 'Inter_600SemiBold', letterSpacing: 1.5, marginTop: 2 }}>
+          ATTENDANCE
+        </Text>
+      </View>
+    </View>
+  );
+};
+
 const Speedometer = ({ percentage, colors }: { percentage: number, colors: any }) => {
   const radius = 50;
   const strokeWidth = 10;
   const arcLength = Math.PI * radius;
-  const dashOffset = arcLength - (arcLength * percentage) / 100;
+  const dashOffset = arcLength - (arcLength * Math.max(0, Math.min(100, percentage))) / 100;
   
   const animatedOffset = useSharedValue(arcLength);
+  const needleRotation = useSharedValue(-180);
 
   useEffect(() => {
     animatedOffset.value = withDelay(300, withTiming(dashOffset, {
       duration: 1200,
       easing: Easing.out(Easing.cubic),
     }));
-  }, [dashOffset]);
+    needleRotation.value = withDelay(300, withTiming(-180 + (Math.max(0, Math.min(100, percentage)) / 100) * 180, {
+      duration: 1200,
+      easing: Easing.out(Easing.cubic),
+    }));
+  }, [dashOffset, percentage]);
 
   const animatedProps = useAnimatedProps(() => ({
     strokeDashoffset: animatedOffset.value,
+  }));
+
+  const needleStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: 60 },
+      { translateY: 60 },
+      { rotate: `${needleRotation.value}deg` },
+      { translateX: -60 },
+      { translateY: -60 }
+    ]
   }));
 
   const isSafe = percentage >= 75;
@@ -147,8 +330,15 @@ const Speedometer = ({ percentage, colors }: { percentage: number, colors: any }
           animatedProps={animatedProps}
         />
       </Svg>
-      <View style={{ position: 'absolute', bottom: -2, alignItems: 'center' }}>
-        <Text style={{ fontSize: 24, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, textShadowColor: startColor + '60', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 }}>{percentage}%</Text>
+      <Animated.View style={[{ position: 'absolute', top: 0, left: 0, width: 120, height: 70 }, needleStyle]}>
+        <Svg viewBox="0 0 120 70">
+          <Polygon points="56,60 64,60 60,18" fill={colors.text} />
+          <Circle cx="60" cy="60" r="6" fill={colors.text} />
+          <Circle cx="60" cy="60" r="3" fill={colors.background} />
+        </Svg>
+      </Animated.View>
+      <View style={{ position: 'absolute', bottom: -12, alignItems: 'center', backgroundColor: colors.background, paddingHorizontal: 6, borderRadius: 10 }}>
+        <Text style={{ fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, textShadowColor: startColor + '60', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 }}>{percentage}%</Text>
       </View>
     </View>
   );
@@ -156,21 +346,25 @@ const Speedometer = ({ percentage, colors }: { percentage: number, colors: any }
 
 const MiniStatBox = ({ label, value, colors, color, icon: Icon }: any) => (
   <View style={{ 
-      width: '47%', 
-      marginBottom: 6, 
+      flex: 1,
+      marginBottom: 3, 
       backgroundColor: colors.surface,
-      padding: 6,
-      borderRadius: 10,
+      paddingVertical: 4,
+      paddingHorizontal: 6,
+      borderRadius: 6,
       borderWidth: 1,
       borderColor: colors.border,
-      elevation: 1,
-      shadowColor: color, shadowOpacity: 0.1, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6
   }}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2, gap: 4 }}>
-      <Icon size={10} color={color} />
-      <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium' }}>{label}</Text>
+    <View style={{ backgroundColor: color + '15', padding: 4, borderRadius: 4 }}>
+      <Icon size={12} color={color} />
     </View>
-    <Text style={{ color: color || colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{value}</Text>
+    <View>
+      <Text style={{ fontSize: 9, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>{label}</Text>
+      <Text style={{ fontSize: 13, color: colors.text, fontFamily: 'SpaceGrotesk_700Bold' }}>{value}</Text>
+    </View>
   </View>
 );
 
@@ -193,8 +387,17 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
   const [attendanceData, setAttendanceData] = useState<any[]>([]);
   const [isPredicting, setIsPredicting] = useState(false);
   const [predictDays, setPredictDays] = useState(3);
+  const [missedClassesInput, setMissedClassesInput] = useState('');
+  const { setSessionExpired } = useStudySessionStore();
   const router = useRouter();
   const { isSubscriptionRequired } = useSubscription();
+
+  useEffect(() => {
+    if (!visible) {
+      setIsPredicting(false);
+      setPredictDays(3);
+    }
+  }, [visible]);
 
   const handleSetPredictDays = (val: number) => {
     if (val > 3 && isSubscriptionRequired) {
@@ -452,11 +655,15 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
     const currAttended = currentSubject.attendedClasses || 0;
     
     const newTotal = currTotal + count;
-    const attendedPct = newTotal === 0 ? 0 : Math.round(((currAttended + count) / newTotal) * 100);
-    const bunkedPct = newTotal === 0 ? 0 : Math.round((currAttended / newTotal) * 100);
     const currentPct = currTotal === 0 ? 0 : Math.round((currAttended / currTotal) * 100);
+    const attendedAllPct = newTotal === 0 ? 0 : Math.round(((currAttended + count) / newTotal) * 100);
     
-    return { count, attendedPct, currentPct };
+    const parsedMissed = parseInt(missedClassesInput, 10) || 0;
+    const validMissed = Math.min(Math.max(0, parsedMissed), count);
+    const attendedWithMiss = count - validMissed;
+    const missedPct = newTotal === 0 ? 0 : Math.round(((currAttended + attendedWithMiss) / newTotal) * 100);
+    
+    return { count, currentPct, attendedAllPct, missedPct, validMissed };
   };
 
   const prediction = isPredicting ? calculatePrediction() : null;
@@ -469,11 +676,11 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
   const safeAttendanceData = Array.isArray(attendanceData) ? attendanceData : [];
 
   safeAttendanceData.forEach(item => {
-    const s = String(item?.status || '').toLowerCase();
-    if (s.includes('present')) presentCount++;
-    else if (s.includes('absent')) absentCount++;
-    else if (s.includes('duty') || s === 'dl') dutyLeaveCount++;
-    else if (s.includes('medical') || s === 'ml') medicalLeaveCount++;
+    const s = String(item?.status || '').toUpperCase().trim();
+    if (s === 'P' || s.includes('PRESENT')) presentCount++;
+    else if (s === 'A' || s.includes('ABSENT')) absentCount++;
+    else if (s === 'DL' || s.includes('DUTY')) dutyLeaveCount++;
+    else if (s === 'ML' || s.includes('MEDICAL')) medicalLeaveCount++;
   });
   
   const safeSubjects2 = Array.isArray(subjects) ? subjects : [];
@@ -492,84 +699,94 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
           <TouchableOpacity onPress={() => setIsPredicting(!isPredicting)} style={[styles.closeBtn, { backgroundColor: isPredicting ? colors.primary + '20' : colors.surfaceHigh, marginRight: 8 }]}>
             <Ionicons name="analytics" size={24} color={isPredicting ? colors.primary : colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleRefresh}
-            disabled={loading || isRefreshing}
-            style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh, marginRight: 8, opacity: (loading || isRefreshing) ? 0.4 : 1 }]}
-          >
-            <Ionicons name="refresh-outline" size={22} color={colors.text} />
-          </TouchableOpacity>
+          
           <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh }]}>
             <Ionicons name="close" size={24} color={colors.text} />
           </TouchableOpacity>
         </View>
 
         {isPredicting && prediction && (
-          <View style={{ padding: 16, backgroundColor: colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-             
-             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-               <View style={{ alignItems: 'center', width: 120 }}>
-                 <Speedometer percentage={prediction.attendedPct} colors={colors} />
-               </View>
+          <View style={{ padding: 8, paddingBottom: 16, backgroundColor: colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              {/* Row: Speedometer + Stat Tiles */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                {/* Speedometer - shows current attendance always via needle */}
+                <View style={{ flex: 1.35, alignItems: 'center' }}>
+                  <SpeedometerDual
+                    currentPct={prediction.currentPct ?? 0}
+                    attendPct={prediction.attendedAllPct ?? 0}
+                    missPct={parseInt(missedClassesInput, 10) > 0 ? (prediction.missedPct ?? null) : null}
+                    colors={colors}
+                  />
+                </View>
 
-               <View style={{ flex: 1, paddingLeft: 12 }}>
-                 <View style={{ marginBottom: 8 }}>
-                   <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium', marginBottom: 2 }}>Total Classes</Text>
-                   <Text style={{ color: colors.text, fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold' }}>{totalClasses}</Text>
-                 </View>
-                 
-                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                {/* Stat tiles */}
+                <View style={{ flex: 1, paddingLeft: 6 }}>
+                  <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>
                     <MiniStatBox label="Present" value={presentCount} colors={colors} color="#22c55e" icon={CheckCircle2} />
                     <MiniStatBox label="Absent" value={absentCount} colors={colors} color="#ef4444" icon={XCircle} />
-                    <MiniStatBox label="Duty L." value={dutyLeaveCount} colors={colors} color="#3b82f6" icon={Briefcase} />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 4 }}>
                     <MiniStatBox label="Med L." value={medicalLeaveCount} colors={colors} color="#f59e0b" icon={Stethoscope} />
-                 </View>
-               </View>
-             </View>
-             
-             <View style={{ backgroundColor: colors.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border, marginTop: 8 }}>
-               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
-                 <View>
-                   <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium', marginBottom: 2 }}>Target Days</Text>
-                   <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                     <Text style={{ color: colors.primary, fontSize: 24, fontFamily: 'SpaceGrotesk_700Bold' }}>{predictDays}</Text>
-                     <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>days</Text>
-                   </View>
-                 </View>
-                 <View style={{ alignItems: 'flex-end' }}>
-                   <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium', marginBottom: 2 }}>Expected Classes</Text>
-                   <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.count}</Text>
-                 </View>
-               </View>
-               
-               <PremiumSlider
-                 min={1}
-                 max={30}
-                 value={predictDays}
-                 onValueChange={(val: number) => handleSetPredictDays(val)}
-                 colors={colors}
-               />
-               
-               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
-                 {[3, 7, 14, 30].map(d => (
-                   <TouchableOpacity 
-                     key={d} 
-                     onPress={() => handleSetPredictDays(d)}
-                     style={{ 
-                       paddingVertical: 6, 
-                       paddingHorizontal: 16, 
-                       borderRadius: 20, 
-                       backgroundColor: predictDays === d ? colors.primary : colors.background,
-                       borderWidth: 1,
-                       borderColor: predictDays === d ? colors.primary : colors.border
-                     }}>
-                     <Text style={{ color: predictDays === d ? '#fff' : colors.textMuted, fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>
-                       {d === 7 ? '1W' : d === 14 ? '2W' : d === 30 ? '1M' : `${d}D`}
-                     </Text>
-                   </TouchableOpacity>
-                 ))}
-               </View>
-             </View>
+                    <MiniStatBox label="Duty L." value={dutyLeaveCount} colors={colors} color="#3b82f6" icon={Briefcase} />
+                  </View>
+                </View>
+              </View>
+
+              {/* Slider + Quick presets */}
+              <View style={{ backgroundColor: colors.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: colors.border, marginTop: 6 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                    <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>{predictDays}</Text>
+                    <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>days</Text>
+                    <Text style={{ color: colors.textMuted, fontSize: 12, marginLeft: 4 }}>|</Text>
+                    <Text style={{ color: colors.text, fontSize: 12, fontFamily: 'Inter_600SemiBold', marginLeft: 4 }}>{prediction.count} classes expected</Text>
+                  </View>
+                  {/* Miss input */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Miss:</Text>
+                    <TextInput
+                      value={missedClassesInput}
+                      onChangeText={(v) => {
+                        const n = parseInt(v, 10);
+                        if (v === '') { setMissedClassesInput(''); return; }
+                        if (!isNaN(n)) setMissedClassesInput(String(Math.min(n, prediction.count)));
+                      }}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor={colors.textMuted}
+                      style={{ width: 44, height: 26, borderRadius: 6, borderWidth: 1, borderColor: parseInt(missedClassesInput, 10) > 0 ? '#ef4444' : colors.border, backgroundColor: colors.background, color: colors.text, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', textAlign: 'center', paddingVertical: 0 }}
+                      maxLength={2}
+                    />
+                  </View>
+                </View>
+
+                <PremiumSlider min={1} max={30} value={predictDays} onValueChange={(val: number) => handleSetPredictDays(val)} colors={colors} />
+
+                {/* Result row */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {[3, 7, 14, 30].map(d => (
+                      <TouchableOpacity key={d} onPress={() => handleSetPredictDays(d)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 8, backgroundColor: predictDays === d ? colors.primary : colors.background, borderWidth: 1, borderColor: predictDays === d ? colors.primary : colors.border }}>
+                        <Text style={{ color: predictDays === d ? '#fff' : colors.textMuted, fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>
+                          {d === 7 ? '1W' : d === 14 ? '2W' : d === 30 ? '1M' : `${d}D`}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.attendedAllPct}%</Text>
+                      <Text style={{ color: colors.textMuted, fontSize: 10 }}>if attend all</Text>
+                    </View>
+                    {parseInt(missedClassesInput, 10) > 0 && (
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={{ color: '#ef4444', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.missedPct}%</Text>
+                        <Text style={{ color: colors.textMuted, fontSize: 10 }}>if miss {prediction.validMissed}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
           </View>
         )}
 
@@ -592,8 +809,8 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
                     navState.url.includes('Default.aspx')
                   ) {
                     console.log('[DetailModal] Session expired — redirected to login');
-                    setErrorMsg('Session expired. Please re-login.');
                     setLoading(false);
+                    setSessionExpired(true);
                     return;
                   }
                   // First real load: inject cookies, then scrape script
@@ -652,7 +869,7 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
           </View>
         ) : (
           <ScrollView
-            contentContainerStyle={{ padding: 16 }}
+            contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
             refreshControl={
               <RefreshControl
                 refreshing={isRefreshing}
@@ -741,3 +958,6 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, fontFamily: 'Inter_500Medium' },
   markedBy: { fontSize: 11, marginTop: 8, fontStyle: 'italic' }
 });
+
+
+

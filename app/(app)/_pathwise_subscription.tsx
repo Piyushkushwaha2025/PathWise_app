@@ -13,11 +13,10 @@ import { Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import { useSubscription } from "../../hooks/useSubscription";
 import RazorpayCheckout from 'react-native-razorpay';
-import { useUser } from '@clerk/clerk-expo';
-import { updateUserSubscription } from '../../lib/db';
+import { useUser, useAuth } from '@clerk/clerk-expo';
 
-const RAZORPAY_KEY = process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TJhrbM44rdPthR';
-const RAZORPAY_SECRET = 'cLZR8EyT6Pdt5cd5UqwUQ3Ku';
+const RAZORPAY_KEY = process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || '';
+// Removed hardcoded RAZORPAY_SECRET
 
 const PLANS = [
   { id: 'monthly', name: '1 Month', price: 59, desc: 'Billed monthly' },
@@ -25,24 +24,14 @@ const PLANS = [
   { id: 'yearly', name: '1 Year', price: 499, desc: 'Save 30% (₹41/mo)', popular: true },
 ];
 
-const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-const encodeBase64 = (input: string = '') => {
-  let str = input;
-  let output = '';
-  for (let block = 0, charCode, i = 0, map = chars;
-  str.charAt(i | 0) || (map = '=', i % 1);
-  output += map.charAt(63 & block >> 8 - i % 1 * 8)) {
-    charCode = str.charCodeAt(i += 3/4);
-    block = block << 8 | charCode;
-  }
-  return output;
-};
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.100:5000/api';
 
 export default function SubscriptionScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
   const { isPro, trialDaysLeft, isTrialActive, isSubscribed, plan, subscriptionDaysLeft } = useSubscription();
   const { user } = useUser();
+  const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(() => PLANS.find(p => p.id === plan) || PLANS[0]);
 
@@ -75,28 +64,26 @@ export default function SubscriptionScreen() {
     }
     setLoading(true);
     try {
-      // 1. Generate Order (Client-side mock for testing, must be moved to backend for production)
-      const auth = encodeBase64(`${RAZORPAY_KEY}:${RAZORPAY_SECRET}`);
-      const orderRes = await fetch('https://api.razorpay.com/v1/orders', {
+      const token = await getToken();
+      // 1. Create Order via Backend (Secure)
+      const orderRes = await fetch(`${API_URL}/payment/create-order`, {
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
         },
         body: JSON.stringify({
           amount: selectedPlan.price * 100, // paise
-          currency: 'INR',
-          receipt: `rcpt_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString().slice(-6)}`
+          receipt: `rcpt_${user.id.substring(user.id.length - 6)}_${Date.now().toString().slice(-6)}`
         })
       });
       const order = await orderRes.json();
       
-      if (!order.id) throw new Error(order.error?.description || 'Could not create order');
+      if (!order.id) throw new Error(order.error || order.error?.description || 'Could not create order');
 
       // 2. Open Razorpay Checkout
       const phoneStr = user.primaryPhoneNumber?.phoneNumber || '';
       const digits = phoneStr.replace(/\D/g, '');
-      // Razorpay needs exactly 10 digits (no country code) for Indian numbers
       const last10 = digits.slice(-10);
       const validContact = last10.length === 10 ? last10 : '9000000000';
 
@@ -113,39 +100,41 @@ export default function SubscriptionScreen() {
           contact: validContact,
           name: user.fullName || 'Student'
         },
-        method: {
-          upi: true,
-          card: true,
-          netbanking: true,
-          wallet: true,
-          upi_intent: true, // enables GPay, PhonePe, Paytm app-to-app flow (Live mode only)
-        },
-        config: {
-          display: {
-            blocks: {
-              utib: { name: 'Pay via UPI Apps', instruments: [{ method: 'upi', flows: ['intent'] }] },
-              other: { name: 'Other Payment Methods', instruments: [{ method: 'card' }, { method: 'netbanking' }] }
-            },
-            sequence: ['block.utib', 'block.other'],
-            preferences: { show_default_blocks: true }
-          }
-        },
         theme: { color: colors.primary }
       };
 
       RazorpayCheckout.open(options).then(async (data: any) => {
-        // Success: Save in Clerk metadata with expiry timestamp & sync to MongoDB instantly
+        // 3. Verify Payment Signature on Backend (Secure)
         const durationDays = selectedPlan.id === 'yearly' ? 365 : selectedPlan.id === 'semester' ? 180 : 30;
-        const expiryTime = Date.now() + (durationDays * 24 * 60 * 60 * 1000);
-        await user.update({
-          unsafeMetadata: { ...user.unsafeMetadata, isSubscribed: true, plan: selectedPlan.id, subscriptionExpiry: expiryTime }
-        });
+        
         try {
-          await updateUserSubscription(user.id, true, selectedPlan.id);
-        } catch (dbErr) {
-          console.log("DB subscription save error:", dbErr);
+          const verifyRes = await fetch(`${API_URL}/payment/verify`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              razorpay_order_id: data.razorpay_order_id,
+              razorpay_payment_id: data.razorpay_payment_id,
+              razorpay_signature: data.razorpay_signature,
+              plan_id: selectedPlan.id,
+              duration_days: durationDays
+            })
+          });
+          const verifyData = await verifyRes.json();
+          
+          if (!verifyRes.ok) throw new Error(verifyData.error || 'Payment verification failed');
+          
+          const expiryTime = Date.now() + (durationDays * 24 * 60 * 60 * 1000);
+          await user.update({
+            unsafeMetadata: { ...user.unsafeMetadata, isSubscribed: true, plan: selectedPlan.id, subscriptionExpiry: expiryTime }
+          });
+          
+          showToast("Welcome to Pro! Superpowers unlocked ✨");
+        } catch (verifyErr: any) {
+          showToast(verifyErr.message || "Payment verification failed");
         }
-        showToast("Welcome to Pro! Superpowers unlocked & synced with Database ✨");
       }).catch((error: any) => {
         showToast("Payment Cancelled");
       });

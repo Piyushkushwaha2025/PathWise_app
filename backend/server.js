@@ -190,12 +190,36 @@ const upload = multer({
   }
 });
 
-// ─── Auth Middleware ─────────────────────────────────────────────────────────
-const getClerkId = (req, res, next) => {
-  const clerkId = req.headers['x-clerk-user-id'] || req.body.clerkUserId;
-  if (!clerkId) return res.status(401).json({ error: 'Unauthorized: Missing Clerk User ID' });
-  req.clerkUserId = clerkId;
-  next();
+const { verifyToken } = require('@clerk/backend');
+
+const getClerkId = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader ? authHeader.split(' ')[1] : req.headers['x-clerk-token'];
+  
+  // TRANSITION PERIOD: Fallback to insecure header if token not sent
+  // (Remove this once frontend is fully migrated to use getToken())
+  if (!token) {
+    const fallbackId = req.headers['x-clerk-user-id'] || req.body.clerkUserId;
+    if (fallbackId) {
+      console.warn(`⚠️ SECURITY WARNING: Request using deprecated x-clerk-user-id without JWT! Path: ${req.path}`);
+      req.clerkUserId = fallbackId;
+      return next();
+    }
+    return res.status(401).json({ error: 'Unauthorized: Missing JWT token' });
+  }
+
+  try {
+    const secretKey = process.env.CLERK_SECRET_KEY;
+    if (!secretKey) throw new Error('CLERK_SECRET_KEY is missing in env');
+    
+    // Verify the Clerk JWT
+    const verified = await verifyToken(token, { secretKey });
+    req.clerkUserId = verified.sub; // The user's ID
+    next();
+  } catch (error) {
+    console.error("JWT Verification failed:", error.message);
+    res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  }
 };
 
 const requireCR = async (req, res, next) => {
@@ -289,44 +313,28 @@ app.post('/api/user/set-free-subject', getClerkId, async (req, res) => {
   }
 });
 
-// 4. Update or Remove Subscription Status in DB
+// 4. Update or Cancel Subscription Status in DB
 app.post('/api/user/subscription', getClerkId, async (req, res) => {
   try {
-    const { is_premium, plan } = req.body;
-    let user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user) {
-      user = new User({
-        clerkUserId: req.clerkUserId,
-        is_premium: Boolean(is_premium),
-        subscription_plan: plan || (is_premium ? 'pro' : 'free'),
-        subscription_updated_at: new Date()
-      });
-    } else {
-      user.is_premium = Boolean(is_premium);
-      user.subscription_plan = plan || (is_premium ? 'pro' : 'free');
-      user.subscription_updated_at = new Date();
+    const { is_premium } = req.body;
+    // Security: Directly setting is_premium=true via this endpoint is disallowed.
+    // Premium status must only be granted via /api/payment/verify, /api/payment/webhook, or /api/rewards/redeem.
+    if (is_premium === true) {
+      return res.status(403).json({ error: 'Direct upgrade not permitted. Use official payment verification.' });
     }
-    await user.save();
 
-    console.log(`✅ Subscription synced in DB for ${req.clerkUserId}: is_premium=${user.is_premium}, plan=${user.subscription_plan}`);
-    res.json({ success: true, user });
-  } catch (error) {
-    console.error('❌ Error saving subscription to DB:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 5. Upgrade to Premium (Legacy Fallback)
-app.post('/api/user/upgrade', getClerkId, async (req, res) => {
-  try {
     let user = await User.findOne({ clerkUserId: req.clerkUserId });
     if (!user) return res.status(404).json({ error: 'User not found' });
-    user.is_premium = true;
-    user.subscription_plan = 'pro';
+
+    user.is_premium = false;
+    user.subscription_plan = 'free';
     user.subscription_updated_at = new Date();
     await user.save();
+
+    console.log(`✅ Subscription cancelled/set to free in DB for ${req.clerkUserId}`);
     res.json({ success: true, user });
   } catch (error) {
+    console.error('❌ Error updating subscription in DB:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -341,7 +349,7 @@ app.post('/api/user/upgrade', getClerkId, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 // Get all unique sections that have CRs or assignments
-app.get('/api/sections', async (req, res) => {
+app.get('/api/sections', getClerkId, async (req, res) => {
   try {
     const sections = await User.distinct('section_code', { role: 'cr', section_code: { $ne: null } });
     res.json(sections);
@@ -642,10 +650,11 @@ app.delete('/api/saturday-override/:id', getClerkId, requireCR, async (req, res)
 
 app.post('/api/payment/create-order', getClerkId, async (req, res) => {
   try {
+    const { amount, receipt } = req.body;
     const options = {
-      amount: 299 * 100,
+      amount: amount || 299 * 100,
       currency: 'INR',
-      receipt: `receipt_${req.clerkUserId}_${Date.now()}`
+      receipt: receipt || `receipt_${req.clerkUserId}_${Date.now()}`
     };
     const order = await razorpay.orders.create(options);
     res.json(order);
@@ -654,20 +663,70 @@ app.post('/api/payment/create-order', getClerkId, async (req, res) => {
   }
 });
 
+app.post('/api/payment/verify', getClerkId, async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan_id, duration_days } = req.body;
+    const secret = process.env.RAZORPAY_KEY_SECRET; // Must use env var
+
+    if (!secret) return res.status(500).json({ error: 'Server misconfiguration' });
+
+    const expectedSignature = crypto.createHmac('sha256', secret)
+      .update(razorpay_order_id + "|" + razorpay_payment_id)
+      .digest('hex');
+
+    if (expectedSignature === razorpay_signature) {
+      // Payment is legit! Determine plan duration server-side for security
+      const PLAN_DURATIONS = {
+        'monthly': 30,
+        'semester': 180,
+        'yearly': 365,
+      };
+      const validDurationDays = PLAN_DURATIONS[plan_id] || (typeof duration_days === 'number' && duration_days > 0 && duration_days <= 365 ? duration_days : 30);
+      const expiryTime = Date.now() + (validDurationDays * 24 * 60 * 60 * 1000);
+
+      await User.findOneAndUpdate(
+        { clerkUserId: req.clerkUserId }, 
+        { 
+          is_premium: true,
+          subscription_plan: plan_id || 'pro',
+          subscription_updated_at: new Date(),
+          premium_expires_at: expiryTime
+        }
+      );
+      res.json({ success: true, message: 'Payment verified successfully' });
+    } else {
+      res.status(400).json({ error: 'Invalid Signature' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'your_webhook_secret';
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!secret) return res.status(500).json({ error: 'Webhook secret not configured' });
+
     const signature = req.headers['x-razorpay-signature'];
+    // req.body is a raw Buffer from express.raw(). Use directly for exact byte-for-byte HMAC verification
+    const rawPayload = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '', 'utf8');
     const expectedSignature = crypto.createHmac('sha256', secret)
-      .update(JSON.stringify(req.body)).digest('hex');
+      .update(rawPayload).digest('hex');
 
     if (expectedSignature === signature) {
-      const event = req.body;
+      const event = JSON.parse(rawPayload.toString('utf8'));
       if (event.event === 'payment.captured') {
-        const clerkUserId = event.payload.payment.entity.notes.clerkUserId;
+        const clerkUserId = event.payload?.payment?.entity?.notes?.clerkUserId;
         if (clerkUserId) {
-          await User.findOneAndUpdate({ clerkUserId }, { is_premium: true });
-          console.log(`✅ Upgraded user ${clerkUserId} to Premium!`);
+          await User.findOneAndUpdate(
+            { clerkUserId }, 
+            { 
+              is_premium: true,
+              subscription_plan: 'pro',
+              subscription_updated_at: new Date()
+            }
+          );
+          console.log(`✅ Upgraded user ${clerkUserId} to Premium via Webhook!`);
         }
       }
       res.json({ status: 'ok' });
@@ -706,6 +765,32 @@ app.delete('/api/user', getClerkId, async (req, res) => {
 
 // ==================== REWARDS & ADS ====================
 
+// In-memory sliding rate limiter per user/IP
+const rateLimitStore = new Map();
+const createRateLimiter = (maxRequests, windowMs, errorMessage) => (req, res, next) => {
+  const identifier = req.clerkUserId || req.ip || 'anonymous';
+  const now = Date.now();
+  const userRecord = rateLimitStore.get(identifier) || { count: 0, resetAt: now + windowMs };
+
+  if (now > userRecord.resetAt) {
+    userRecord.count = 0;
+    userRecord.resetAt = now + windowMs;
+  }
+
+  userRecord.count += 1;
+  rateLimitStore.set(identifier, userRecord);
+
+  if (userRecord.count > maxRequests) {
+    return res.status(429).json({ 
+      error: 'RATE_LIMIT_EXCEEDED', 
+      message: errorMessage || 'Too many requests. Please try again later.' 
+    });
+  }
+  next();
+};
+
+const rewardRateLimiter = createRateLimiter(10, 60 * 1000, 'Too many reward claims. Please wait a moment.');
+
 const MAX_ADS_PER_DAY = 5;
 const REDEMPTION_PLANS = {
   one_day:   { tokens: 50,  days: 1  },
@@ -723,6 +808,7 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     if (user.last_ad_watch_date !== today) {
       user.ads_watched_today = 0;
+      user.daily_ad_views = 0;
       user.last_ad_watch_date = today;
       await user.save();
     }
@@ -745,7 +831,7 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
 });
 
 // POST /api/rewards/daily-bonus
-app.post('/api/rewards/daily-bonus', getClerkId, async (req, res) => {
+app.post('/api/rewards/daily-bonus', getClerkId, rewardRateLimiter, async (req, res) => {
   try {
     const user = await User.findOne({ clerkUserId: req.clerkUserId });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -756,7 +842,7 @@ app.post('/api/rewards/daily-bonus', getClerkId, async (req, res) => {
       return res.status(400).json({ error: 'ALREADY_CLAIMED', message: 'Daily bonus already claimed today.' });
     }
 
-    user.token_balance = (user.token_balance || 0) + 10;
+    user.token_balance = Math.min((user.token_balance || 0) + 10, 9999);
     user.last_daily_bonus_date = today;
     await user.save();
 
@@ -773,8 +859,8 @@ app.post('/api/rewards/daily-bonus', getClerkId, async (req, res) => {
   }
 });
 
-// POST /api/rewards/watch-ad - Dynamic tokens based on ad_type
-app.post('/api/rewards/watch-ad', getClerkId, async (req, res) => {
+// POST /api/rewards/watch-ad - Dynamic tokens based on ad_type (10sec=5, 30sec=10, 60sec=20)
+app.post('/api/rewards/watch-ad', getClerkId, rewardRateLimiter, async (req, res) => {
   try {
     const user = await User.findOne({ clerkUserId: req.clerkUserId });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -783,42 +869,39 @@ app.post('/api/rewards/watch-ad', getClerkId, async (req, res) => {
 
     if (user.last_ad_watch_date !== today) {
       user.ads_watched_today = 0;
+      user.daily_ad_views = 0;
       user.last_ad_watch_date = today;
     }
 
     if (user.ads_watched_today >= MAX_ADS_PER_DAY) {
-      return res.status(429).json({
-        error: 'DAILY_LIMIT_REACHED',
-        message: 'Aaj ke liye max ' + MAX_ADS_PER_DAY + ' ads dekh liye!',
-      });
+      return res.status(400).json({ error: 'DAILY_LIMIT_REACHED', message: 'Daily ad limit reached' });
     }
 
     const adType = req.body.ad_type;
-    let tokensToCredit = 10;
+    let tokensToCredit = 5; // default 10sec
     if (adType === '30sec') tokensToCredit = 10;
-    else if (adType === '60sec') tokensToCredit = 20;
-    else if (adType === '10sec') tokensToCredit = 5;
+    if (adType === '60sec') tokensToCredit = 20;
 
-    user.token_balance = (user.token_balance || 0) + tokensToCredit;
-    user.ads_watched_today = (user.ads_watched_today || 0) + 1;
-    user.last_ad_watch_date = today;
+    user.token_balance = Math.min((user.token_balance || 0) + tokensToCredit, 9999);
+    user.ads_watched_today += 1;
+    user.daily_ad_views = user.ads_watched_today;
+    user.last_ad_watch_time = new Date();
+
     await user.save();
-
     res.json({
       success: true,
       tokens_earned: tokensToCredit,
       token_balance: user.token_balance,
       ads_watched_today: user.ads_watched_today,
-      ads_remaining_today: Math.max(0, MAX_ADS_PER_DAY - user.ads_watched_today),
+      ads_remaining_today: Math.max(0, MAX_ADS_PER_DAY - user.ads_watched_today)
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 // POST /api/rewards/redeem
-app.post('/api/rewards/redeem', getClerkId, async (req, res) => {
+app.post('/api/rewards/redeem', getClerkId, rewardRateLimiter, async (req, res) => {
   try {
     const { plan_key } = req.body;
     const plan = REDEMPTION_PLANS[plan_key];
@@ -836,11 +919,16 @@ app.post('/api/rewards/redeem', getClerkId, async (req, res) => {
     const currentExpiry = user.premium_expires_at || now;
     const startFrom = currentExpiry > now ? currentExpiry : now;
     user.premium_expires_at = startFrom + plan.days * 24 * 60 * 60 * 1000;
+    user.is_premium = true;
+    user.subscription_plan = 'pro';
+    user.subscription_updated_at = new Date();
     
     await user.save();
 
     res.json({
       success: true,
+      tokens_spent: plan.tokens,
+      days_added: plan.days,
       token_balance: user.token_balance,
       premium_expires_at: user.premium_expires_at,
     });

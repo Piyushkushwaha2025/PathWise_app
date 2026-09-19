@@ -6,7 +6,7 @@ import {
 import { useThemeStore } from '../../store/useThemeStore';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useUser } from '@clerk/clerk-expo';
+import { useUser, useAuth } from '@clerk/clerk-expo';
 import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from 'react-native-google-mobile-ads';
 import { useRouter } from 'expo-router';
 import { MotiView, AnimatePresence } from 'moti';
@@ -30,6 +30,7 @@ const AD_OPTIONS = [
 export default function RewardsScreen() {
   const colors = useThemeStore((s) => s.colors);
   const { user } = useUser();
+  const { getToken } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -114,7 +115,8 @@ export default function RewardsScreen() {
   const fetchStatus = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const data = await getRewardStatus(user.id);
+      const token = await getToken();
+      const data = await getRewardStatus(user.id, token);
       setStatus(data);
     } catch (e) {
       console.error(e);
@@ -122,7 +124,7 @@ export default function RewardsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [user?.id, getToken]);
 
   const checkDaily = async () => {
     try {
@@ -151,7 +153,8 @@ export default function RewardsScreen() {
     setDailyClaimed(true); // Optimistically lock it to prevent double-click spam
     try {
       // Daily bonus logic separated from ads
-      const result = await claimDailyBonus(user.id);
+      const token = await getToken();
+      const result = await claimDailyBonus(user.id, token);
       animateToken();
       await AsyncStorage.setItem('last_daily_claim', new Date().toDateString());
       setStatus(prev => prev ? { ...prev, token_balance: result.token_balance } : prev);
@@ -201,7 +204,8 @@ export default function RewardsScreen() {
       showToast(`+${expectedTokens} Tokens! 💎`, `Great job! Balance updated.`);
 
       // Send to backend in background
-      claimAdReward(user.id, adOption.id)
+      getToken()
+        .then(token => claimAdReward(user.id, adOption.id, token))
         .then(result => {
           // Sync with exact server truth
           setStatus(prev => prev ? {
@@ -231,7 +235,8 @@ export default function RewardsScreen() {
     setConfirmRedeemModalVisible(false);
     setRedeeming(confirmRedeemPlan.key);
     try {
-      const result = await redeemTokensForPremium(user.id, confirmRedeemPlan.key);
+      const token = await getToken();
+      const result = await redeemTokensForPremium(user.id, confirmRedeemPlan.key, token);
       setStatus(prev => prev ? {
         ...prev,
         token_balance: result.token_balance,
