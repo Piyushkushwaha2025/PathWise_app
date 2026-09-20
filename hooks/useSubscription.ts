@@ -22,6 +22,7 @@ export function useSubscription() {
         isPro: false,
         trialDaysLeft: 0,
         isTrialActive: false,
+        isRewardPro: false,
         isSubscriptionRequired: true,
         plan: null,
         subscriptionDaysLeft: 0,
@@ -69,6 +70,7 @@ export function useSubscription() {
       trialDaysLeft,
       isTrialActive,
       isSubscribed,
+      isRewardPro,
       isSubscriptionRequired: !isPro, // if neither subscribed nor in trial nor reward premium
       plan,
       subscriptionDaysLeft,

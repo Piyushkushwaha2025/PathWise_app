@@ -9,6 +9,8 @@ import {
   FlatList,
   Dimensions,
   BackHandler,
+  Animated,
+  Easing,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -175,6 +177,8 @@ export function AttendanceOverviewModal({
 }: AttendanceOverviewModalProps) {
   const { colors } = useThemeStore();
   const { subjects, detailedAttendanceCache } = useStudyOSStore();
+  const { width: SCREEN_WIDTH } = Dimensions.get('window');
+  const slideAnim = React.useRef(new Animated.Value(SCREEN_WIDTH)).current;
   const [filter, setFilter] = useState<FilterType>('all');
   const [sort, setSort] = useState<SortType>('critical_first');
   const [searchQuery, setSearchQuery] = useState('');
@@ -184,19 +188,54 @@ export function AttendanceOverviewModal({
     viewActionTarget?: string;
     initialPredicting?: boolean;
   } | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+
+  const handleOpenDetail = useCallback(
+    (subject: { code: string; name: string; viewActionTarget?: string; initialPredicting?: boolean }) => {
+      setSelectedSubject(subject);
+      setIsDetailOpen(true);
+      slideAnim.setValue(SCREEN_WIDTH);
+      requestAnimationFrame(() => {
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      });
+      if (onSelectSubject) {
+        onSelectSubject(subject);
+      }
+    },
+    [SCREEN_WIDTH, slideAnim, onSelectSubject]
+  );
+
+  const handleCloseDetail = useCallback(() => {
+    Animated.timing(slideAnim, {
+      toValue: SCREEN_WIDTH,
+      duration: 250,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      setIsDetailOpen(false);
+      setSelectedSubject(null);
+    });
+  }, [SCREEN_WIDTH, slideAnim]);
 
   React.useEffect(() => {
     if (!visible) {
+      setIsDetailOpen(false);
       setSelectedSubject(null);
+      slideAnim.setValue(SCREEN_WIDTH);
     }
-  }, [visible]);
+  }, [visible, SCREEN_WIDTH, slideAnim]);
 
   // Hardware back button handler for Android
   React.useEffect(() => {
     if (!visible) return;
     const backAction = () => {
-      if (selectedSubject) {
-        setSelectedSubject(null);
+      if (isDetailOpen) {
+        handleCloseDetail();
         return true;
       }
       if (searchQuery !== '') {
@@ -212,7 +251,7 @@ export function AttendanceOverviewModal({
     };
     const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => handler.remove();
-  }, [visible, selectedSubject, searchQuery, filter, onClose]);
+  }, [visible, isDetailOpen, searchQuery, filter, onClose, handleCloseDetail]);
 
   const safeSubjects = Array.isArray(subjects) ? subjects : [];
 
@@ -352,23 +391,16 @@ export function AttendanceOverviewModal({
         item={item}
         colors={colors}
         onPress={() => {
-          setSelectedSubject({
+          handleOpenDetail({
             code: item.subject.code,
             name: item.subject.name,
             viewActionTarget: item.subject.viewActionTarget,
             initialPredicting: true,
           });
-          if (onSelectSubject) {
-            onSelectSubject({
-              code: item.subject.code,
-              name: item.subject.name,
-              viewActionTarget: item.subject.viewActionTarget,
-            });
-          }
         }}
       />
     ),
-    [colors, onSelectSubject]
+    [colors, handleOpenDetail]
   );
 
   // Circular gauge math for Hero card
@@ -624,75 +656,82 @@ export function AttendanceOverviewModal({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={() => {
-        if (selectedSubject) {
-          setSelectedSubject(null);
+        if (isDetailOpen) {
+          handleCloseDetail();
         } else {
           onClose();
         }
       }}
     >
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        {selectedSubject ? (
-          <DetailedAttendanceModal
-            visible={true}
-            asModal={false}
-            onClose={() => setSelectedSubject(null)}
-            subjectCode={selectedSubject.code}
-            subjectName={selectedSubject.name}
-            viewActionTarget={selectedSubject.viewActionTarget}
-            initialPredicting={selectedSubject.initialPredicting ?? true}
-          />
-        ) : (
-          <>
-            {/* Sticky Header */}
-            <View style={[styles.header, { borderBottomColor: colors.border }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 8 }}>
-                <TouchableOpacity
-                  onPress={onClose}
-                  style={[styles.closeButton, { backgroundColor: colors.surfaceHigh }]}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Ionicons name="arrow-back" size={20} color={colors.text} />
-                </TouchableOpacity>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.headerTitle, { color: colors.text }]}>Attendance Analytics</Text>
-                  <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-                    Comprehensive Subject Intelligence
-                  </Text>
-                </View>
-              </View>
-
+      <View style={[styles.container, { backgroundColor: colors.background, overflow: 'hidden' }]}>
+        {/* Base Layer: Attendance Analytics List */}
+        <View style={StyleSheet.absoluteFill}>
+          {/* Sticky Header */}
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 8 }}>
               <TouchableOpacity
                 onPress={onClose}
                 style={[styles.closeButton, { backgroundColor: colors.surfaceHigh }]}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons name="close" size={20} color={colors.text} />
+                <Ionicons name="arrow-back" size={20} color={colors.text} />
               </TouchableOpacity>
-            </View>
 
-            {/* Optimized Virtualized FlatList */}
-            <FlatList
-              data={filteredAndSortedSubjects}
-              keyExtractor={(item) => item.subject.code}
-              renderItem={renderSubject}
-              ListHeaderComponent={ListHeader}
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={false}
-              initialNumToRender={6}
-              maxToRenderPerBatch={8}
-              windowSize={5}
-              removeClippedSubviews={true}
-              ListEmptyComponent={
-                <View style={styles.emptyState}>
-                  <Ionicons name="search-outline" size={44} color={colors.textMuted} />
-                  <Text style={[styles.emptyStateText, { color: colors.textMuted }]}>
-                    No subjects found matching your criteria
-                  </Text>
-                </View>
-              }
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.headerTitle, { color: colors.text }]}>Attendance Analytics</Text>
+                <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
+                  Comprehensive Subject Intelligence
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Optimized Virtualized FlatList */}
+          <FlatList
+            data={filteredAndSortedSubjects}
+            keyExtractor={(item) => item.subject.code}
+            renderItem={renderSubject}
+            ListHeaderComponent={ListHeader}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            initialNumToRender={6}
+            maxToRenderPerBatch={8}
+            windowSize={5}
+            removeClippedSubviews={true}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="search-outline" size={44} color={colors.textMuted} />
+                <Text style={[styles.emptyStateText, { color: colors.textMuted }]}>
+                  No subjects found matching your criteria
+                </Text>
+              </View>
+            }
+          />
+        </View>
+
+        {/* Animated Slide-over Layer: Detailed Attendance Modal */}
+        {isDetailOpen && selectedSubject && (
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: colors.background,
+                transform: [{ translateX: slideAnim }],
+                borderLeftWidth: 1,
+                borderLeftColor: colors.border,
+              },
+            ]}
+          >
+            <DetailedAttendanceModal
+              visible={true}
+              asModal={false}
+              onClose={handleCloseDetail}
+              subjectCode={selectedSubject.code}
+              subjectName={selectedSubject.name}
+              viewActionTarget={selectedSubject.viewActionTarget}
+              initialPredicting={selectedSubject.initialPredicting ?? true}
             />
-          </>
+          </Animated.View>
         )}
       </View>
     </Modal>

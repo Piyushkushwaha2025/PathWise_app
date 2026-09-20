@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler, InteractionManager } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
@@ -378,6 +378,61 @@ const MiniStatBox = ({ label, value, colors, color, icon: Icon }: any) => (
   </View>
 );
 
+const parseTimeBounds = (timeStr: string) => {
+  if (!timeStr) return { start: 0, end: 0 };
+  try {
+    const parts = timeStr.split('-');
+    const parseSingle = (part: string) => {
+      if (!part) return 0;
+      const originalPart = part.trim();
+      const cleanPart = originalPart.replace(/AM|PM/gi, '').trim();
+      let [hoursStr, minutesStr] = cleanPart.split(':');
+      let hours = parseInt((hoursStr || '').replace(/\D/g, ''), 10) || 0;
+      let minutes = parseInt((minutesStr || '').replace(/\D/g, ''), 10) || 0;
+      
+      const isExplicitPM = /PM/i.test(originalPart);
+      const isExplicitAM = /AM/i.test(originalPart);
+      
+      if (isExplicitPM && hours < 12) {
+        hours += 12;
+      } else if (!isExplicitAM && !isExplicitPM && hours >= 1 && hours <= 7) {
+        hours += 12;
+      }
+      return hours * 60 + minutes;
+    };
+    const start = parseSingle(parts[0]);
+    let end = parts[1] ? parseSingle(parts[1]) : start + 50;
+    if (end < start && end !== 0) end += 12 * 60;
+    return { start: isNaN(start) ? 0 : start, end: isNaN(end) ? 0 : end };
+  } catch (e) {
+    return { start: 0, end: 0 };
+  }
+};
+
+const getSlotClassType = (slot: any): 'Practical' | 'Lecture' => {
+  if (!slot) return 'Lecture';
+  if (slot.type) {
+    const t = String(slot.type).toLowerCase();
+    if (t.includes('prac') || t.includes('lab') || t === 'p') return 'Practical';
+    if (t.includes('lec') || t.includes('theory') || t === 'l') return 'Lecture';
+  }
+  const rawName = String(slot.subjectName || '');
+  if (/\b(lab|practical|practicle)\b/i.test(rawName) || rawName.includes('(Lab)')) {
+    return 'Practical';
+  }
+  const codeWord = rawName.split(' ')[0] || '';
+  if (/[A-Z0-9]+P-\d+/i.test(codeWord)) {
+    return 'Practical';
+  }
+  if (slot.time) {
+    const bounds = parseTimeBounds(slot.time);
+    if ((bounds.end - bounds.start) >= 60) {
+      return 'Practical';
+    }
+  }
+  return 'Lecture';
+};
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -408,6 +463,7 @@ export function DetailedAttendanceModal({
   const [isPredicting, setIsPredicting] = useState(initialPredicting);
   const [predictDays, setPredictDays] = useState(3);
   const [missedClassesInput, setMissedClassesInput] = useState('');
+  const [expectedClassFilter, setExpectedClassFilter] = useState<'all' | 'lecture' | 'practical'>('all');
   const { setSessionExpired } = useStudySessionStore();
   const router = useRouter();
   const { isSubscriptionRequired } = useSubscription();
@@ -416,6 +472,7 @@ export function DetailedAttendanceModal({
     if (!visible) {
       setIsPredicting(false);
       setPredictDays(3);
+      setExpectedClassFilter('all');
       return;
     }
     if (initialPredicting) {
@@ -514,7 +571,7 @@ export function DetailedAttendanceModal({
     navAttempts.current = 0;
     setCookieInjectScript(null);
 
-    (async () => {
+    const task = InteractionManager.runAfterInteractions(async () => {
       try {
         const cookies = await SecureStore.getItemAsync('culko_cookies');
         if (!cookies) {
@@ -529,7 +586,11 @@ export function DetailedAttendanceModal({
         setErrorMsg('Failed to load session. Please re-sync.');
         setLoading(false);
       }
-    })();
+    });
+
+    return () => {
+      task.cancel();
+    };
   }, [visible, subjectCode]);
 
   const buildInjectScript = (subjectCode: string) => `
@@ -661,12 +722,31 @@ export function DetailedAttendanceModal({
   const calculatePrediction = () => {
     const safeSubjects = Array.isArray(subjects) ? subjects : [];
     const currentSubject = safeSubjects.find(s => s.code === subjectCode);
-    if (!currentSubject) return { count: 0, attendedPct: 0, bunkedPct: 0, currentPct: 0, expectedClasses: [] };
+    if (!currentSubject) {
+      return {
+        count: 0,
+        lectureCount: 0,
+        practicalCount: 0,
+        currentPct: 0,
+        attendedAllPct: 0,
+        missedPct: null as number | null,
+        validMissed: 0,
+        currAttended: 0,
+        currTotal: 0,
+        newTotal: 0,
+        predictedAttendedWithMiss: 0,
+        expectedClasses: [],
+      };
+    }
     let count = 0;
-    const expectedClasses: { date: Date, slot: any }[] = [];
+    let lectureCount = 0;
+    let practicalCount = 0;
+    const expectedClasses: { date: Date, slot: any, classType: 'Practical' | 'Lecture' }[] = [];
     const today = new Date();
     const daysArr = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     
+    const baseCode = (subjectCode || '').split(' ')[0].trim();
+
     for (let i = 1; i <= predictDays; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() + i);
@@ -675,18 +755,24 @@ export function DetailedAttendanceModal({
         const dayStr = daysArr[d.getDay()];
         const daySlots = (timetable || {})[dayStr];
         const safeDaySlots = Array.isArray(daySlots) ? daySlots : [];
-        const matchedSlots = safeDaySlots.filter((slot: any) => 
-           String(slot?.subjectName || '').includes(subjectCode) || String(slot?.subjectName || '').includes(subjectName)
-        );
+        const matchedSlots = safeDaySlots.filter((slot: any) => {
+           const sName = String(slot?.subjectName || '').trim();
+           return (baseCode && sName.includes(baseCode)) ||
+                  (subjectCode && sName.includes(subjectCode)) ||
+                  (subjectName && sName.includes(subjectName));
+        });
         matchedSlots.forEach((slot: any) => {
-           expectedClasses.push({ date: new Date(d), slot });
+           const classType = getSlotClassType(slot);
+           if (classType === 'Practical') practicalCount++;
+           else lectureCount++;
+           expectedClasses.push({ date: new Date(d), slot, classType });
         });
         count += matchedSlots.length;
       }
     }
     
-    const currTotal = currentSubject.totalClasses || 0;
-    const currAttended = currentSubject.attendedClasses || 0;
+    const currTotal = Number(currentSubject.totalClasses || 0);
+    const currAttended = Number(currentSubject.attendedClasses || 0);
     
     const newTotal = currTotal + count;
     const currentPct = currTotal === 0 ? 0 : Math.round((currAttended / currTotal) * 100);
@@ -694,12 +780,34 @@ export function DetailedAttendanceModal({
     
     const parsedMissed = parseInt(missedClassesInput, 10) || 0;
     const validMissed = Math.min(Math.max(0, parsedMissed), count);
-    const missedPct = validMissed > 0 ? (currTotal + validMissed === 0 ? 0 : Math.round((Number(currAttended) / (Number(currTotal) + validMissed)) * 100)) : null;
+    const predictedAttendedWithMiss = currAttended + Math.max(0, count - validMissed);
+    const missedPct = validMissed > 0
+      ? (newTotal === 0 ? 0 : Math.round((predictedAttendedWithMiss / newTotal) * 100))
+      : null;
     
-    return { count, currentPct, attendedAllPct, missedPct, validMissed, currAttended: Number(currAttended), currTotal: Number(currTotal), newTotal, expectedClasses };
+    return {
+      count,
+      lectureCount,
+      practicalCount,
+      currentPct,
+      attendedAllPct,
+      missedPct,
+      validMissed,
+      currAttended,
+      currTotal,
+      newTotal,
+      predictedAttendedWithMiss,
+      expectedClasses,
+    };
   };
 
   const prediction = isPredicting ? calculatePrediction() : null;
+
+  const filteredExpectedClasses = (prediction?.expectedClasses || []).filter((ec: any) => {
+    if (expectedClassFilter === 'lecture') return ec.classType === 'Lecture';
+    if (expectedClassFilter === 'practical') return ec.classType === 'Practical';
+    return true;
+  });
 
   const safeAttendanceData = Array.isArray(attendanceData) ? attendanceData : [];
 
@@ -734,12 +842,8 @@ export function DetailedAttendanceModal({
             <Text style={[styles.title, { color: colors.text }]}>Detailed Attendance</Text>
             <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>{subjectCode} • {subjectName}</Text>
           </View>
-          <TouchableOpacity onPress={() => setIsPredicting(!isPredicting)} style={[styles.closeBtn, { backgroundColor: isPredicting ? colors.primary + '20' : colors.surfaceHigh, marginRight: 8 }]}>
+          <TouchableOpacity onPress={() => setIsPredicting(!isPredicting)} style={[styles.closeBtn, { backgroundColor: isPredicting ? colors.primary + '20' : colors.surfaceHigh }]}>
             <Ionicons name="analytics" size={22} color={isPredicting ? colors.primary : colors.text} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh }]}>
-            <Ionicons name="close" size={22} color={colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -751,12 +855,12 @@ export function DetailedAttendanceModal({
                   <View style={{ flex: 1, alignItems: 'center' }}>
                     <AttendanceRingWidget
                       currentPct={prediction.currentPct ?? 0}
-                      predictPct={parseInt(missedClassesInput, 10) > 0 ? (prediction.missedPct ?? 0) : (prediction.attendedAllPct ?? 0)}
+                      predictPct={(prediction.validMissed ?? 0) > 0 ? (prediction.missedPct ?? 0) : (prediction.attendedAllPct ?? 0)}
                       currentAttended={prediction.currAttended ?? 0}
                       currentTotal={prediction.currTotal ?? 0}
-                      predictAttended={parseInt(missedClassesInput, 10) > 0 ? (prediction.currAttended ?? 0) : ((prediction.currAttended ?? 0) + (prediction.count ?? 0) - (prediction.validMissed ?? 0))}
+                      predictAttended={(prediction.validMissed ?? 0) > 0 ? (prediction.predictedAttendedWithMiss ?? 0) : ((prediction.currAttended ?? 0) + (prediction.count ?? 0))}
                       predictTotal={prediction.newTotal ?? 0}
-                      predictType={parseInt(missedClassesInput, 10) > 0 ? 'miss' : 'attend'}
+                      predictType={(prediction.validMissed ?? 0) > 0 ? 'miss' : 'attend'}
                       colors={colors}
                       size={150}
                     />
@@ -782,7 +886,14 @@ export function DetailedAttendanceModal({
                     <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>{predictDays}</Text>
                     <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>days</Text>
                     <Text style={{ color: colors.textMuted, fontSize: 12, marginLeft: 4 }}>|</Text>
-                    <Text style={{ color: colors.text, fontSize: 12, fontFamily: 'Inter_600SemiBold', marginLeft: 4 }}>{prediction.count} classes expected</Text>
+                    <Text style={{ color: colors.text, fontSize: 12, fontFamily: 'Inter_600SemiBold', marginLeft: 4 }}>
+                      {prediction.count} classes expected
+                      {prediction.count > 0 && (
+                        <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
+                          {' '}({prediction.lectureCount}L • {prediction.practicalCount}P)
+                        </Text>
+                      )}
+                    </Text>
                   </View>
                   {/* Miss input */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -812,7 +923,7 @@ export function DetailedAttendanceModal({
                       <Text style={{ color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.attendedAllPct}%</Text>
                       <Text style={{ color: colors.textMuted, fontSize: 10 }}>if attend all</Text>
                     </View>
-                    {parseInt(missedClassesInput, 10) > 0 && (
+                    {(prediction?.validMissed ?? 0) > 0 && (
                       <View style={{ alignItems: 'center' }}>
                         <Text style={{ color: '#ef4444', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.missedPct}%</Text>
                         <Text style={{ color: colors.textMuted, fontSize: 10 }}>if miss {prediction.validMissed}</Text>
@@ -915,45 +1026,124 @@ export function DetailedAttendanceModal({
           >
             {isPredicting ? (
               <View style={{ marginTop: 16 }}>
-                <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', fontSize: 16, color: colors.text, marginBottom: 12 }}>Expected Classes</Text>
-                {prediction?.expectedClasses?.length === 0 ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_500Medium' }}>No classes scheduled for the next {predictDays} days.</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', fontSize: 16, color: colors.text }}>Expected Classes</Text>
+                  {prediction && prediction.count > 0 && (
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <View style={{ backgroundColor: (colors.primary || '#3b82f6') + '15', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: (colors.primary || '#3b82f6') + '30' }}>
+                        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 10, color: colors.primary || '#3b82f6' }}>{prediction.lectureCount} Lec</Text>
+                      </View>
+                      <View style={{ backgroundColor: '#8b5cf618', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#8b5cf635' }}>
+                        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 10, color: '#8b5cf6' }}>{prediction.practicalCount} Prac</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {/* Quick filter tabs if both lecture and practical exist */}
+                {prediction && prediction.count > 0 && prediction.lectureCount > 0 && prediction.practicalCount > 0 && (
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                    <TouchableOpacity
+                      onPress={() => setExpectedClassFilter('all')}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 14,
+                        backgroundColor: expectedClassFilter === 'all' ? colors.primary : colors.surface,
+                        borderWidth: 1,
+                        borderColor: expectedClassFilter === 'all' ? colors.primary : colors.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10.5, fontFamily: 'Inter_600SemiBold', color: expectedClassFilter === 'all' ? '#fff' : colors.textMuted }}>
+                        All ({prediction.count})
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setExpectedClassFilter('lecture')}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 14,
+                        backgroundColor: expectedClassFilter === 'lecture' ? (colors.primary || '#3b82f6') : colors.surface,
+                        borderWidth: 1,
+                        borderColor: expectedClassFilter === 'lecture' ? (colors.primary || '#3b82f6') : colors.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10.5, fontFamily: 'Inter_600SemiBold', color: expectedClassFilter === 'lecture' ? '#fff' : colors.textMuted }}>
+                        Lectures ({prediction.lectureCount})
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setExpectedClassFilter('practical')}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 14,
+                        backgroundColor: expectedClassFilter === 'practical' ? '#8b5cf6' : colors.surface,
+                        borderWidth: 1,
+                        borderColor: expectedClassFilter === 'practical' ? '#8b5cf6' : colors.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10.5, fontFamily: 'Inter_600SemiBold', color: expectedClassFilter === 'practical' ? '#fff' : colors.textMuted }}>
+                        Practicals ({prediction.practicalCount})
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {filteredExpectedClasses.length === 0 ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_500Medium' }}>
+                    {prediction?.expectedClasses?.length === 0 
+                      ? `No classes scheduled for the next ${predictDays} days.`
+                      : `No ${expectedClassFilter} classes scheduled.`}
+                  </Text>
                 ) : (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
-                    {prediction?.expectedClasses?.map((ec: any, i: number) => {
+                    {filteredExpectedClasses.map((ec: any, i: number) => {
                       const dateStr = ec.date.getDate() + ' ' + ec.date.toLocaleDateString('en-GB', { month: 'short' });
                       const dayStr = ec.date.toLocaleDateString('en-GB', { weekday: 'short' });
                       const timeStr = ec.slot?.time || 'Sch';
                       const ampm = timeStr.toUpperCase().includes('PM') ? 'PM' : 'AM';
                       const startTime = timeStr.split('-')[0].trim() + ' ' + ampm;
-                      const typeStr = ec.slot?.type || 'L';
                       
-                      const isMiss = parseInt(missedClassesInput, 10) > 0 && i < (prediction.validMissed ?? 0);
+                      const isPractical = ec.classType === 'Practical';
+                      const typeBadgeText = isPractical ? 'PRAC' : 'LEC';
+                      const typeBadgeColor = isPractical ? '#8b5cf6' : (colors.primary || '#3b82f6');
+                      
+                      const originalIndex = prediction?.expectedClasses ? (prediction.expectedClasses as any[]).indexOf(ec) : i;
+                      const isMiss = parseInt(missedClassesInput, 10) > 0 && originalIndex < (prediction?.validMissed ?? 0);
                       const badgeColor = isMiss ? '#ef4444' : '#22c55e';
                       const badgeText = isMiss ? 'MISS' : 'EXP';
                       
                       return (
-                        <View key={i} style={{ width: '23%', marginBottom: 4 }}>
+                        <View key={i} style={{ width: '23%', marginBottom: 6 }}>
                           <View style={{ 
-                             backgroundColor: badgeColor + '10', 
-                             borderColor: badgeColor + '30',
+                             backgroundColor: isPractical ? (badgeColor + '08') : (badgeColor + '10'), 
+                             borderColor: isPractical ? '#8b5cf645' : (badgeColor + '30'),
                              borderWidth: 1,
-                             paddingVertical: 8,
-                             paddingHorizontal: 4,
+                             paddingVertical: 6,
+                             paddingHorizontal: 3,
                              alignItems: 'center',
                              justifyContent: 'center',
                              borderRadius: Radius.md,
-                             height: 60
+                             height: 64
                           }}>
-                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', paddingHorizontal: 2, marginBottom: 4 }}>
+                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingHorizontal: 2, marginBottom: 3 }}>
                                <Text style={{ fontFamily: 'Inter_700Bold', color: badgeColor, fontSize: 8 }}>{badgeText}</Text>
-                               <Text style={{ fontFamily: 'Inter_700Bold', color: colors.textMuted, fontSize: 8 }}>{typeStr}</Text>
+                               <View style={{ 
+                                 backgroundColor: typeBadgeColor + '20', 
+                                 paddingHorizontal: 3, 
+                                 paddingVertical: 1, 
+                                 borderRadius: 4 
+                               }}>
+                                 <Text style={{ fontFamily: 'Inter_700Bold', color: typeBadgeColor, fontSize: 7.5 }}>{typeBadgeText}</Text>
+                               </View>
                              </View>
                              
                              <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, fontSize: 11 }} numberOfLines={1}>{dateStr}</Text>
                              
-                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3 }}>
-                               <Text style={{ fontFamily: 'Inter_600SemiBold', color: colors.textDim, fontSize: 7 }} numberOfLines={1}>{startTime}</Text>
+                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                               <Text style={{ fontFamily: 'Inter_600SemiBold', color: colors.textDim, fontSize: 7.5 }} numberOfLines={1}>{startTime}</Text>
                              </View>
                           </View>
                         </View>

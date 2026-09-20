@@ -86,10 +86,10 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
     set({ isSwitchingMode: true });
     // Switch the actual mode immediately
     set({ isStudyOSMode: mode });
-    // Turn off the loading screen after a short delay (e.g. 1500ms) to allow chunks to load
+    // Turn off the loading screen after a short delay (350ms) for a snappy transition
     setTimeout(() => {
       set({ isSwitchingMode: false });
-    }, 1500);
+    }, 350);
   },
   
   setSwitchingMode: (switching: boolean) => set({ isSwitchingMode: switching }),

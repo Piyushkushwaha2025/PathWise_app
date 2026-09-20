@@ -170,7 +170,6 @@ export default function AppLayout() {
         onClose={() => {
           setSessionExpired(false);
           setCustomError(null);
-          router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: 'cu' } } as any);
         }} 
         colors={colors}
         customError={customError}

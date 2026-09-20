@@ -485,9 +485,7 @@ export default function MarksScreen() {
       if (navState.url.includes('Login') || navState.url.includes('login')) {
         setIsLoading(false);
         setRefreshing(false);
-        useStudySessionStore.getState().clearSession(true).then(() => {
-          useStudySessionStore.getState().setSessionExpired(true);
-        });
+        useStudySessionStore.getState().setSessionExpired(true);
         return;
       }
       setTimeout(() => injectAndScrapeRef.current(), 2000);

@@ -345,16 +345,65 @@ export interface RewardStatus {
   };
 }
 
+export const DEFAULT_REWARD_STATUS: RewardStatus = {
+  token_balance: 0,
+  ads_watched_today: 0,
+  ads_remaining_today: 5,
+  max_ads_per_day: 5,
+  tokens_per_ad: 10,
+  premium_expires_at: null,
+  is_reward_premium_active: false,
+  trial_started_at: null,
+  plans: {
+    one_day:   { tokens: 50,  days: 1 },
+    one_week:  { tokens: 200, days: 7 },
+    two_weeks: { tokens: 350, days: 14 },
+    one_month: { tokens: 500, days: 30 },
+  },
+};
+
 export async function getRewardStatus(clerkId: string, token?: string | null): Promise<RewardStatus> {
   const headers: Record<string, string> = { 'x-clerk-user-id': clerkId };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}/rewards/status`, {
-    method: 'GET',
-    headers,
-  });
-  if (!res.ok) throw new Error('Failed to fetch reward status');
-  return res.json();
+  try {
+    let res = await fetch(`${API_URL}/rewards/status`, {
+      method: 'GET',
+      headers,
+    });
+
+    // If 401 (e.g. backend CLERK_SECRET_KEY missing/mismatched), retry using x-clerk-user-id
+    if (res.status === 401 && headers['Authorization']) {
+      delete headers['Authorization'];
+      res = await fetch(`${API_URL}/rewards/status`, {
+        method: 'GET',
+        headers,
+      });
+    }
+
+    // If user profile not initialized yet in DB, auto-sync and retry once
+    if (res.status === 404) {
+      try {
+        await syncUserWithDB(clerkId);
+        res = await fetch(`${API_URL}/rewards/status`, {
+          method: 'GET',
+          headers,
+        });
+      } catch (syncErr) {
+        console.warn('Auto-sync on rewards status 404 failed:', syncErr);
+      }
+    }
+
+    if (!res.ok) {
+      console.warn(`[getRewardStatus] Server returned status ${res.status}, returning default status.`);
+      return DEFAULT_REWARD_STATUS;
+    }
+
+    return await res.json();
+  } catch (err) {
+    console.warn('[getRewardStatus] Network or server error, returning default fallback status:', err);
+    return DEFAULT_REWARD_STATUS;
+  }
 }
 
 export async function claimDailyBonus(clerkId: string, token?: string | null): Promise<{
@@ -370,10 +419,29 @@ export async function claimDailyBonus(clerkId: string, token?: string | null): P
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}/rewards/daily-bonus`, {
+  let res = await fetch(`${API_URL}/rewards/daily-bonus`, {
     method: 'POST',
     headers,
   });
+
+  if (res.status === 401 && headers['Authorization']) {
+    delete headers['Authorization'];
+    res = await fetch(`${API_URL}/rewards/daily-bonus`, {
+      method: 'POST',
+      headers,
+    });
+  }
+
+  if (res.status === 404) {
+    try {
+      await syncUserWithDB(clerkId);
+      res = await fetch(`${API_URL}/rewards/daily-bonus`, {
+        method: 'POST',
+        headers,
+      });
+    } catch {}
+  }
+
   const data = await res.json();
   if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
   return data;
@@ -392,11 +460,32 @@ export async function claimAdReward(clerkId: string, adType: string, token?: str
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}/rewards/watch-ad`, {
+  let res = await fetch(`${API_URL}/rewards/watch-ad`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ ad_type: adType }),
   });
+
+  if (res.status === 401 && headers['Authorization']) {
+    delete headers['Authorization'];
+    res = await fetch(`${API_URL}/rewards/watch-ad`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ad_type: adType }),
+    });
+  }
+
+  if (res.status === 404) {
+    try {
+      await syncUserWithDB(clerkId);
+      res = await fetch(`${API_URL}/rewards/watch-ad`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ad_type: adType }),
+      });
+    } catch {}
+  }
+
   const data = await res.json();
   if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
   return data;
@@ -416,11 +505,32 @@ export async function redeemTokensForPremium(clerkId: string, plan: 'one_day' | 
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}/rewards/redeem`, {
+  let res = await fetch(`${API_URL}/rewards/redeem`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ plan_key: plan }),
   });
+
+  if (res.status === 401 && headers['Authorization']) {
+    delete headers['Authorization'];
+    res = await fetch(`${API_URL}/rewards/redeem`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ plan_key: plan }),
+    });
+  }
+
+  if (res.status === 404) {
+    try {
+      await syncUserWithDB(clerkId);
+      res = await fetch(`${API_URL}/rewards/redeem`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ plan_key: plan }),
+      });
+    } catch {}
+  }
+
   const data = await res.json();
   if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
   return data;

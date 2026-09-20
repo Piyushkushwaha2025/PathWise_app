@@ -1,59 +1,112 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, DeviceEventEmitter, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, DeviceEventEmitter, Animated, Dimensions, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width, height } = Dimensions.get('window');
 
+const defaultOrigin = {
+    x: width - (width / 10) - 15,
+    y: height - 25,
+};
+
 export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
     const [visible, setVisible] = useState(false);
     const [hovered, setHovered] = useState<'studyos' | 'pathwise' | null>(null);
-    const [origin, setOrigin] = useState({ x: 0, y: 0 });
+    const [origin, setOrigin] = useState(defaultOrigin);
 
     // Animations
-    const [anim] = useState(new Animated.Value(0));
+    const anim = React.useRef(new Animated.Value(0)).current;
+    const studyOsScale = React.useRef(new Animated.Value(1)).current;
+    const pathWiseScale = React.useRef(new Animated.Value(1)).current;
 
     useEffect(() => {
         const sub1 = DeviceEventEmitter.addListener('profileSwitchVisible', (data) => {
             if (data.visible) {
                 setOrigin({ x: data.x, y: data.y });
                 setVisible(true);
-                Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 120 }).start();
+                anim.setValue(0);
+                studyOsScale.setValue(1);
+                pathWiseScale.setValue(1);
+                Animated.spring(anim, { 
+                    toValue: 1, 
+                    useNativeDriver: true, 
+                    friction: 8, 
+                    tension: 260 
+                }).start();
             } else {
-                Animated.timing(anim, { toValue: 0, duration: 100, useNativeDriver: true }).start(() => setVisible(false));
-                setHovered(null);
+                Animated.timing(anim, { 
+                    toValue: 0, 
+                    duration: 90, 
+                    useNativeDriver: true 
+                }).start(() => {
+                    setVisible(false);
+                    setHovered(null);
+                    studyOsScale.setValue(1);
+                    pathWiseScale.setValue(1);
+                });
             }
         });
-        const sub2 = DeviceEventEmitter.addListener('profileSwitchHover', (h) => setHovered(h));
+
+        const sub2 = DeviceEventEmitter.addListener('profileSwitchHover', (h) => {
+            setHovered(h);
+            Animated.spring(studyOsScale, {
+                toValue: h === 'studyos' ? 1.2 : h === 'pathwise' ? 0.92 : 1,
+                useNativeDriver: true,
+                tension: 320,
+                friction: 12,
+            }).start();
+            Animated.spring(pathWiseScale, {
+                toValue: h === 'pathwise' ? 1.2 : h === 'studyos' ? 0.92 : 1,
+                useNativeDriver: true,
+                tension: 320,
+                friction: 12,
+            }).start();
+        });
 
         return () => {
             sub1.remove();
             sub2.remove();
         };
-    }, [anim]);
-
-    if (!visible) return null;
+    }, []);
 
     const isDark = colors.text === '#f0f0f0' || colors.text === '#FFFFFF';
     
     // Spread distance for the options (radius of the Arc)
-    const arcRadius = 75;
+    const arcRadius = 78;
 
     // Slide up animation for StudyOS
     const studyOsY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, -arcRadius] });
-    const studyOsOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+    const studyOsOpacity = anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 0.7, 1] });
     
     // Slide left animation for PathWise
     const pathWiseX = anim.interpolate({ inputRange: [0, 1], outputRange: [0, -arcRadius] });
-    const pathWiseOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+    const pathWiseOpacity = anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 0.7, 1] });
 
     return (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 9999, pointerEvents: 'none' }]}>
-            {/* Full Screen Blur Backdrop */}
-            <Animated.View style={[StyleSheet.absoluteFill, { opacity: anim }]}>
-                <BlurView blurTarget={blurTargetRef} blurMethod="dimezisBlurView" intensity={30} style={StyleSheet.absoluteFill} tint={isDark ? 'dark' : 'light'} />
-                <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)' }]} />
-            </Animated.View>
+        <Animated.View 
+            pointerEvents="none"
+            style={[
+                StyleSheet.absoluteFill, 
+                { 
+                    zIndex: 9999, 
+                    opacity: anim 
+                }
+            ]}
+        >
+            {/* Full Screen High-Performance Blur Backdrop */}
+            <View style={StyleSheet.absoluteFill}>
+                {visible && (
+                    <BlurView 
+                        blurTarget={blurTargetRef} 
+                        blurMethod="dimezisBlurView" 
+                        intensity={28} 
+                        style={StyleSheet.absoluteFill} 
+                        tint={isDark ? 'dark' : 'light'} 
+                    />
+                )}
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.40)' }]} />
+            </View>
             
             {/* The Origin Container exactly centered on the User's Thumb! */}
             <View style={{
@@ -64,7 +117,6 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                 height: 66
             }}>
 
-
                 {/* StudyOS Bubble (Directly UP) */}
                 <Animated.View style={[
                     styles.bubble,
@@ -72,9 +124,10 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                         position: 'absolute',
                         top: 0,
                         left: 0,
-                        backgroundColor: hovered === 'studyos' ? '#8b5cf6' : (isDark ? 'rgba(30,30,40,0.8)' : 'rgba(255,255,255,0.9)'),
+                        backgroundColor: hovered === 'studyos' ? '#8b5cf6' : (isDark ? 'rgba(30,30,40,0.85)' : 'rgba(255,255,255,0.95)'),
+                        borderColor: hovered === 'studyos' ? '#a78bfa' : 'rgba(255,255,255,0.25)',
                         opacity: studyOsOpacity,
-                        transform: [{ translateY: studyOsY }, { scale: hovered === 'studyos' ? 1.15 : 1 }]
+                        transform: [{ translateY: studyOsY }, { scale: studyOsScale }]
                     }
                 ]}>
                     <Ionicons name="flash" size={24} color={hovered === 'studyos' ? 'white' : colors.text} />
@@ -88,9 +141,10 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                         position: 'absolute',
                         top: 0, 
                         left: 0,
-                        backgroundColor: hovered === 'pathwise' ? colors.primary : (isDark ? 'rgba(30,30,40,0.8)' : 'rgba(255,255,255,0.9)'),
+                        backgroundColor: hovered === 'pathwise' ? colors.primary : (isDark ? 'rgba(30,30,40,0.85)' : 'rgba(255,255,255,0.95)'),
+                        borderColor: hovered === 'pathwise' ? colors.primary : 'rgba(255,255,255,0.25)',
                         opacity: pathWiseOpacity,
-                        transform: [{ translateX: pathWiseX }, { scale: hovered === 'pathwise' ? 1.15 : 1 }]
+                        transform: [{ translateX: pathWiseX }, { scale: pathWiseScale }]
                     }
                 ]}>
                     <Ionicons name="compass" size={24} color={hovered === 'pathwise' ? 'white' : colors.text} />
@@ -102,7 +156,7 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                 <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', fontSize: 24, color: colors.text }}>Switch Profile</Text>
                 <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, color: colors.textDim, marginTop: 8 }}>Slide Up for StudyOS, Left for PathWise</Text>
             </Animated.View>
-        </View>
+        </Animated.View>
     );
 };
 

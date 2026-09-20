@@ -30,6 +30,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const profileLongPressTimer = useRef<any>(null);
   const isProfileMenuVisible = useRef(false);
   const profileHoveredRef = useRef<'studyos' | 'pathwise' | null>(null);
+  const profileTouchStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Tab config — only labels/icons change per mode, ORDER never changes.
   // Never reorder tabs array — reordering causes visual shift/glitch during mode transition.
@@ -123,36 +124,51 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                  accessibilityState={isFocused ? { selected: true } : {}}
                  accessibilityLabel={options.tabBarAccessibilityLabel}
                  onStartShouldSetResponder={() => true}
+                 onStartShouldSetResponderCapture={() => true}
+                 onMoveShouldSetResponder={() => true}
+                 onMoveShouldSetResponderCapture={() => true}
+                 onResponderTerminationRequest={() => false}
                  onResponderGrant={(e) => {
                     if (!isConnected) return;
+                    const { pageX, pageY } = e.nativeEvent;
+                    profileTouchStart.current = { x: pageX, y: pageY };
+                    profileHoveredRef.current = null;
+                    clearTimeout(profileLongPressTimer.current);
                     profileLongPressTimer.current = setTimeout(() => {
                           isProfileMenuVisible.current = true;
                           const { width, height } = Dimensions.get('window');
                           const fixedX = width - (width / 10) - 15;
                           const fixedY = height - 25;
                           DeviceEventEmitter.emit('profileSwitchVisible', { visible: true, x: fixedX, y: fixedY });
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                      }, 400);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      }, 170);
                  }}
                  onResponderMove={(e) => {
                     if (isProfileMenuVisible.current) {
                         const { pageX, pageY } = e.nativeEvent;
-                        const { width, height } = Dimensions.get('window');
-                        // Calculate distance from bottom right
-                        const distFromRight = width - pageX;
-                        const distFromBottom = height - pageY;
+                        const dx = pageX - profileTouchStart.current.x;
+                        const dy = pageY - profileTouchStart.current.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
 
                         let hovered: 'studyos' | 'pathwise' | null = null;
 
-                        if (distFromBottom > 65 && distFromRight < 75) {
-                            hovered = 'studyos'; // Slide UP
-                        } else if (distFromRight > 65 && distFromBottom < 75) {
-                            hovered = 'pathwise'; // Slide LEFT
+                        if (dist > 22) {
+                            // Slide UP: negative dy dominates
+                            if (-dy > 16 && -dy > Math.abs(dx) * 0.55) {
+                                hovered = 'studyos';
+                            } 
+                            // Slide LEFT: negative dx dominates
+                            else if (-dx > 16 && -dx > Math.abs(dy) * 0.55) {
+                                hovered = 'pathwise';
+                            }
                         }
                         
                         if (hovered !== profileHoveredRef.current) {
                             profileHoveredRef.current = hovered;
                             DeviceEventEmitter.emit('profileSwitchHover', hovered);
+                            if (hovered) {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            }
                         }
                     }
                  }}
@@ -167,18 +183,25 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                         
                         if (hovered) {
                             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                            setTimeout(() => {
-                                if (hovered === 'studyos' && !isStudyOSMode) {
-                                    setStudyOSMode(true);
-                                    router.replace('/(app)/dashboard');
-                                } else if (hovered === 'pathwise' && isStudyOSMode) {
-                                    setStudyOSMode(false);
-                                    router.replace('/(app)/dashboard');
-                                }
-                            }, 150);
+                            if (hovered === 'studyos' && !isStudyOSMode) {
+                                setStudyOSMode(true);
+                                router.replace('/(app)/dashboard');
+                            } else if (hovered === 'pathwise' && isStudyOSMode) {
+                                setStudyOSMode(false);
+                                router.replace('/(app)/dashboard');
+                            }
                         }
                     } else {
                         onPress(); // Normal tap
+                    }
+                 }}
+                 onResponderTerminate={() => {
+                    clearTimeout(profileLongPressTimer.current);
+                    if (isProfileMenuVisible.current) {
+                        isProfileMenuVisible.current = false;
+                        DeviceEventEmitter.emit('profileSwitchVisible', { visible: false });
+                        profileHoveredRef.current = null;
+                        DeviceEventEmitter.emit('profileSwitchHover', null);
                     }
                  }}
                >

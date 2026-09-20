@@ -472,7 +472,7 @@ export default function StudyOSDashboard() {
   const styles = useStyles(colors);
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isPro, isTrialActive, trialDaysLeft, isSubscribed, plan } = useSubscription();
+  const { isPro, isTrialActive, trialDaysLeft, isSubscribed, isRewardPro, plan } = useSubscription();
   const { roadmaps, profile, subjects, detailedAttendanceCache, isHydrated } = useStudyOSStore();
   const { clearSession, isSessionDisconnected } = useStudySessionStore();
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
@@ -482,6 +482,7 @@ export default function StudyOSDashboard() {
   const { user } = useUser();
   const [isRewardPremium, setIsRewardPremium] = useState(false);
   const [tokenBalance, setTokenBalance] = useState(0);
+  const isPaidOrRewardPro = isSubscribed || isRewardPro || isRewardPremium;
   const isActuallyPro = isPro || isRewardPremium;
 
   useFocusEffect(
@@ -657,9 +658,8 @@ export default function StudyOSDashboard() {
     }
   };
 
-  const handleSessionExpired = async () => {
+  const handleSessionExpired = () => {
     setRefreshing(false);
-    await clearSession(true);
     useStudySessionStore.getState().setSessionExpired(true);
   };
 
@@ -750,7 +750,7 @@ export default function StudyOSDashboard() {
                     onPress={() => router.push('/(app)/rewards' as any)} 
                     style={{ 
                       marginLeft: 8, 
-                      backgroundColor: isActuallyPro
+                      backgroundColor: isPaidOrRewardPro
                         ? '#FBBF24' 
                         : isTrialActive
                           ? colors.primary + '20'
@@ -762,7 +762,7 @@ export default function StudyOSDashboard() {
                       alignItems: 'center', 
                       borderRadius: 21, 
                       borderWidth: 1, 
-                      borderColor: isActuallyPro 
+                      borderColor: isPaidOrRewardPro 
                         ? '#F59E0B' 
                         : isTrialActive
                           ? colors.primary
@@ -775,7 +775,7 @@ export default function StudyOSDashboard() {
                         <Ionicons name="time-outline" size={17} color={colors.primary} />
                         <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 14 }}>{trialDaysLeft}d left</Text>
                       </>
-                    ) : isActuallyPro ? (
+                    ) : isPaidOrRewardPro ? (
                       <>
                         <Ionicons name="star" size={18} color="#fff" />
                         <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Pro</Text>
@@ -805,23 +805,6 @@ export default function StudyOSDashboard() {
                       </View>
                     )}
                   </View>
-                </TouchableOpacity>
-                <TouchableOpacity style={{ marginLeft: 16 }} onPress={() => {
-                  LayoutAnimation.configureNext({
-                    duration: 80,
-                    create: { type: 'easeOut', property: 'opacity' },
-                    update: { type: 'easeOut' },
-                    delete: { type: 'easeOut', property: 'opacity' },
-                  });
-                  const newValue = !isServicesMenuVisible;
-                  setIsServicesMenuVisible(newValue);
-                  if (!newValue) {
-                    SecureStore.setItemAsync('services_menu_closed', 'true');
-                  } else {
-                    SecureStore.deleteItemAsync('services_menu_closed');
-                  }
-                }}>
-                  <Ionicons name="menu" size={28} color={colors.text} />
                 </TouchableOpacity>
               </View>
           </View>

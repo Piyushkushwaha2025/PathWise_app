@@ -843,8 +843,15 @@ const REDEMPTION_PLANS = {
 // GET /api/rewards/status - get current token balance & premium status
 app.get('/api/rewards/status', getClerkId, async (req, res) => {
   try {
-    const user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) {
+      user = new User({
+        clerkUserId: req.clerkUserId,
+        app_first_opened_date: new Date(),
+        trial_started_at: new Date(),
+      });
+      await user.save();
+    }
 
     const today = new Date().toISOString().split('T')[0];
     if (user.last_ad_watch_date !== today) {
@@ -861,6 +868,7 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
       ads_watched_today: user.ads_watched_today || 0,
       ads_remaining_today: Math.max(0, MAX_ADS_PER_DAY - (user.ads_watched_today || 0)),
       max_ads_per_day: MAX_ADS_PER_DAY,
+      tokens_per_ad: 10,
       premium_expires_at: user.premium_expires_at || null,
       is_reward_premium_active: !!isPremiumActive,
       trial_started_at: user.trial_started_at || user.app_first_opened_date || user.createdAt || null,
@@ -875,8 +883,15 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
 // POST /api/rewards/daily-bonus
 app.post('/api/rewards/daily-bonus', getClerkId, rewardRateLimiter, async (req, res) => {
   try {
-    const user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) {
+      user = new User({
+        clerkUserId: req.clerkUserId,
+        app_first_opened_date: new Date(),
+        trial_started_at: new Date(),
+      });
+      await user.save();
+    }
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -904,8 +919,15 @@ app.post('/api/rewards/daily-bonus', getClerkId, rewardRateLimiter, async (req, 
 // POST /api/rewards/watch-ad - Dynamic tokens based on ad_type (10sec=5, 30sec=10, 60sec=20)
 app.post('/api/rewards/watch-ad', getClerkId, rewardRateLimiter, async (req, res) => {
   try {
-    const user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) {
+      user = new User({
+        clerkUserId: req.clerkUserId,
+        app_first_opened_date: new Date(),
+        trial_started_at: new Date(),
+      });
+      await user.save();
+    }
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -949,8 +971,15 @@ app.post('/api/rewards/redeem', getClerkId, rewardRateLimiter, async (req, res) 
     const plan = REDEMPTION_PLANS[plan_key];
     if (!plan) return res.status(400).json({ error: 'Invalid plan' });
 
-    const user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    let user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (!user) {
+      user = new User({
+        clerkUserId: req.clerkUserId,
+        app_first_opened_date: new Date(),
+        trial_started_at: new Date(),
+      });
+      await user.save();
+    }
 
     if ((user.token_balance || 0) < plan.tokens) {
       return res.status(400).json({ error: 'NOT_ENOUGH_TOKENS' });
