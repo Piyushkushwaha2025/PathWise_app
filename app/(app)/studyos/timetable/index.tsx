@@ -63,6 +63,52 @@ const parseTimeBounds = (timeStr: string) => {
 
 const parseStartTime = (timeStr: string) => parseTimeBounds(timeStr).start;
 
+const getDateForWeekday = (weekday: string) => {
+  const daysMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const targetIdx = daysMap.indexOf(weekday);
+  const d = new Date();
+  const currentIdx = d.getDay();
+  const diff = targetIdx - currentIdx;
+  d.setDate(d.getDate() + diff);
+  return d;
+};
+
+const getExamsForDate = (datesheet: any[], dateObj: Date) => {
+  if (!datesheet || !Array.isArray(datesheet) || datesheet.length === 0) return [];
+  
+  const day = dateObj.getDate().toString().padStart(2, '0');
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const month = monthNames[dateObj.getMonth()];
+  const year = dateObj.getFullYear();
+  const dateStr = `${day} ${month} ${year}`;
+  
+  const exams = datesheet.filter(d => {
+    const examDate = d['Exam Date'] || d['Exam_Date'] || d['Date'] || '';
+    return examDate.trim() === dateStr;
+  });
+  
+  return exams.map(e => {
+    let rawTime = e['Exam Timing'] || e['Exam_Timing'] || '09:00';
+    if (!rawTime.includes('-')) {
+       const startParts = rawTime.split(':');
+       if (startParts.length === 2) {
+          const h = parseInt(startParts[0], 10);
+          const endH = h + 2;
+          rawTime = `${rawTime} - ${endH.toString().padStart(2, '0')}:${startParts[1]}`;
+       }
+    }
+    
+    return {
+      subjectName: `${e['Course Name'] || e['course name'] || 'Exam'} (${e['Autoconducttype'] || 'EXAM'})`,
+      teacher: `Mode: ${e['Mode OF Exam'] || e['Mode Of Exam'] || 'Offline'}`,
+      time: rawTime,
+      room: `Venue: ${e['Exam Venue'] || e['Exam_Venue'] || 'TBD'}`,
+      group: e['course code'] || e['Course Code'] || '',
+      isExam: true
+    };
+  });
+};
+
 const buildFullDayTimeline = (rawClasses: any[]) => {
   if (!rawClasses || rawClasses.length === 0) return [];
   
@@ -86,7 +132,7 @@ const getNextSaturdayDate = () => {
 export default function TimetableScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
-  const { timetable } = useStudyOSStore();
+  const { timetable, datesheet } = useStudyOSStore();
   const [selectedDay, setSelectedDay] = useState(getCurrentDay());
   
   const { userId } = useAuth();
@@ -137,9 +183,12 @@ export default function TimetableScreen() {
     }, [])
   );
 
-  const rawClasses = selectedDay === 'Saturday' && currentSatOverride
+  const rawClassesFromTimetable = selectedDay === 'Saturday' && currentSatOverride
     ? timetable[currentSatOverride.mapped_day] || []
     : timetable[selectedDay] || [];
+    
+  const examsForSelectedDay = getExamsForDate(datesheet || [], getDateForWeekday(selectedDay));
+  const rawClasses = examsForSelectedDay.length > 0 ? examsForSelectedDay : rawClassesFromTimetable;
     
   const currentDayClasses = buildFullDayTimeline(rawClasses);
 

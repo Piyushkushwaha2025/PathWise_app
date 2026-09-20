@@ -18,7 +18,7 @@ export interface ThemeColors {
   xpGold: string;
 }
 
-export const Themes: Record<"black" | "white" | "cream", ThemeColors> = {
+export const Themes: Record<"black" | "white" | "cream" | "emerald", ThemeColors> = {
   black: {
     background: '#050505',
     surface: '#0f0f0f',
@@ -66,7 +66,23 @@ export const Themes: Record<"black" | "white" | "cream", ThemeColors> = {
     warning: '#b45309',
     error: '#9f1239',
     xpGold: '#b45309',
-  }
+  },
+  emerald: {
+    background: '#E8FFF2',
+    surface: '#D5F5E3',
+    surfaceHigh: '#BFECCF',
+    border: '#9DDABA',
+    primary: '#075E46',
+    accent: '#0C7E5F',
+    gradient: ['#075E46', '#0C7E5F'] as const,
+    text: '#022D22',
+    textMuted: '#096E53',
+    textDim: '#1D8267',
+    success: '#075E46',
+    warning: '#D97706',
+    error: '#DC2626',
+    xpGold: '#075E46',
+  },
 };
 
 // Legacy export defaulting to black for unmigrated components

@@ -45,6 +45,13 @@ export async function syncUserWithDB(
     body: JSON.stringify({ section_code, uid })
   });
   
+  if (res.status === 409) {
+    const data = await res.json();
+    const err = new Error(data.message || 'This UIMS account is already linked to another PathWise account.') as any;
+    err.code = 'UID_ALREADY_LINKED';
+    throw err;
+  }
+  
   if (!res.ok) throw new Error('Failed to sync user');
   return res.json();
 }
@@ -87,13 +94,15 @@ export async function setFreeAISubject(clerkId: string, subjectId: string): Prom
   return data.user;
 }
 
-export async function createRazorpayOrder(clerkId: string): Promise<any> {
+export async function createRazorpayOrder(clerkId: string, planId: string, token?: string | null): Promise<any> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  else headers['x-clerk-user-id'] = clerkId;
+
   const res = await fetch(`${API_URL}/payment/create-order`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-clerk-user-id': clerkId
-    }
+    headers,
+    body: JSON.stringify({ plan_id: planId })
   });
   
   const data = await res.json();
@@ -327,6 +336,7 @@ export interface RewardStatus {
   tokens_per_ad: number;
   premium_expires_at: number | null;
   is_reward_premium_active: boolean;
+  trial_started_at: string | null; // ISO date from server
   plans: {
     one_day:   { tokens: number; days: number };
     one_week:  { tokens: number; days: number };

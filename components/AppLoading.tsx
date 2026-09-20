@@ -81,7 +81,7 @@ export default function AppLoading() {
 
   const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1.02] });
 
-  const logo = theme === "white" || theme === "cream" ? lightLogo : darkLogo;
+  const logo = theme !== "black" ? lightLogo : darkLogo;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

@@ -33,7 +33,7 @@ export default function SignUpScreen() {
   const { signOut } = useAuth();
   const router = useRouter();
 
-  const logoSource = theme === "white" || theme === "cream"
+  const logoSource = theme !== "black"
     ? require("../../assets/logo-light.png")
     : require("../../assets/logo-dark.png");
 

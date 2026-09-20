@@ -73,6 +73,12 @@ const UserSchema = new mongoose.Schema({
   premium_expires_at: {
     type: Number,
     default: null  // Unix timestamp ms — for token-earned premium
+  },
+
+  // 🎁 30-Day Free Trial — stored server-side so reinstalling app can't reset it
+  trial_started_at: {
+    type: Date,
+    default: null
   }
 }, { timestamps: true });
 

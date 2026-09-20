@@ -17,8 +17,10 @@ interface StudySessionState {
   setSwitchingMode: (switching: boolean) => void;
   isSessionExpired: boolean;
   isSessionDisconnected: boolean;
+  customError: string | null;
   setSessionDisconnected: (disconnected: boolean) => void;
   setSessionExpired: (expired: boolean) => void;
+  setCustomError: (msg: string | null) => void;
 }
 
 export const useStudySessionStore = create<StudySessionState>((set) => ({
@@ -27,6 +29,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   isSwitchingMode: false,
   isSessionExpired: false,
   isSessionDisconnected: false,
+  customError: null,
   universityId: null,
   lmsSesskey: null,
   lmsUserId: null,
@@ -91,5 +94,6 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   
   setSwitchingMode: (switching: boolean) => set({ isSwitchingMode: switching }),
   setSessionExpired: (expired: boolean) => set({ isSessionExpired: expired, isSessionDisconnected: expired ? true : useStudySessionStore.getState().isSessionDisconnected }),
-  setSessionDisconnected: (disconnected: boolean) => set({ isSessionDisconnected: disconnected })
+  setSessionDisconnected: (disconnected: boolean) => set({ isSessionDisconnected: disconnected }),
+  setCustomError: (msg: string | null) => set({ customError: msg }),
 }));

@@ -53,7 +53,7 @@ const DisconnectedBubble = ({ onPress, colors }: any) => (
 export default function AppLayout() {
   const blurTargetRef = useRef<View>(null);
   const { checkForUpdates } = useUpdateStore();
-  const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode } = useStudySessionStore();
+  const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode, customError, setCustomError } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
   
   // Initialize background sync and polling
@@ -169,12 +169,15 @@ export default function AppLayout() {
         visible={isSessionExpired} 
         onClose={() => {
           setSessionExpired(false);
+          setCustomError(null);
           router.replace({ pathname: '/(app)/studyos/webview-login', params: { uniId: 'cu' } } as any);
         }} 
         colors={colors}
-        onLeave={() => setSessionExpired(false)}
+        customError={customError}
+        onLeave={() => { setSessionExpired(false); setCustomError(null); }}
         onSuccess={() => {
           setSessionExpired(false);
+          setCustomError(null);
           useStudySessionStore.getState().setSessionDisconnected(false);
           triggerReconnectToast();
         }}

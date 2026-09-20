@@ -2,7 +2,7 @@ import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
 import { Themes, ThemeColors } from "../constants/theme";
 
-export type ThemeType = "black" | "white" | "cream";
+export type ThemeType = "black" | "white" | "cream" | "emerald";
 
 interface ThemeState {
   theme: ThemeType;
@@ -41,7 +41,7 @@ export const loadTheme = async () => {
     const savedColor = await SecureStore.getItemAsync("app_primary_color");
     
     let t: ThemeType = "black";
-    if (savedTheme && (savedTheme === "black" || savedTheme === "white" || savedTheme === "cream")) {
+    if (savedTheme && (savedTheme === "black" || savedTheme === "white" || savedTheme === "cream" || savedTheme === "emerald")) {
       t = savedTheme as ThemeType;
     }
     

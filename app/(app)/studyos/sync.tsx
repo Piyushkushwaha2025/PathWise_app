@@ -377,9 +377,96 @@ const SCRAPE_STEPS = [
            }
         }
         
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
+         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
       } catch(e) {
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: [] }));
+      }
+      true;
+    `
+  },
+  {
+    id: 'datesheet',
+    url: 'https://student.culko.in/frmStudentDatesheet.aspx',
+    msg: 'Extracting Exam Datesheet...',
+    script: `
+      try {
+        var results = [];
+        var tables = document.querySelectorAll('table');
+        for(var i=0; i<tables.length; i++) {
+           var rows = tables[i].querySelectorAll('tr');
+           if (rows.length > 1) {
+               var headers = [];
+               var ths = rows[0].querySelectorAll('th, td');
+               for(var h=0; h<ths.length; h++) {
+                  headers.push(ths[h].innerText.trim());
+               }
+               var headerStr = headers.join(' ').toLowerCase();
+               if (headerStr.includes('date')) {
+                    for(var r=1; r<rows.length; r++) {
+                       var tds = rows[r].querySelectorAll('td');
+                       if (tds.length === headers.length) {
+                           var rowData = {};
+                           var hasValidData = false;
+                           for(var c=0; c<tds.length; c++) {
+                              var head = headers[c] || 'Column_' + c;
+                              var txt = tds[c].innerText.trim();
+                              if (txt) hasValidData = true;
+                              rowData[head] = txt;
+                           }
+                           if (hasValidData) results.push(rowData);
+                       }
+                    }
+               }
+           }
+        }
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'datesheet', data: results }));
+      } catch(e) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'datesheet', data: [] }));
+      }
+      true;
+    `
+  },
+  {
+    id: 'practical_datesheet',
+    url: 'https://student.culko.in/frmStudentPracticleDateSheet.aspx',
+    msg: 'Extracting Practical Datesheet...',
+    script: `
+      try {
+        var results = [];
+        var tables = document.querySelectorAll('table');
+        for(var i=0; i<tables.length; i++) {
+           var rows = tables[i].querySelectorAll('tr');
+           if (rows.length > 1) {
+               var headers = [];
+               var ths = rows[0].querySelectorAll('th, td');
+               for(var h=0; h<ths.length; h++) {
+                  headers.push(ths[h].innerText.trim());
+               }
+               var headerStr = headers.join(' ').toLowerCase();
+               if (headerStr.includes('date')) {
+                    for(var r=1; r<rows.length; r++) {
+                       var tds = rows[r].querySelectorAll('td');
+                       if (tds.length === headers.length) {
+                           var rowData = {};
+                           var hasValidData = false;
+                           for(var c=0; c<tds.length; c++) {
+                              var head = headers[c] || 'Column_' + c;
+                              var txt = tds[c].innerText.trim();
+                              if (txt) hasValidData = true;
+                              rowData[head] = txt;
+                           }
+                           if (hasValidData) {
+                               rowData['Autoconducttype'] = 'PRACTICAL';
+                               results.push(rowData);
+                           }
+                       }
+                    }
+               }
+           }
+        }
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'practical_datesheet', data: results }));
+      } catch(e) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'practical_datesheet', data: [] }));
       }
       true;
     `
@@ -506,17 +593,35 @@ export default function SyncScreen() {
         }
       }
 
-      await setScrapedData({
-        profile: newData.profile || existing.profile,
-        subjects: updatedSubjects,
-        timetable: finalTimetable,
-        marks: (newData.marks && newData.marks.length) ? newData.marks : existing.marks,
-        isScrapedDataLoaded: true
-      });
+        const combinedDatesheet = [
+           ...(newData.datesheet || []),
+           ...(newData.practical_datesheet || [])
+        ];
+
+        await setScrapedData({
+          profile: newData.profile || existing.profile,
+          subjects: updatedSubjects,
+          timetable: finalTimetable,
+          marks: (newData.marks && newData.marks.length) ? newData.marks : existing.marks,
+          datesheet: combinedDatesheet.length > 0 ? combinedDatesheet : existing.datesheet,
+          isScrapedDataLoaded: true
+        });
 
       if (userId && section) {
         syncUserWithDB(userId, section, newData.profile?.uid)
-          .catch(e => console.error('Failed to sync section to DB', e));
+          .catch(async (e: any) => {
+            if (e?.code === 'UID_ALREADY_LINKED') {
+              // This UIMS account belongs to a different PathWise account.
+              // Sign out and show a clear error to the user.
+              await SecureStore.deleteItemAsync('culko_cookies').catch(() => {});
+              useStudySessionStore.getState().setSessionExpired(true);
+              useStudySessionStore.getState().setCustomError?.(
+                'This UIMS account is already linked to another PathWise account. Please log in with your original account.'
+              );
+            } else {
+              console.error('Failed to sync section to DB', e);
+            }
+          });
       }
 
       await setSession('cu', 'culko-scraped', 0);

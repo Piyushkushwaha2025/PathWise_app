@@ -13,11 +13,14 @@ import * as SplashScreen from 'expo-splash-screen';
 import { AutoSyncAttendance } from '../../../components/AutoSyncAttendance';
 import { DetailedAttendanceModal } from '../../../components/DetailedAttendanceModal';
 import { FacilitiesModal } from '../../../components/FacilitiesModal';
+import { AttendanceOverviewModal } from '../../../components/AttendanceOverviewModal';
 import * as SecureStore from 'expo-secure-store';
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { getRewardStatus, RewardStatus } from '../../../lib/db';
 import { fetchNotifications, useDBProfile } from '../../../lib/db';
 import { useSubscription } from '../../../hooks/useSubscription';
+import { useBackgroundSync } from '../../../hooks/useBackgroundSync';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -160,17 +163,61 @@ function parseTimeRange(timeStr: string) {
       }
       return hours * 60 + minutes;
     };
-    return { start: parsePart(startOriginal), end: parsePart(endOriginal) };
+    
+    const start = parsePart(startOriginal);
+    let end = parsePart(endOriginal);
+    if (end === 0 && start > 0) end = start + 120; // Default 2 hours for exams
+    
+    return { start, end };
   } catch (e) {
     return { start: 0, end: 0 };
   }
 }
 
+function getExamsForDate(datesheet: any[], dateObj: Date) {
+  if (!datesheet || !Array.isArray(datesheet) || datesheet.length === 0) return [];
+  
+  const day = dateObj.getDate().toString().padStart(2, '0');
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const month = monthNames[dateObj.getMonth()];
+  const year = dateObj.getFullYear();
+  const dateStr = `${day} ${month} ${year}`;
+  
+  const exams = datesheet.filter(d => {
+    const examDate = d['Exam Date'] || d['Exam_Date'] || d['Date'] || '';
+    return examDate.trim() === dateStr;
+  });
+  
+  return exams.map(e => {
+    let rawTime = e['Exam Timing'] || e['Exam_Timing'] || '09:00';
+    if (!rawTime.includes('-')) {
+       // Append 2 hours end time for display purposes if missing
+       const startParts = rawTime.split(':');
+       if (startParts.length === 2) {
+          const h = parseInt(startParts[0], 10);
+          const endH = h + 2;
+          rawTime = `${rawTime} - ${endH.toString().padStart(2, '0')}:${startParts[1]}`;
+       }
+    }
+    
+    return {
+      subjectName: `${e['Course Name'] || e['course name'] || 'Exam'} (${e['Autoconducttype'] || 'EXAM'})`,
+      teacher: `Mode: ${e['Mode OF Exam'] || e['Mode Of Exam'] || 'Offline'}`,
+      time: rawTime,
+      room: `Venue: ${e['Exam Venue'] || e['Exam_Venue'] || 'TBD'}`,
+      group: e['course code'] || e['Course Code'] || '',
+      isExam: true
+    };
+  });
+}
+
 function CurrentClassWidget() {
   const colors = useThemeStore((s) => s.colors);
-  const { timetable, subjects, detailedAttendanceCache } = useStudyOSStore();
+  const { timetable, subjects, detailedAttendanceCache, datesheet } = useStudyOSStore();
   const today = getCurrentDay();
-  const classesToday = timetable[today] || [];
+  
+  const examsToday = getExamsForDate(datesheet, new Date());
+  const classesToday = examsToday.length > 0 ? examsToday : (timetable[today] || []);
   
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -423,6 +470,7 @@ function CurrentClassWidget() {
 export default function StudyOSDashboard() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isPro, isTrialActive, trialDaysLeft, isSubscribed, plan } = useSubscription();
   const { roadmaps, profile, subjects, detailedAttendanceCache, isHydrated } = useStudyOSStore();
@@ -474,7 +522,8 @@ export default function StudyOSDashboard() {
   const [currentMonth, setCurrentMonth] = useState(todayStr.substring(0, 7));
   const [cookies, setCookies] = useState('');
   const [isServicesMenuVisible, setIsServicesMenuVisible] = useState(true);
-  const [selectedFacility, setSelectedFacility] = useState<'hostel' | 'transport' | 'profile' | 'leave' | 'fees' | null>(null);
+  const [selectedFacility, setSelectedFacility] = useState<'hostel' | 'transport' | 'profile' | 'leave' | 'fees' | 'datesheet' | null>(null);
+  const [isAttendanceOverviewVisible, setIsAttendanceOverviewVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   const { userId } = useAuth();
@@ -697,28 +746,44 @@ export default function StudyOSDashboard() {
 
           <View style={styles.headerRight}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <TouchableOpacity onPress={() => router.push('/(app)/_pathwise_subscription' as any)}>
-                    {isSubscribed ? (
-                      <View style={{ backgroundColor: '#22c55e20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#22c55e40' }}>
-                        <Text style={{ color: '#22c55e', fontSize: 12, fontFamily: 'Inter_700Bold' }}>PRO</Text>
-                      </View>
-                    ) : isTrialActive ? (
-                      <View style={{ backgroundColor: '#eab30820', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#eab30840' }}>
-                        <Text style={{ color: '#eab308', fontSize: 12, fontFamily: 'Inter_700Bold' }}>{trialDaysLeft}D Trial</Text>
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity onPress={() => router.push('/(app)/rewards' as any)} style={{ marginLeft: 8, backgroundColor: isActuallyPro ? '#FBBF24' : colors.surfaceHigh, flexDirection: 'row', height: 42, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 21, borderWidth: 1, borderColor: isActuallyPro ? '#F59E0B' : colors.border, gap: 8 }}>
-                    {isActuallyPro ? (
+                  <TouchableOpacity 
+                    onPress={() => router.push('/(app)/rewards' as any)} 
+                    style={{ 
+                      marginLeft: 8, 
+                      backgroundColor: isActuallyPro
+                        ? '#FBBF24' 
+                        : isTrialActive
+                          ? colors.primary + '20'
+                          : colors.surfaceHigh, 
+                      flexDirection: 'row', 
+                      height: 42, 
+                      paddingHorizontal: 16, 
+                      justifyContent: 'center', 
+                      alignItems: 'center', 
+                      borderRadius: 21, 
+                      borderWidth: 1, 
+                      borderColor: isActuallyPro 
+                        ? '#F59E0B' 
+                        : isTrialActive
+                          ? colors.primary
+                          : colors.border, 
+                      gap: 8 
+                    }}
+                  >
+                    {isTrialActive ? (
+                      <>
+                        <Ionicons name="time-outline" size={17} color={colors.primary} />
+                        <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 14 }}>{trialDaysLeft}d left</Text>
+                      </>
+                    ) : isActuallyPro ? (
                       <>
                         <Ionicons name="star" size={18} color="#fff" />
                         <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Pro</Text>
                       </>
                     ) : (
                       <>
-                        <Ionicons name="diamond" size={20} color="#FBBF24" />
-                        <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 16 }}>{tokenBalance}</Text>
+                        <Ionicons name="sparkles-outline" size={17} color={colors.textDim} />
+                        <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Free</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -793,6 +858,16 @@ export default function StudyOSDashboard() {
             <View style={styles.serviceItemWrapper}>
               <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('fees')}>
                 <Ionicons name="card" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('datesheet')}>
+                <Ionicons name="document-text" size={24} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.serviceItemWrapper}>
+              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setIsAttendanceOverviewVisible(true)}>
+                <Ionicons name="stats-chart" size={24} color={colors.primary} />
               </TouchableOpacity>
             </View>
           </View>
@@ -904,7 +979,7 @@ export default function StudyOSDashboard() {
       </ScrollView>
       
       <Modal visible={isCalendarVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setIsCalendarVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <View style={{ flex: 1, backgroundColor: colors.background, paddingBottom: Platform.OS === 'android' ? insets.bottom : 0 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.xl, paddingTop: 60, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <View>
               <Text style={{ color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold',  }}>Academic Calendar</Text>
@@ -947,7 +1022,11 @@ export default function StudyOSDashboard() {
               indicatorColor: colors.primary,
             }}
           />
-          <ScrollView style={{ flex: 1, padding: Spacing.lg, backgroundColor: colors.background }}>
+          <ScrollView 
+            style={{ flex: 1, backgroundColor: colors.background }}
+            contentContainerStyle={{ padding: Spacing.lg, paddingBottom: Spacing.xl }}
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginBottom: 12 }}>
               Events for this Month
             </Text>
@@ -984,7 +1063,10 @@ export default function StudyOSDashboard() {
         onClose={() => setSelectedFacility(null)} 
       />
 
-      
+      <AttendanceOverviewModal
+        visible={isAttendanceOverviewVisible}
+        onClose={() => setIsAttendanceOverviewVisible(false)}
+      />
 
       <DetailedAttendanceModal 
         visible={!!selectedSubjectDetails} 

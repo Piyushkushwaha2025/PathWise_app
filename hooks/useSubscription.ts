@@ -1,9 +1,9 @@
-﻿import { useUser } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-expo';
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getRewardStatus } from '../lib/db';
 
-const TRIAL_DAYS = 3; // 3 days free trial for new users
+const TRIAL_DAYS = 30; // 30-day free trial for new users
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 export function useSubscription() {
@@ -30,12 +30,16 @@ export function useSubscription() {
 
     let isSubscribed = !!user.unsafeMetadata?.isSubscribed;
     
-    // Calculate trial
-    const createdAt = new Date(user.createdAt || Date.now());
+    // Use server-provided trial_started_at if available (prevents reset on reinstall)
+    // Fall back to Clerk account createdAt
+    const trialStartedAt = rewardStatus?.trial_started_at
+      ? new Date(rewardStatus.trial_started_at)
+      : new Date(user.createdAt || Date.now());
+
     const now = new Date();
-    const diffMs = now.getTime() - createdAt.getTime();
-    const daysSinceCreation = Math.floor(diffMs / MS_PER_DAY);
-    const trialDaysLeft = Math.max(0, TRIAL_DAYS - daysSinceCreation);
+    const diffMs = now.getTime() - trialStartedAt.getTime();
+    const daysSinceTrialStart = Math.floor(diffMs / MS_PER_DAY);
+    const trialDaysLeft = Math.max(0, TRIAL_DAYS - daysSinceTrialStart);
     const isTrialActive = trialDaysLeft > 0;
 
     let subscriptionDaysLeft = 0;

@@ -81,6 +81,7 @@ export default function ProfileScreen() {
   const styles = useStyles(colors);
 
   const ACCENT_COLORS = [
+    { name: "Forest", hex: "#075E46" },
     { name: "Blue", hex: "#3b82f6" },
     { name: "Indigo", hex: "#6366f1" },
     { name: "Purple", hex: "#a855f7" },
@@ -674,7 +675,7 @@ export default function ProfileScreen() {
         >
           <Text style={[styles.sectionTitle, { marginTop: 16 }]}>{"App Theme"}</Text>
           <View style={styles.themeToggleRow}>
-            {(["black", "white", "cream"] as ThemeType[]).map((t) => (
+            {(["black", "white", "cream", "emerald"] as ThemeType[]).map((t) => (
               <MotiView
                 key={t}
                 animate={{ scale: selectedTheme === t ? 1.05 : 1 }}
@@ -688,7 +689,7 @@ export default function ProfileScreen() {
                   onPress={() => handleThemeSelect(t)}
                 >
                   <Ionicons
-                    name={t === "black" ? "moon" : t === "white" ? "sunny" : "leaf"}
+                    name={t === "black" ? "moon" : t === "white" ? "sunny" : t === "cream" ? "leaf" : "sparkles"}
                     size={20}
                     color={selectedTheme === t ? colors.primary : colors.textMuted}
                   />

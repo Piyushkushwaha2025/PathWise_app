@@ -39,7 +39,7 @@ export default function SignInScreen() {
   const theme = useThemeStore((s) => s.theme);
   const styles = useStyles(colors);
   
-  const logoSource = theme === "white" || theme === "cream" 
+  const logoSource = theme !== "black" 
     ? require("../../assets/logo-light.png") 
     : require("../../assets/logo-dark.png");
 

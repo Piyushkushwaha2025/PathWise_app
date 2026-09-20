@@ -3,14 +3,23 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, Scr
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
+import { useStudyOSStore } from '../store/studyosStore';
 import { Typography, Spacing, Radius } from '../constants/theme';
 import * as SecureStore from 'expo-secure-store';
 
 interface FacilitiesModalProps {
   visible: boolean;
-  type: 'hostel' | 'transport' | 'profile' | 'leave' | 'fees' | null;
+  type: 'hostel' | 'transport' | 'profile' | 'leave' | 'fees' | 'datesheet' | null;
   onClose: () => void;
 }
+
+// Module-level persistent cache across modal open/closes
+const globalFacilityCache: Record<string, any[]> = {};
+const globalDatesheetMeta: Record<string, {
+  opts: { label: string; value: string }[];
+  selectId: string | null;
+  selectedVal: string | null;
+}> = {};
 
 export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps) {
   const { colors } = useThemeStore();
@@ -19,8 +28,11 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
   const [cookies, setCookies] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [cookiesLoaded, setCookiesLoaded] = useState(false);
-  const [subType, setSubType] = useState<'ml' | 'dl' | 'hostel' | 'details' | 'receipts' | null>(null);
+  const [subType, setSubType] = useState<'ml' | 'dl' | 'hostel' | 'details' | 'receipts' | 'theory' | 'practical' | null>(null);
   const [receiptViewerUrl, setReceiptViewerUrl] = useState<string | null>(null);
+  const [datesheetOpts, setDatesheetOpts] = useState<{label: string, value: string}[]>([]);
+  const [datesheetSelectId, setDatesheetSelectId] = useState<string | null>(null);
+  const [selectedDatesheetVal, setSelectedDatesheetVal] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
   const dataCache = useRef<Record<string, any[]>>({});
 
@@ -35,6 +47,9 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
   } else if (type === 'fees') {
     if (subType === 'details') targetUrl = 'https://student.culko.in/frmAccountStudentDetails.aspx';
     else if (subType === 'receipts') targetUrl = 'https://student.culko.in/frmAccountsStudentReceiptList.aspx';
+  } else if (type === 'datesheet') {
+    if (subType === 'practical') targetUrl = 'https://student.culko.in/frmStudentPracticleDateSheet.aspx';
+    else targetUrl = 'https://student.culko.in/frmStudentDatesheet.aspx';
   }
 
   useEffect(() => {
@@ -47,12 +62,28 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
         setSubType('details');
         return;
       }
+      if (type === 'datesheet' && subType === null) {
+        setSubType('theory');
+        return;
+      }
       
-      const cacheKey = (type === 'leave' || type === 'fees') ? `${type}_${subType}` : type;
-      const hasCache = cacheKey && dataCache.current[cacheKey] !== undefined;
+      const effectiveSubType = (type === 'datesheet' && !subType) ? 'theory' : subType;
+      const cacheKey = type ? ((type === 'leave' || type === 'fees' || type === 'datesheet') ? `${type}_${effectiveSubType}` : type) : '';
+      
+      const cached = cacheKey ? (dataCache.current[cacheKey] || globalFacilityCache[cacheKey] || (type === 'datesheet' ? (globalFacilityCache['datesheet_theory'] || globalFacilityCache['datesheet']) : null)) : null;
+      const hasCache = !!(cached && cached.length > 0);
       
       if (hasCache) {
-        setData(dataCache.current[cacheKey]);
+        setData(cached);
+        dataCache.current[cacheKey] = cached;
+        if (type === 'datesheet') {
+          const meta = globalDatesheetMeta[cacheKey] || globalDatesheetMeta['datesheet_theory'] || globalDatesheetMeta['datesheet'];
+          if (meta) {
+            if (meta.opts && meta.opts.length > 0) setDatesheetOpts(meta.opts);
+            if (meta.selectId) setDatesheetSelectId(meta.selectId);
+            if (meta.selectedVal) setSelectedDatesheetVal(meta.selectedVal);
+          }
+        }
         setLoading(false);
         setError(null);
       } else {
@@ -64,7 +95,6 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
       setCookiesLoaded(false);
       SecureStore.getItemAsync('culko_cookies').then(c => {
         if (c) setCookies(c);
-        // Delay WebView creation until after modal slide animation (approx 350ms)
         setTimeout(() => setCookiesLoaded(true), 350);
       });
       
@@ -75,12 +105,12 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
             return false;
           });
         }
-      }, 15000); // 15s timeout
+      }, 15000);
       
       return () => clearTimeout(timer);
     } else {
       setCookiesLoaded(false);
-      setSubType(null); // Reset when closed
+      setSubType(null);
     }
   }, [visible, type, subType]);
 
@@ -98,7 +128,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
         var subPageType = "${subType}";
         var results = [];
         
-        if (pageType === 'leave' || pageType === 'fees') {
+        if (pageType === 'leave' || pageType === 'fees' || pageType === 'datesheet') {
               var tables = document.querySelectorAll('table');
               for(var i=0; i<tables.length; i++) {
                  var rows = tables[i].querySelectorAll('tr');
@@ -155,6 +185,25 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                      }
                  }
               }
+               
+               // Extract Datesheet Dropdown options
+               var datesheetOptions = [];
+               var datesheetSelectId = null;
+               if (pageType === 'datesheet') {
+                   var selects = document.querySelectorAll('select');
+                   for(var s=0; s<selects.length; s++) {
+                       if (selects[s].id.toLowerCase().includes('date') || selects[s].id.toLowerCase().includes('type')) {
+                           datesheetSelectId = selects[s].id;
+                           var opts = selects[s].options;
+                           for (var o=0; o<opts.length; o++) {
+                               if (opts[o].value && opts[o].text && !opts[o].text.includes('Select')) {
+                                   datesheetOptions.push({ label: opts[o].text, value: opts[o].value });
+                               }
+                           }
+                           break;
+                       }
+                   }
+               }
         } else {
             // 1. Parse tables
             var tables = document.querySelectorAll('table');
@@ -213,7 +262,9 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'DATA',
-            data: results
+            data: results,
+            datesheetOptions: typeof datesheetOptions !== 'undefined' ? datesheetOptions : [],
+            datesheetSelectId: typeof datesheetSelectId !== 'undefined' ? datesheetSelectId : null
           }));
         }
       } catch (e) {
@@ -231,28 +282,63 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
   const handleMessage = (event: WebViewMessageEvent) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
+      if (msg.type === 'SESSION_EXPIRED') {
+        setError('Session expired. Please reconnect in StudyOS.');
+        setLoading(false);
+        return;
+      }
       if (msg.type === 'DATA') {
+        const effectiveSubType = (type === 'datesheet' && !subType) ? 'theory' : subType;
+        const cacheKey = type ? ((type === 'leave' || type === 'fees' || type === 'datesheet') ? `${type}_${effectiveSubType}` : type) : '';
+
+        if (msg.datesheetOptions && msg.datesheetOptions.length > 0) {
+           setDatesheetOpts(msg.datesheetOptions);
+           const initialVal = selectedDatesheetVal || msg.datesheetOptions[0]?.value;
+           if (!selectedDatesheetVal && msg.datesheetOptions[0]) {
+             setSelectedDatesheetVal(msg.datesheetOptions[0].value);
+           }
+           if (cacheKey) {
+             globalDatesheetMeta[cacheKey] = {
+               opts: msg.datesheetOptions,
+               selectId: msg.datesheetSelectId || datesheetSelectId,
+               selectedVal: initialVal || null
+             };
+           }
+        }
+        if (msg.datesheetSelectId) {
+           setDatesheetSelectId(msg.datesheetSelectId);
+        }
+        
         const hasData = msg.data && msg.data.length > 0;
-        const cacheKey = (type === 'leave' || type === 'fees') ? `${type}_${subType}` : type;
         
         if (hasData) {
-           const newDataStr = JSON.stringify(msg.data);
-           const oldDataStr = JSON.stringify(cacheKey ? dataCache.current[cacheKey] : null);
-           if (newDataStr !== oldDataStr) {
-               setData(msg.data);
-               if (cacheKey) dataCache.current[cacheKey] = msg.data;
-           }
+            setData(msg.data);
+            if (cacheKey) {
+              dataCache.current[cacheKey] = msg.data;
+              globalFacilityCache[cacheKey] = msg.data;
+            }
+            if (type === 'datesheet') {
+              globalFacilityCache['datesheet'] = msg.data;
+              globalFacilityCache[`datesheet_${subType || 'theory'}`] = msg.data;
+              useStudyOSStore.getState().setScrapedData({ datesheet: msg.data });
+            }
         } else if (type === 'leave' || (type === 'fees' && subType === 'receipts')) {
-           const newDataStr = JSON.stringify([]);
-           const oldDataStr = JSON.stringify(cacheKey ? dataCache.current[cacheKey] : null);
-           if (newDataStr !== oldDataStr) {
-               setData([]);
-               if (cacheKey) dataCache.current[cacheKey] = [];
-           }
+            setData([]);
+            if (cacheKey) {
+              dataCache.current[cacheKey] = [];
+              globalFacilityCache[cacheKey] = [];
+            }
+        } else if (type === 'datesheet' && (!msg.data || msg.data.length === 0)) {
+            // NEVER wipe cached datesheet data if we already have it!
+            const existing = (cacheKey ? dataCache.current[cacheKey] : null) || (cacheKey ? globalFacilityCache[cacheKey] : null) || globalFacilityCache['datesheet'];
+            if (!existing || existing.length === 0) {
+              setData([]);
+            }
         } else {
-           if (!cacheKey || !dataCache.current[cacheKey]) {
-              setError(type === 'hostel' ? 'No Hostel Allotted' : type === 'transport' ? 'No Transport Allotted' : type === 'fees' ? 'No Fee Details Found' : 'No Profile Data');
-           }
+            const existing = cacheKey ? (dataCache.current[cacheKey] || globalFacilityCache[cacheKey]) : null;
+            if (!existing || existing.length === 0) {
+               setError(type === 'hostel' ? 'No Hostel Allotted' : type === 'transport' ? 'No Transport Allotted' : type === 'fees' ? 'No Fee Details Found' : 'No Profile Data');
+            }
         }
         setLoading(false);
       } else if (msg.type === 'OPEN_URL') {
@@ -276,7 +362,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
       <View style={[styles.modalContainer, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <Text style={[styles.title, { color: colors.text }]}>
-              {type === 'hostel' ? 'Hostel Details' : type === 'transport' ? 'Transport Details' : type === 'profile' ? 'Profile Details' : type === 'fees' ? 'Fee Details' : 'Leave History'}
+              {type === 'hostel' ? 'Hostel Details' : type === 'transport' ? 'Transport Details' : type === 'profile' ? 'Profile Details' : type === 'fees' ? 'Fee Details' : type === 'datesheet' ? 'Datesheet' : 'Leave History'}
             </Text>
             <TouchableOpacity onPress={onClose} style={[styles.closeButton, { backgroundColor: colors.surfaceHigh }]}>
               <Ionicons name="close" size={24} color={colors.text} />
@@ -323,6 +409,60 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
             </View>
           )}
 
+          {type === 'datesheet' && (
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: datesheetOpts.length > 0 ? 12 : 24 }}>
+              <TouchableOpacity 
+                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'theory' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'theory' ? colors.primary : colors.border }]} 
+                onPress={() => setSubType('theory')}
+              >
+                <Text style={[styles.leaveOptionText, { color: subType === 'theory' ? '#fff' : colors.textMuted }]}>Theory</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'practical' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'practical' ? colors.primary : colors.border }]} 
+                onPress={() => setSubType('practical')}
+              >
+                <Text style={[styles.leaveOptionText, { color: subType === 'practical' ? '#fff' : colors.textMuted }]}>Practical</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {type === 'datesheet' && subType === 'theory' && datesheetOpts.length > 0 && (
+            <View style={{ marginBottom: 20 }}>
+              <ScrollView horizontal style={{ flexGrow: 0 }} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: Spacing.xl, alignItems: 'center' }}>
+                {datesheetOpts.map((opt, i) => (
+                  <TouchableOpacity 
+                    key={i}
+                    style={{
+                      paddingVertical: 6, 
+                      paddingHorizontal: 16, 
+                      backgroundColor: selectedDatesheetVal === opt.value ? colors.primary : colors.surfaceHigh, 
+                      borderColor: selectedDatesheetVal === opt.value ? colors.primary : colors.border, 
+                      borderWidth: 1,
+                      borderRadius: 20,
+                    }} 
+                    onPress={() => {
+                      setSelectedDatesheetVal(opt.value);
+                      setLoading(true);
+                      if (webViewRef.current && datesheetSelectId) {
+                         webViewRef.current.injectJavaScript(`
+                           var sel = document.getElementById('${datesheetSelectId}');
+                           if(sel) {
+                             sel.value = '${opt.value}';
+                             sel.dispatchEvent(new Event('change'));
+                             setTimeout(function(){ __doPostBack('${datesheetSelectId.replace(/_/g, '$')}', ''); }, 100);
+                           }
+                           true;
+                         `);
+                      }
+                    }}
+                  >
+                    <Text style={{ fontFamily: 'Inter_600SemiBold', fontSize: 13, color: selectedDatesheetVal === opt.value ? '#fff' : colors.textMuted }}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           {loading && (
                 <View style={styles.centerContent}>
                   <ActivityIndicator size="large" color={colors.primary} />
@@ -339,7 +479,68 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
 
               {!loading && !error && (
                 <ScrollView style={styles.dataContainer} contentContainerStyle={{ paddingBottom: Spacing.xl }} showsVerticalScrollIndicator={false}>
-                    {type === 'leave' || type === 'fees' ? (
+                    {type === 'datesheet' ? (
+                      data.length > 0 ? data.map((item, index) => {
+                        const courseCode = item['course code'] || item['Course Code'] || '';
+                        const courseName = item['Course Name'] || item['course name'] || 'Exam';
+                        const selectedLabel = datesheetOpts.find(o => o.value === selectedDatesheetVal)?.label || item['Autoconducttype'] || item['Type'] || (subType === 'practical' ? 'Practical' : 'Exam');
+                        const typeVal = selectedLabel;
+                        const dateStr = item['Exam Date'] || item['Exam_Date'] || item['Date'] || '';
+                        const timeStr = item['Exam Timing'] || item['Exam_Timing'] || '';
+                        const venue = item['Exam Venue'] || item['Exam_Venue'] || '';
+                        const mode = item['Mode OF Exam'] || item['Mode Of Exam'] || item['Mode'] || '';
+
+                        const dParts = dateStr.split(' ');
+                        const day = dParts[0] || '';
+                        const month = dParts[1] ? dParts[1].toUpperCase() : '';
+                        
+                        return (
+                          <View key={index} style={[styles.examCard, { backgroundColor: colors.surfaceHigh, borderColor: colors.border }]}>
+                            <View style={styles.examCardLeft}>
+                              <Text style={[styles.examMonth, { color: colors.primary }]}>{month}</Text>
+                              <Text style={[styles.examDay, { color: colors.text }]}>{day}</Text>
+                            </View>
+                            <View style={styles.examCardRight}>
+                              <Text style={[styles.examCourseName, { color: colors.text, marginBottom: 4 }]} numberOfLines={2}>{courseName}</Text>
+                              
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                                <Text style={[styles.examCourseCode, { color: colors.textMuted }]}>{courseCode}</Text>
+                                {typeVal ? (
+                                  <View style={[styles.statusBadge, { backgroundColor: colors.primary + '20', marginLeft: 8, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 }]}>
+                                    <Text style={[styles.statusText, { color: colors.primary, fontSize: 10 }]}>{typeVal}</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                              
+                              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                                {timeStr ? (
+                                  <View style={styles.examDetail}>
+                                    <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+                                    <Text style={[styles.examDetailText, { color: colors.textMuted }]}>{timeStr}</Text>
+                                  </View>
+                                ) : null}
+                                {venue ? (
+                                  <View style={styles.examDetail}>
+                                    <Ionicons name="location-outline" size={14} color={colors.textMuted} />
+                                    <Text style={[styles.examDetailText, { color: colors.textMuted }]}>{venue}</Text>
+                                  </View>
+                                ) : null}
+                                {mode ? (
+                                  <View style={styles.examDetail}>
+                                    <Ionicons name="laptop-outline" size={14} color={colors.textMuted} />
+                                    <Text style={[styles.examDetailText, { color: colors.textMuted }]}>{mode}</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      }) : (
+                        <View style={styles.centerContent}>
+                           <Text style={{ color: colors.textMuted }}>No exams found in datesheet.</Text>
+                        </View>
+                      )
+                    ) : type === 'leave' || type === 'fees' ? (
                       data.length > 0 ? data.map((item, index) => {
                          const statusKey = Object.keys(item).find(k => k.toLowerCase().includes('status') || k.toLowerCase().includes('action') || k.toLowerCase().includes('approval'));
                          const statusValue = statusKey ? item[statusKey] : null;
@@ -394,6 +595,7 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                 <View style={{ height: 0, width: 0, opacity: 0 }}>
                   <WebView
                     ref={webViewRef}
+                    key={`${targetUrl}_${subType || 'default'}`}
                     source={{ 
                       uri: targetUrl,
                       headers: { Cookie: cookies }
@@ -497,14 +699,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dataRow: {
-    flexDirection: 'column',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
   },
   dataLabel: {
     ...Typography.label,
     fontSize: 13,
-    marginBottom: 4,
+    flex: 1,
+    marginRight: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -537,5 +742,52 @@ const styles = StyleSheet.create({
   leaveOptionText: {
     ...Typography.body,
     fontFamily: 'Inter_600SemiBold',
+  },
+  examCard: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  examCardLeft: {
+    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(150,150,150,0.2)',
+    width: 80,
+  },
+  examMonth: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  examDay: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 24,
+  },
+  examCardRight: {
+    padding: 16,
+    flex: 1,
+  },
+  examCourseName: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    flex: 1,
+    lineHeight: 20,
+  },
+  examCourseCode: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+  },
+  examDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  examDetailText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
   }
 });

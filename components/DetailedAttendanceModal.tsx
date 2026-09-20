@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
@@ -15,24 +15,27 @@ import Slider from '@react-native-community/slider';
 import { Svg, Path, Defs, LinearGradient, Stop, Polygon, Circle, G, Text as SvgText } from 'react-native-svg';
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedProps, withTiming, withSpring, Easing, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Calendar } from 'react-native-calendars';
 import { CheckCircle2, XCircle, Stethoscope, Briefcase } from 'lucide-react-native';
+import { AttendanceRingWidget } from './AttendanceRingWidget';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedG = Animated.createAnimatedComponent(G);
 
-const PremiumSlider = ({ value, onValueChange, min = 1, max = 30, colors }: any) => {
+const PremiumSlider = ({ value, onValueChange, min = 1, max = 30, colors, dots = 0 }: any) => {
+  const range = Math.max(0.0001, max - min);
   const trackWidth = useSharedValue(0);
   const isDragging = useSharedValue(false);
-  const progress = useSharedValue((value - min) / (max - min));
+  const progress = useSharedValue((value - min) / range);
 
   useEffect(() => {
     if (!isDragging.value) {
-      progress.value = withTiming((value - min) / (max - min), { duration: 300 });
+      progress.value = withTiming((value - min) / range, { duration: 300 });
     }
   }, [value, min, max]);
 
   const updateValue = (p: number) => {
-    const val = Math.round(min + p * (max - min));
+    const val = Math.round(min + p * range);
     onValueChange(val);
   };
 
@@ -46,17 +49,17 @@ const PremiumSlider = ({ value, onValueChange, min = 1, max = 30, colors }: any)
     })
     .onFinalize(() => {
       isDragging.value = false;
-      const snapVal = Math.round(min + progress.value * (max - min));
-      progress.value = withSpring((snapVal - min) / (max - min), { damping: 15 });
-      runOnJS(updateValue)((snapVal - min) / (max - min));
+      const snapVal = Math.round(min + progress.value * range);
+      progress.value = withSpring((snapVal - min) / range, { damping: 15 });
+      runOnJS(updateValue)((snapVal - min) / range);
     });
 
   const tap = Gesture.Tap()
     .onEnd((e) => {
       if (trackWidth.value === 0) return;
       const p = Math.max(0, Math.min(1, e.x / trackWidth.value));
-      const snapVal = Math.round(min + p * (max - min));
-      progress.value = withSpring((snapVal - min) / (max - min), { damping: 15 });
+      const snapVal = Math.round(min + p * range);
+      progress.value = withSpring((snapVal - min) / range, { damping: 15 });
       runOnJS(onValueChange)(snapVal);
     });
 
@@ -76,21 +79,28 @@ const PremiumSlider = ({ value, onValueChange, min = 1, max = 30, colors }: any)
   return (
     <GestureDetector gesture={composed}>
       <View 
-        style={{ height: 16, justifyContent: 'center', paddingHorizontal: 2, marginVertical: 1 }}
+        style={{ height: 24, justifyContent: 'center', paddingHorizontal: 2, marginVertical: 1 }}
         onLayout={(e) => { trackWidth.value = e.nativeEvent.layout.width - 10; }}
       >
-        <View style={{ height: 3, backgroundColor: colors.border, borderRadius: 1.5, overflow: 'hidden' }}>
-          <Animated.View style={[{ height: '100%', backgroundColor: colors.primary, borderRadius: 1.5 }, fillStyle]} />
+        <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'visible' }}>
+          <Animated.View style={[{ height: '100%', backgroundColor: colors.primary, borderRadius: 2 }, fillStyle]} />
+          
+          {dots > 0 && Array.from({length: dots}).map((_, i) => {
+             const leftPct = (i / Math.max(1, (dots - 1))) * 100;
+             return (
+               <View key={i} style={{ position: 'absolute', left: `${leftPct}%`, width: 6, height: 6, borderRadius: 3, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.primary, top: -1, marginLeft: -3 }} />
+             )
+          })}
         </View>
         <Animated.View style={[{
           position: 'absolute',
           left: 0, 
-          width: 10, height: 10,
-          borderRadius: 5,
+          width: 16, height: 16,
+          borderRadius: 8,
           backgroundColor: '#fff',
           shadowColor: colors.primary, shadowOpacity: 0.8, shadowRadius: 10, shadowOffset: { width: 0, height: 0 },
           elevation: 5,
-          borderWidth: 1.5,
+          borderWidth: 2,
           borderColor: colors.primary,
         }, thumbStyle]} />
       </View>
@@ -374,18 +384,28 @@ interface Props {
   subjectCode: string;
   subjectName: string;
   viewActionTarget: string | undefined;
+  asModal?: boolean;
+  initialPredicting?: boolean;
 }
 
 const ATTENDANCE_URL = 'https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx?type=etgkYfqBdH1fSfc255iYGw==';
 
-export function DetailedAttendanceModal({ visible, onClose, subjectCode, subjectName, viewActionTarget }: Props) {
+export function DetailedAttendanceModal({
+  visible,
+  onClose,
+  subjectCode,
+  subjectName,
+  viewActionTarget,
+  asModal = true,
+  initialPredicting = false,
+}: Props) {
   const colors = useThemeStore((s) => s.colors);
   const webViewRef = useRef<WebView>(null);
   const [cookieInjectScript, setCookieInjectScript] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [attendanceData, setAttendanceData] = useState<any[]>([]);
-  const [isPredicting, setIsPredicting] = useState(false);
+  const [isPredicting, setIsPredicting] = useState(initialPredicting);
   const [predictDays, setPredictDays] = useState(3);
   const [missedClassesInput, setMissedClassesInput] = useState('');
   const { setSessionExpired } = useStudySessionStore();
@@ -396,8 +416,18 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
     if (!visible) {
       setIsPredicting(false);
       setPredictDays(3);
+      return;
     }
-  }, [visible]);
+    if (initialPredicting) {
+      setIsPredicting(true);
+    }
+    const backAction = () => {
+      onClose();
+      return true;
+    };
+    const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => handler.remove();
+  }, [visible, onClose, initialPredicting]);
 
   const handleSetPredictDays = (val: number) => {
     if (val > 3 && isSubscriptionRequired) {
@@ -631,8 +661,9 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
   const calculatePrediction = () => {
     const safeSubjects = Array.isArray(subjects) ? subjects : [];
     const currentSubject = safeSubjects.find(s => s.code === subjectCode);
-    if (!currentSubject) return { count: 0, attendedPct: 0, bunkedPct: 0, currentPct: 0 };
+    if (!currentSubject) return { count: 0, attendedPct: 0, bunkedPct: 0, currentPct: 0, expectedClasses: [] };
     let count = 0;
+    const expectedClasses: { date: Date, slot: any }[] = [];
     const today = new Date();
     const daysArr = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     
@@ -647,6 +678,9 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
         const matchedSlots = safeDaySlots.filter((slot: any) => 
            String(slot?.subjectName || '').includes(subjectCode) || String(slot?.subjectName || '').includes(subjectName)
         );
+        matchedSlots.forEach((slot: any) => {
+           expectedClasses.push({ date: new Date(d), slot });
+        });
         count += matchedSlots.length;
       }
     }
@@ -660,20 +694,21 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
     
     const parsedMissed = parseInt(missedClassesInput, 10) || 0;
     const validMissed = Math.min(Math.max(0, parsedMissed), count);
-    const attendedWithMiss = count - validMissed;
-    const missedPct = newTotal === 0 ? 0 : Math.round(((currAttended + attendedWithMiss) / newTotal) * 100);
+    const missedPct = validMissed > 0 ? (currTotal + validMissed === 0 ? 0 : Math.round((Number(currAttended) / (Number(currTotal) + validMissed)) * 100)) : null;
     
-    return { count, currentPct, attendedAllPct, missedPct, validMissed };
+    return { count, currentPct, attendedAllPct, missedPct, validMissed, currAttended: Number(currAttended), currTotal: Number(currTotal), newTotal, expectedClasses };
   };
 
   const prediction = isPredicting ? calculatePrediction() : null;
+
+  const safeAttendanceData = Array.isArray(attendanceData) ? attendanceData : [];
+
+
 
   let presentCount = 0;
   let absentCount = 0;
   let dutyLeaveCount = 0;
   let medicalLeaveCount = 0;
-
-  const safeAttendanceData = Array.isArray(attendanceData) ? attendanceData : [];
 
   safeAttendanceData.forEach(item => {
     const s = String(item?.status || '').toUpperCase().trim();
@@ -687,52 +722,60 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
   const currentSubject = safeSubjects2.find(s => s.code === subjectCode);
   const totalClasses = currentSubject?.totalClasses || 0;
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
+  const content = (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <View style={{ flex: 1, paddingRight: 16 }}>
+          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh, marginRight: 10 }]}>
+            <Ionicons name="arrow-back" size={22} color={colors.text} />
+          </TouchableOpacity>
+
+          <View style={{ flex: 1, paddingRight: 12 }}>
             <Text style={[styles.title, { color: colors.text }]}>Detailed Attendance</Text>
-            <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subjectCode} • {subjectName}</Text>
+            <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>{subjectCode} • {subjectName}</Text>
           </View>
           <TouchableOpacity onPress={() => setIsPredicting(!isPredicting)} style={[styles.closeBtn, { backgroundColor: isPredicting ? colors.primary + '20' : colors.surfaceHigh, marginRight: 8 }]}>
-            <Ionicons name="analytics" size={24} color={isPredicting ? colors.primary : colors.text} />
+            <Ionicons name="analytics" size={22} color={isPredicting ? colors.primary : colors.text} />
           </TouchableOpacity>
           
           <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh }]}>
-            <Ionicons name="close" size={24} color={colors.text} />
+            <Ionicons name="close" size={22} color={colors.text} />
           </TouchableOpacity>
         </View>
 
         {isPredicting && prediction && (
           <View style={{ padding: 8, paddingBottom: 16, backgroundColor: colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: colors.border }}>
               {/* Row: Speedometer + Stat Tiles */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                {/* Speedometer - shows current attendance always via needle */}
-                <View style={{ flex: 1.35, alignItems: 'center' }}>
-                  <SpeedometerDual
-                    currentPct={prediction.currentPct ?? 0}
-                    attendPct={prediction.attendedAllPct ?? 0}
-                    missPct={parseInt(missedClassesInput, 10) > 0 ? (prediction.missedPct ?? null) : null}
-                    colors={colors}
-                  />
-                </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 8 }}>
+                  {/* Circular Gauge */}
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <AttendanceRingWidget
+                      currentPct={prediction.currentPct ?? 0}
+                      predictPct={parseInt(missedClassesInput, 10) > 0 ? (prediction.missedPct ?? 0) : (prediction.attendedAllPct ?? 0)}
+                      currentAttended={prediction.currAttended ?? 0}
+                      currentTotal={prediction.currTotal ?? 0}
+                      predictAttended={parseInt(missedClassesInput, 10) > 0 ? (prediction.currAttended ?? 0) : ((prediction.currAttended ?? 0) + (prediction.count ?? 0) - (prediction.validMissed ?? 0))}
+                      predictTotal={prediction.newTotal ?? 0}
+                      predictType={parseInt(missedClassesInput, 10) > 0 ? 'miss' : 'attend'}
+                      colors={colors}
+                      size={150}
+                    />
+                  </View>
 
-                {/* Stat tiles */}
-                <View style={{ flex: 1, paddingLeft: 6 }}>
-                  <View style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>
-                    <MiniStatBox label="Present" value={presentCount} colors={colors} color="#22c55e" icon={CheckCircle2} />
-                    <MiniStatBox label="Absent" value={absentCount} colors={colors} color="#ef4444" icon={XCircle} />
+                  {/* Stat tiles */}
+                  <View style={{ flex: 1.1, paddingLeft: 12 }}>
+                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
+                      <MiniStatBox label="Present" value={presentCount} colors={colors} color="#22c55e" icon={CheckCircle2} />
+                      <MiniStatBox label="Absent" value={absentCount} colors={colors} color="#ef4444" icon={XCircle} />
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      <MiniStatBox label="Med L." value={medicalLeaveCount} colors={colors} color="#f59e0b" icon={Stethoscope} />
+                      <MiniStatBox label="Duty L." value={dutyLeaveCount} colors={colors} color="#3b82f6" icon={Briefcase} />
+                    </View>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 4 }}>
-                    <MiniStatBox label="Med L." value={medicalLeaveCount} colors={colors} color="#f59e0b" icon={Stethoscope} />
-                    <MiniStatBox label="Duty L." value={dutyLeaveCount} colors={colors} color="#3b82f6" icon={Briefcase} />
-                  </View>
-                </View>
               </View>
 
-              {/* Slider + Quick presets */}
+                {/* Predict control panel */}
               <View style={{ backgroundColor: colors.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: colors.border, marginTop: 6 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
@@ -763,16 +806,7 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
                 <PremiumSlider min={1} max={30} value={predictDays} onValueChange={(val: number) => handleSetPredictDays(val)} colors={colors} />
 
                 {/* Result row */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    {[3, 7, 14, 30].map(d => (
-                      <TouchableOpacity key={d} onPress={() => handleSetPredictDays(d)} style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 8, backgroundColor: predictDays === d ? colors.primary : colors.background, borderWidth: 1, borderColor: predictDays === d ? colors.primary : colors.border }}>
-                        <Text style={{ color: predictDays === d ? '#fff' : colors.textMuted, fontSize: 11, fontFamily: 'Inter_600SemiBold' }}>
-                          {d === 7 ? '1W' : d === 14 ? '2W' : d === 30 ? '1M' : `${d}D`}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8 }}>
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <View style={{ alignItems: 'center' }}>
                       <Text style={{ color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.attendedAllPct}%</Text>
@@ -879,53 +913,114 @@ export function DetailedAttendanceModal({ visible, onClose, subjectCode, subject
               />
             }
           >
-            {safeAttendanceData.map((item, index) => {
-              const rawStatus = String(item?.status || '').toUpperCase().trim();
-                let displayStatus = rawStatus;
-                let color = '#ef4444'; // Default absent
-
-                if (rawStatus === 'P' || rawStatus === 'PRESENT') {
-                  displayStatus = 'Present';
-                  color = '#22c55e';
-                } else if (rawStatus === 'A' || rawStatus === 'ABSENT') {
-                  displayStatus = 'Absent';
-                  color = '#ef4444';
-                } else if (rawStatus === 'ML') {
-                  displayStatus = 'Medical Leave';
-                  color = '#3b82f6';
-                } else if (rawStatus === 'DL') {
-                  displayStatus = 'Duty Leave';
-                  color = '#8b5cf6';
-                } else if (rawStatus === 'L' || rawStatus.includes('LEAVE')) {
-                  displayStatus = 'Leave';
-                  color = '#f59e0b';
-                } else if (rawStatus) {
-                  color = '#f59e0b';
-                }
-
-                return (
-                  <View key={index} style={[styles.card, { backgroundColor: colors.surface }]}>
-                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                       <Text style={[styles.date, { color: colors.text }]}>{item?.date}</Text>
-                       <View style={[styles.badge, { backgroundColor: color + '20' }]}>
-                         <Text style={[styles.badgeText, { color }]}>{displayStatus}</Text>
+            {isPredicting ? (
+              <View style={{ marginTop: 16 }}>
+                <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', fontSize: 16, color: colors.text, marginBottom: 12 }}>Expected Classes</Text>
+                {prediction?.expectedClasses?.length === 0 ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 14, fontFamily: 'Inter_500Medium' }}>No classes scheduled for the next {predictDays} days.</Text>
+                ) : (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start' }}>
+                    {prediction?.expectedClasses?.map((ec: any, i: number) => {
+                      const dateStr = ec.date.getDate() + ' ' + ec.date.toLocaleDateString('en-GB', { month: 'short' });
+                      const dayStr = ec.date.toLocaleDateString('en-GB', { weekday: 'short' });
+                      const timeStr = ec.slot?.time || 'Sch';
+                      const ampm = timeStr.toUpperCase().includes('PM') ? 'PM' : 'AM';
+                      const startTime = timeStr.split('-')[0].trim() + ' ' + ampm;
+                      const typeStr = ec.slot?.type || 'L';
+                      
+                      const isMiss = parseInt(missedClassesInput, 10) > 0 && i < (prediction.validMissed ?? 0);
+                      const badgeColor = isMiss ? '#ef4444' : '#22c55e';
+                      const badgeText = isMiss ? 'MISS' : 'EXP';
+                      
+                      return (
+                        <View key={i} style={{ width: '23%', marginBottom: 4 }}>
+                          <View style={{ 
+                             backgroundColor: badgeColor + '10', 
+                             borderColor: badgeColor + '30',
+                             borderWidth: 1,
+                             paddingVertical: 8,
+                             paddingHorizontal: 4,
+                             alignItems: 'center',
+                             justifyContent: 'center',
+                             borderRadius: Radius.md,
+                             height: 60
+                          }}>
+                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', paddingHorizontal: 2, marginBottom: 4 }}>
+                               <Text style={{ fontFamily: 'Inter_700Bold', color: badgeColor, fontSize: 8 }}>{badgeText}</Text>
+                               <Text style={{ fontFamily: 'Inter_700Bold', color: colors.textMuted, fontSize: 8 }}>{typeStr}</Text>
+                             </View>
+                             
+                             <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, fontSize: 11 }} numberOfLines={1}>{dateStr}</Text>
+                             
+                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3 }}>
+                               <Text style={{ fontFamily: 'Inter_600SemiBold', color: colors.textDim, fontSize: 7 }} numberOfLines={1}>{startTime}</Text>
+                             </View>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            ) : (
+              safeAttendanceData.map((item, index) => {
+                const rawStatus = String(item?.status || '').toUpperCase().trim();
+                  let displayStatus = rawStatus;
+                  let color = '#ef4444'; // Default absent
+  
+                  if (rawStatus === 'P' || rawStatus === 'PRESENT') {
+                    displayStatus = 'Present';
+                    color = '#22c55e';
+                  } else if (rawStatus === 'A' || rawStatus === 'ABSENT') {
+                    displayStatus = 'Absent';
+                    color = '#ef4444';
+                  } else if (rawStatus === 'ML') {
+                    displayStatus = 'Medical Leave';
+                    color = '#3b82f6';
+                  } else if (rawStatus === 'DL') {
+                    displayStatus = 'Duty Leave';
+                    color = '#8b5cf6';
+                  } else if (rawStatus === 'L' || rawStatus.includes('LEAVE')) {
+                    displayStatus = 'Leave';
+                    color = '#f59e0b';
+                  } else if (rawStatus) {
+                    color = '#f59e0b';
+                  }
+  
+                  return (
+                    <View key={index} style={[styles.card, { backgroundColor: colors.surface }]}>
+                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                         <Text style={[styles.date, { color: colors.text }]}>{item?.date}</Text>
+                         <View style={[styles.badge, { backgroundColor: color + '20' }]}>
+                           <Text style={[styles.badgeText, { color }]}>{displayStatus}</Text>
+                       </View>
                      </View>
-                   </View>
-                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                     <Text style={[styles.meta, { color: colors.textMuted }]}>{item?.type} • {item?.time}</Text>
-                   </View>
-                   {item?.markedBy ? (
-                     <Text style={[styles.markedBy, { color: colors.textDim }]}>Marked By: {item.markedBy}</Text>
-                   ) : null}
-                </View>
-              );
-            })}
+                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                       <Text style={[styles.meta, { color: colors.textMuted }]}>{item?.type} • {item?.time}</Text>
+                     </View>
+                     {item?.markedBy ? (
+                       <Text style={[styles.markedBy, { color: colors.textDim }]}>Marked By: {item.markedBy}</Text>
+                     ) : null}
+                  </View>
+                );
+              })
+            )}
           </ScrollView>
         )}
 
 
       </View>
-      </GestureHandlerRootView>
+    </GestureHandlerRootView>
+  );
+
+  if (!asModal) {
+    if (!visible) return null;
+    return content;
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      {content}
     </Modal>
   );
 }

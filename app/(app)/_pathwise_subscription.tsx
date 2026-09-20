@@ -73,7 +73,7 @@ export default function SubscriptionScreen() {
           'Authorization': `Bearer ${token}` 
         },
         body: JSON.stringify({
-          amount: selectedPlan.price * 100, // paise
+          plan_id: selectedPlan.id, // Server validates price — never send amount from client
           receipt: `rcpt_${user.id.substring(user.id.length - 6)}_${Date.now().toString().slice(-6)}`
         })
       });

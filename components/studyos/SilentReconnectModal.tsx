@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useStudySessionStore } from '../../store/studySessionStore';
 
-export const SilentReconnectModal = ({ visible, onClose, colors, onLeave, onSuccess }: any) => {
+export const SilentReconnectModal = ({ visible, onClose, colors, onLeave, onSuccess, customError }: any) => {
   const [step, setStep] = useState('expired'); // expired -> connecting -> captcha -> verifying
   const [captchaBase64, setCaptchaBase64] = useState<string | null>(null);
   const [captchaInput, setCaptchaInput] = useState('');
@@ -138,21 +138,28 @@ export const SilentReconnectModal = ({ visible, onClose, colors, onLeave, onSucc
           {step === 'expired' && (
             <React.Fragment>
               <View style={{ alignItems: 'center', marginBottom: 24, width: '100%' }}>
-                <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.primary + '15', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
-                  <Clock color={colors.primary} size={40} />
+                <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: customError ? '#ef444415' : colors.primary + '15', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+                  {customError 
+                    ? <Ionicons name="shield-checkmark-outline" size={40} color="#ef4444" />
+                    : <Clock color={colors.primary} size={40} />
+                  }
                 </View>
-                <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 24, color: colors.text, textAlign: 'center', marginBottom: 12 }}>Session Expired</Text>
+                <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 22, color: colors.text, textAlign: 'center', marginBottom: 12 }}>
+                  {customError ? 'Account Conflict' : 'Session Expired'}
+                </Text>
                 <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 15, color: colors.textDim, textAlign: 'center', lineHeight: 22, paddingHorizontal: 12 }}>
-                  For your security, your university portal session has timed out. Reconnect to resume syncing your academic data in real-time.
+                  {customError || 'For your security, your university portal session has timed out. Reconnect to resume syncing your academic data in real-time.'}
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 12, width: '100%', marginTop: 8 }}>
                 <TouchableOpacity style={{ flex: 1, paddingVertical: 14, backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border, borderRadius: 100, justifyContent: 'center', alignItems: 'center' }} activeOpacity={0.8} onPress={onLeave}>
                   <Text style={{ color: colors.text, fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Leave</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={{ flex: 1, paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 100, justifyContent: 'center', alignItems: 'center' }} activeOpacity={0.8} onPress={handleInitialReconnect}>
-                  <Text style={{ color: '#fff', fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Reconnect</Text>
-                </TouchableOpacity>
+                {!customError && (
+                  <TouchableOpacity style={{ flex: 1, paddingVertical: 14, backgroundColor: colors.primary, borderRadius: 100, justifyContent: 'center', alignItems: 'center' }} activeOpacity={0.8} onPress={handleInitialReconnect}>
+                    <Text style={{ color: '#fff', fontSize: 15, fontFamily: 'Inter_600SemiBold' }}>Reconnect</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </React.Fragment>
           )}

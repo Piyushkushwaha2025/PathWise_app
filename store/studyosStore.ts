@@ -19,7 +19,7 @@ interface CulkoProfile {
   photoUrl?: string;
 }
 
-interface CulkoSubject {
+export interface CulkoSubject {
   code: string;
   name: string;
   credits: string;
@@ -60,6 +60,7 @@ interface StudyOSState {
   subjects: CulkoSubject[];
   timetable: Record<string, CulkoClassSlot[]>;
   marks: CulkoMarks[];
+  datesheet: any[];
   isScrapedDataLoaded: boolean;
   isHydrated: boolean;
   
@@ -100,6 +101,7 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
   subjects: [],
   timetable: {},
   marks: [],
+  datesheet: [],
   isScrapedDataLoaded: false,
   isHydrated: false,
   lmsCourses: [],

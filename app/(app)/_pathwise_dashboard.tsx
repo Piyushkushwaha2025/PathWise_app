@@ -28,6 +28,7 @@ import { NotificationsBottomSheet } from "../../components/modals/NotificationsB
 import { LockedRoadmapModal } from "../../components/modals/LockedRoadmapModal";
 import { AppUpdateModal } from "../../components/modals/AppUpdateModal";
 import { getRewardStatus } from "../../lib/db";
+import { useSubscription } from "../../hooks/useSubscription";
 import { useUser } from "@clerk/clerk-expo";
 import {
   BrainCircuit,
@@ -59,22 +60,18 @@ export default function DashboardScreen() {
   const styles = useStyles(colors);
   const { isStudyOSMode, toggleMode } = useStudySessionStore();
   
-  const [isPremium, setIsPremium] = useState(false);
+  const { isPro, isSubscribed, isTrialActive, trialDaysLeft, isRewardPro } = useSubscription();
   const [tokenBalance, setTokenBalance] = useState(0);
 
   useFocusEffect(
     React.useCallback(() => {
       if (!user?.id) return;
-      if (user.unsafeMetadata?.isSubscribed) {
-        setIsPremium(true);
-      } else {
-        getRewardStatus(user.id)
-          .then((res: any) => {
-            setIsPremium(res.is_reward_premium_active);
-            setTokenBalance(res.token_balance || 0);
-          })
-          .catch(() => {});
-      }
+      // Only need token balance from server (premium status handled by useSubscription)
+      getRewardStatus(user.id)
+        .then((res: any) => {
+          setTokenBalance(res.token_balance || 0);
+        })
+        .catch(() => {});
     }, [user])
   );
 
@@ -117,16 +114,48 @@ export default function DashboardScreen() {
           <Text style={styles.title}>Your Dashboard</Text>
         </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
-            <TouchableOpacity onPress={() => router.push('/(app)/rewards')} style={{ backgroundColor: isPremium ? '#FBBF24' : colors.surfaceHigh, flexDirection: 'row', height: 42, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 21, borderWidth: 1, borderColor: isPremium ? '#F59E0B' : colors.border, gap: 8 }}>
-              {isPremium ? (
+            <TouchableOpacity
+              onPress={() => router.push('/(app)/rewards')}
+              style={{
+                backgroundColor: isSubscribed || isRewardPro
+                  ? '#FBBF24'
+                  : isTrialActive
+                    ? colors.primary + '20'
+                    : colors.surfaceHigh,
+                flexDirection: 'row',
+                height: 42,
+                paddingHorizontal: 16,
+                justifyContent: 'center',
+                alignItems: 'center',
+                borderRadius: 21,
+                borderWidth: 1,
+                borderColor: isSubscribed || isRewardPro
+                  ? '#F59E0B'
+                  : isTrialActive
+                    ? colors.primary
+                    : colors.border,
+                gap: 8
+              }}
+            >
+              {isTrialActive ? (
+                // Trial active → sirf days dikhao
+                <>
+                  <Ionicons name="time-outline" size={17} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 14 }}>
+                    {trialDaysLeft}d left
+                  </Text>
+                </>
+              ) : isSubscribed || isRewardPro ? (
+                // Paid Pro or Reward Pro
                 <>
                   <Ionicons name="star" size={18} color="#fff" />
                   <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Pro</Text>
                 </>
               ) : (
+                // Free — show Free text
                 <>
-                  <Ionicons name="diamond" size={20} color="#FBBF24" />
-                  <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 16 }}>{tokenBalance}</Text>
+                  <Ionicons name="sparkles-outline" size={17} color={colors.textDim} />
+                  <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Free</Text>
                 </>
               )}
             </TouchableOpacity>

@@ -250,23 +250,43 @@ const razorpay = new Razorpay({
 // 1. Get or Create User Profile (returns role info too)
 app.post('/api/user/sync', getClerkId, async (req, res) => {
   try {
+    const incomingUid = req.body.uid || null;
+
+    // ── One UID = One Account enforcement ───────────────────────────────────
+    // If a UIMS UID is provided, make sure it isn't already linked to a DIFFERENT account.
+    if (incomingUid && incomingUid !== 'Unknown' && incomingUid !== '') {
+      const existingWithUID = await User.findOne({ uid: incomingUid });
+      if (existingWithUID && existingWithUID.clerkUserId !== req.clerkUserId) {
+        return res.status(409).json({
+          error: 'UID_ALREADY_LINKED',
+          message: 'This UIMS account is already linked to another PathWise account. Please log in with your original account.'
+        });
+      }
+    }
+
     let user = await User.findOne({ clerkUserId: req.clerkUserId });
     if (!user) {
       user = new User({
         clerkUserId: req.clerkUserId,
-        uid: req.body.uid || null,
+        uid: incomingUid,
         section_code: req.body.section_code || null,
         app_first_opened_date: new Date(),
+        trial_started_at: new Date(), // ← Start 30-day trial on first login
       });
       await user.save();
     } else {
       let changed = false;
-      if (req.body.uid && user.uid !== req.body.uid) {
-        user.uid = req.body.uid;
+      if (incomingUid && user.uid !== incomingUid) {
+        user.uid = incomingUid;
         changed = true;
       }
       if (req.body.section_code && user.section_code !== req.body.section_code) {
         user.section_code = req.body.section_code;
+        changed = true;
+      }
+      // Backfill trial_started_at for existing users who don't have it yet
+      if (!user.trial_started_at) {
+        user.trial_started_at = user.app_first_opened_date || user.createdAt || new Date();
         changed = true;
       }
       if (changed) {
@@ -650,11 +670,24 @@ app.delete('/api/saturday-override/:id', getClerkId, requireCR, async (req, res)
 
 app.post('/api/payment/create-order', getClerkId, async (req, res) => {
   try {
-    const { amount, receipt } = req.body;
+    const { plan_id, receipt } = req.body;
+
+    // ── Server-side price validation (never trust client amount) ────────────
+    const PLAN_PRICES = {
+      monthly:  5900,   // ₹59
+      semester: 29900,  // ₹299
+      yearly:   49900,  // ₹499
+    };
+    const amount = PLAN_PRICES[plan_id];
+    if (!amount) {
+      return res.status(400).json({ error: 'Invalid plan_id. Must be one of: monthly, semester, yearly' });
+    }
+
     const options = {
-      amount: amount || 299 * 100,
+      amount,
       currency: 'INR',
-      receipt: receipt || `receipt_${req.clerkUserId}_${Date.now()}`
+      receipt: receipt || `receipt_${req.clerkUserId}_${Date.now()}`,
+      notes: { clerkUserId: req.clerkUserId, plan_id } // stored for webhook use
     };
     const order = await razorpay.orders.create(options);
     res.json(order);
@@ -716,17 +749,25 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), asyn
     if (expectedSignature === signature) {
       const event = JSON.parse(rawPayload.toString('utf8'));
       if (event.event === 'payment.captured') {
-        const clerkUserId = event.payload?.payment?.entity?.notes?.clerkUserId;
+        const payment = event.payload?.payment?.entity;
+        const clerkUserId = payment?.notes?.clerkUserId;
+        const plan_id = payment?.notes?.plan_id;
+
         if (clerkUserId) {
+          const PLAN_DURATIONS = { monthly: 30, semester: 180, yearly: 365 };
+          const durationDays = PLAN_DURATIONS[plan_id] || 30;
+          const expiryTime = Date.now() + (durationDays * 24 * 60 * 60 * 1000);
+
           await User.findOneAndUpdate(
-            { clerkUserId }, 
-            { 
+            { clerkUserId },
+            {
               is_premium: true,
-              subscription_plan: 'pro',
-              subscription_updated_at: new Date()
+              subscription_plan: plan_id || 'pro',
+              subscription_updated_at: new Date(),
+              premium_expires_at: expiryTime  // ← Now sets expiry correctly
             }
           );
-          console.log(`✅ Upgraded user ${clerkUserId} to Premium via Webhook!`);
+          console.log(`✅ Upgraded user ${clerkUserId} to ${plan_id || 'pro'} via Webhook! Expires: ${new Date(expiryTime).toISOString()}`);
         }
       }
       res.json({ status: 'ok' });
@@ -822,6 +863,7 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
       max_ads_per_day: MAX_ADS_PER_DAY,
       premium_expires_at: user.premium_expires_at || null,
       is_reward_premium_active: !!isPremiumActive,
+      trial_started_at: user.trial_started_at || user.app_first_opened_date || user.createdAt || null,
       plans: REDEMPTION_PLANS,
     });
   } catch (err) {

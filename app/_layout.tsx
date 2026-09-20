@@ -87,7 +87,6 @@ import { useStudyOSStore } from "../store/studyosStore";
 
 if (LogBox) {
   LogBox.ignoreLogs([
-    'SafeAreaView has been deprecated',
     'Clerk: Clerk has been loaded with development keys',
   ]);
 }
@@ -244,7 +243,7 @@ function RootLayoutInner() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <StatusBar style={theme === "white" || theme === "cream" ? "dark" : "light"} />
+      <StatusBar style={theme === "black" ? "light" : "dark"} />
       <NewAssignmentNotification />
       <Stack
         screenOptions={{
