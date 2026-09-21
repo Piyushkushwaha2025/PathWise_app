@@ -647,18 +647,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: Spacing.xl,
+    paddingBottom: Spacing.lg,
     borderBottomWidth: 1,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   title: {
     fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 22,
+    letterSpacing: -0.3,
   },
   closeButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#374151', // Fallback, overridden by surfaceHigh/border
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
   centerContent: {
     flex: 1,
@@ -668,7 +672,7 @@ const styles = StyleSheet.create({
   },
   leaveCard: {
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     marginBottom: 12,
   },
@@ -731,8 +735,9 @@ const styles = StyleSheet.create({
   leaveOptionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: Spacing.md,
-    borderRadius: Radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: Radius.full,
     borderWidth: 1,
     marginBottom: Spacing.md,
   },
@@ -740,8 +745,8 @@ const styles = StyleSheet.create({
     marginRight: Spacing.md,
   },
   leaveOptionText: {
-    ...Typography.body,
     fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
   },
   examCard: {
     flexDirection: 'row',

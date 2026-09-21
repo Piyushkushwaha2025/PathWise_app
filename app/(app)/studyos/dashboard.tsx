@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, RefreshControl, AppState, Alert, Animated, Image, LayoutAnimation, Platform, UIManager, ActivityIndicator } from 'react-native';
-import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
 import { useThemeStore } from '../../../store/useThemeStore';
@@ -14,6 +13,7 @@ import { AutoSyncAttendance } from '../../../components/AutoSyncAttendance';
 import { DetailedAttendanceModal } from '../../../components/DetailedAttendanceModal';
 import { FacilitiesModal } from '../../../components/FacilitiesModal';
 import { AttendanceOverviewModal } from '../../../components/AttendanceOverviewModal';
+import { AcademicCalendarModal } from '../../../components/AcademicCalendarModal';
 import * as SecureStore from 'expo-secure-store';
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { getRewardStatus, RewardStatus } from '../../../lib/db';
@@ -21,6 +21,8 @@ import { fetchNotifications, useDBProfile } from '../../../lib/db';
 import { useSubscription } from '../../../hooks/useSubscription';
 import { useBackgroundSync } from '../../../hooks/useBackgroundSync';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -518,14 +520,73 @@ export default function StudyOSDashboard() {
   const appState = useRef(AppState.currentState);
   const lastSyncTime = useRef(0);
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [currentMonth, setCurrentMonth] = useState(todayStr.substring(0, 7));
   const [cookies, setCookies] = useState('');
   const [isServicesMenuVisible, setIsServicesMenuVisible] = useState(true);
   const [selectedFacility, setSelectedFacility] = useState<'hostel' | 'transport' | 'profile' | 'leave' | 'fees' | 'datesheet' | null>(null);
   const [isAttendanceOverviewVisible, setIsAttendanceOverviewVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black' || theme === 'emerald';
+
+  const facilityItems = [
+    {
+      id: 'profile',
+      name: 'Profile',
+      icon: 'person' as const,
+      color: '#38bdf8',
+      onPress: () => setSelectedFacility('profile'),
+    },
+    {
+      id: 'calendar',
+      name: 'Calendar',
+      icon: 'calendar' as const,
+      color: '#a855f7',
+      onPress: () => setIsCalendarVisible(true),
+    },
+    {
+      id: 'hostel',
+      name: 'Hostel',
+      icon: 'bed' as const,
+      color: '#f59e0b',
+      onPress: () => setSelectedFacility('hostel'),
+    },
+    {
+      id: 'transport',
+      name: 'Transport',
+      icon: 'bus' as const,
+      color: '#10b981',
+      onPress: () => setSelectedFacility('transport'),
+    },
+    {
+      id: 'leave',
+      name: 'Leaves',
+      icon: 'airplane' as const,
+      color: '#f43f5e',
+      onPress: () => setSelectedFacility('leave'),
+    },
+    {
+      id: 'fees',
+      name: 'Fees',
+      icon: 'card' as const,
+      color: '#c084fc',
+      onPress: () => setSelectedFacility('fees'),
+    },
+    {
+      id: 'datesheet',
+      name: 'Exams',
+      icon: 'document-text' as const,
+      color: '#fb923c',
+      onPress: () => setSelectedFacility('datesheet'),
+    },
+    {
+      id: 'analytics',
+      name: 'Analytics',
+      icon: 'stats-chart' as const,
+      color: '#06b6d4',
+      onPress: () => setIsAttendanceOverviewVisible(true),
+    },
+  ];
 
   const { userId } = useAuth();
   const { dbUser } = useDBProfile();
@@ -687,14 +748,6 @@ export default function StudyOSDashboard() {
   }, []);
 
   useEffect(() => {
-    if (isCalendarVisible) {
-      const today = new Date().toISOString().split('T')[0];
-      setSelectedDate(today);
-      setCurrentMonth(today.substring(0, 7));
-    }
-  }, [isCalendarVisible]);
-
-  useEffect(() => {
     // Hide splash screen after the dashboard has rendered!
     // This prevents the black screen flash.
     setTimeout(() => {
@@ -721,9 +774,6 @@ export default function StudyOSDashboard() {
       >
         
         {/* Header */}
-          <View style={{ marginBottom: 16 }}>
-            
-          </View>
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <View style={[styles.owlIcon, { backgroundColor: '#000' }]}>
@@ -737,122 +787,156 @@ export default function StudyOSDashboard() {
                 />
               ) : null}
             </View>
-            <View>
-              <Text style={styles.greeting}>{greetingText}</Text>
-              <Text style={styles.userName}>{profile?.name || 'Student'}</Text>
-              <Text style={styles.sectionText}>{profile?.course || 'No Course Synced'}</Text>
+            <View style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <Text style={styles.greeting} numberOfLines={1}>{greetingText}</Text>
+              <Text style={styles.userName} numberOfLines={1} ellipsizeMode="tail">{profile?.name || 'Student'}</Text>
+              <Text style={styles.sectionText} numberOfLines={1} ellipsizeMode="tail">{profile?.course || 'No Course Synced'}</Text>
             </View>
           </View>
 
           <View style={styles.headerRight}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <TouchableOpacity 
-                    onPress={() => router.push('/(app)/rewards' as any)} 
-                    style={{ 
-                      marginLeft: 8, 
-                      backgroundColor: isPaidOrRewardPro
-                        ? '#FBBF24' 
-                        : isTrialActive
-                          ? colors.primary + '20'
-                          : colors.surfaceHigh, 
-                      flexDirection: 'row', 
-                      height: 42, 
-                      paddingHorizontal: 16, 
-                      justifyContent: 'center', 
-                      alignItems: 'center', 
-                      borderRadius: 21, 
-                      borderWidth: 1, 
-                      borderColor: isPaidOrRewardPro 
-                        ? '#F59E0B' 
-                        : isTrialActive
-                          ? colors.primary
-                          : colors.border, 
-                      gap: 8 
-                    }}
-                  >
-                    {isTrialActive ? (
-                      <>
-                        <Ionicons name="time-outline" size={17} color={colors.primary} />
-                        <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 14 }}>{trialDaysLeft}d left</Text>
-                      </>
-                    ) : isPaidOrRewardPro ? (
-                      <>
-                        <Ionicons name="star" size={18} color="#fff" />
-                        <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Pro</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Ionicons name="sparkles-outline" size={17} color={colors.textDim} />
-                        <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Free</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+            <TouchableOpacity 
+              activeOpacity={0.8}
+              onPress={() => router.push('/(app)/rewards' as any)} 
+              style={{ 
+                backgroundColor: isPaidOrRewardPro
+                  ? '#FBBF24' 
+                  : isTrialActive
+                    ? colors.primary + '20'
+                    : colors.surfaceHigh, 
+                flexDirection: 'row', 
+                height: 36, 
+                paddingHorizontal: 10, 
+                justifyContent: 'center', 
+                alignItems: 'center', 
+                borderRadius: 18, 
+                borderWidth: 1, 
+                borderColor: isPaidOrRewardPro 
+                  ? '#F59E0B' 
+                  : isTrialActive
+                    ? colors.primary
+                    : colors.border, 
+                gap: 5,
+                flexShrink: 0,
+              }}
+            >
+              {isTrialActive ? (
+                <>
+                  <Ionicons name="time-outline" size={15} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 12.5 }}>{trialDaysLeft}d</Text>
+                </>
+              ) : isPaidOrRewardPro ? (
+                <>
+                  <Ionicons name="star" size={15} color="#fff" />
+                  <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Pro</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="sparkles-outline" size={14} color={colors.textDim} />
+                  <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Free</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-                  <TouchableOpacity style={{ marginLeft: 16 }} onPress={() => router.push('/studyos/notifications' as any)}>
-                  <View>
-                    <Ionicons name="notifications-outline" size={26} color={colors.text} />
-                    {unreadCount > 0 && (
-                      <View style={{
-                        position: 'absolute', right: -4, top: -4,
-                        backgroundColor: '#ef4444',
-                        borderRadius: 10, minWidth: 18, height: 18,
-                        justifyContent: 'center', alignItems: 'center',
-                        paddingHorizontal: 4, borderWidth: 1.5, borderColor: colors.background
-                      }}>
-                        <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'Inter_700Bold' }}>
-                          {unreadCount > 99 ? '99+' : unreadCount}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              </View>
+            <TouchableOpacity 
+              activeOpacity={0.75}
+              style={{ 
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }} 
+              onPress={() => router.push('/(app)/studyos/notifications' as any)}
+            >
+              <Ionicons name="notifications-outline" size={20} color={colors.text} />
+              {unreadCount > 0 && (
+                <View style={{
+                  position: 'absolute', right: -2, top: -2,
+                  backgroundColor: '#ef4444',
+                  borderRadius: 9, minWidth: 17, height: 17,
+                  justifyContent: 'center', alignItems: 'center',
+                  paddingHorizontal: 3, borderWidth: 1.5, borderColor: colors.background
+                }}>
+                  <Text style={{ color: '#fff', fontSize: 9, fontFamily: 'Inter_700Bold' }}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Inline Services Menu */}
+        {/* Modern Glass Facilities Menu */}
         {isServicesMenuVisible && (
-          <View style={[styles.inlineServicesContainer, { backgroundColor: colors.surfaceHigh, shadowColor: colors.primary }]}>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('profile')}>
-                <Ionicons name="person" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setIsCalendarVisible(true)}>
-                <Ionicons name="calendar-outline" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('hostel')}>
-                <Ionicons name="bed" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('transport')}>
-                <Ionicons name="bus" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('leave')}>
-                <Ionicons name="airplane" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('fees')}>
-                <Ionicons name="card" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setSelectedFacility('datesheet')}>
-                <Ionicons name="document-text" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.serviceItemWrapper}>
-              <TouchableOpacity style={[styles.inlineServiceIcon, { backgroundColor: `${colors.primary}15`, borderColor: `${colors.primary}30` }]} onPress={() => setIsAttendanceOverviewVisible(true)}>
-                <Ionicons name="stats-chart" size={24} color={colors.primary} />
-              </TouchableOpacity>
-            </View>
+          <View style={styles.facilitiesOuterWrapper}>
+            <LinearGradient
+              colors={
+                isDark
+                  ? ['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.02)']
+                  : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.80)']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[
+                styles.facilitiesContainer,
+                {
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.07)',
+                  borderTopColor: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.95)',
+                },
+              ]}
+            >
+              <View style={styles.facilitiesHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={[styles.facilityDot, { backgroundColor: colors.primary }]} />
+                  <Text style={[styles.facilitiesHeaderTitle, { color: colors.text }]}>
+                    CAMPUS SERVICES
+                  </Text>
+                </View>
+                <View style={[styles.facilityCountBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+                  <Text style={[styles.facilitiesHeaderBadge, { color: colors.textMuted }]}>
+                    8 Facilities
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.facilitiesGrid}>
+                {facilityItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.72}
+                    onPress={() => {
+                      try { Haptics.selectionAsync(); } catch {}
+                      item.onPress();
+                    }}
+                    style={styles.facilityItem}
+                  >
+                    <LinearGradient
+                      colors={[`${item.color}25`, `${item.color}0c`]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[
+                        styles.facilityIconPod,
+                        {
+                          borderColor: `${item.color}35`,
+                          borderTopColor: `${item.color}70`,
+                          shadowColor: item.color,
+                        },
+                      ]}
+                    >
+                      <Ionicons name={item.icon} size={22} color={item.color} />
+                    </LinearGradient>
+                    <Text style={[styles.facilityLabel, { color: colors.text }]} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </LinearGradient>
           </View>
         )}
 
@@ -961,76 +1045,10 @@ export default function StudyOSDashboard() {
 
       </ScrollView>
       
-      <Modal visible={isCalendarVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setIsCalendarVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: colors.background, paddingBottom: Platform.OS === 'android' ? insets.bottom : 0 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.xl, paddingTop: 60, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-            <View>
-              <Text style={{ color: colors.text, fontSize: 22, fontFamily: 'SpaceGrotesk_700Bold',  }}>Academic Calendar</Text>
-              <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 4 }}>Session 2026-27 • Chandigarh University</Text>
-            </View>
-            <TouchableOpacity onPress={() => setIsCalendarVisible(false)} style={{ backgroundColor: colors.surfaceHigh, padding: 8, borderRadius: 20 }}>
-              <Ionicons name="close" size={24} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: Spacing.lg, gap: Spacing.xl }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e' }}/><Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Holiday</Text></View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#ef4444' }}/><Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Exam</Text></View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary }}/><Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Event</Text></View>
-          </View>
-          
-          <Calendar
-            key={isCalendarVisible ? 'opened' : 'closed'}
-            current={selectedDate}
-            minDate={'2026-07-01'}
-            maxDate={'2026-12-31'}
-            onDayPress={(day: any) => setSelectedDate(day.dateString)}
-            onMonthChange={(month: any) => setCurrentMonth(month.dateString.substring(0, 7))}
-            hideExtraDays={true}
-            markedDates={{
-              ...markedDates,
-              [selectedDate]: { ...(markedDates[selectedDate] || {}), selected: true, selectedColor: colors.primary + '40' }
-            }}
-            theme={{
-              backgroundColor: colors.background,
-              calendarBackground: colors.background,
-              textSectionTitleColor: colors.textMuted,
-              selectedDayBackgroundColor: colors.primary + '40',
-              selectedDayTextColor: colors.text,
-              todayTextColor: colors.primary,
-              dayTextColor: colors.text,
-              textDisabledColor: colors.border,
-              dotColor: colors.primary,
-              arrowColor: colors.text,
-              monthTextColor: colors.text,
-              indicatorColor: colors.primary,
-            }}
-          />
-          <ScrollView 
-            style={{ flex: 1, backgroundColor: colors.background }}
-            contentContainerStyle={{ padding: Spacing.lg, paddingBottom: Spacing.xl }}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', marginBottom: 12 }}>
-              Events for this Month
-            </Text>
-            {Object.keys(agendaItems).filter(date => date.startsWith(currentMonth)).flatMap(date => agendaItems[date]).length > 0 ? (
-              Object.keys(agendaItems).filter(date => date.startsWith(currentMonth)).sort().flatMap(date => agendaItems[date]).map((item: any, i: number) => (
-                <View key={i} style={{ flexDirection: 'row', backgroundColor: colors.surfaceHigh, borderRadius: Radius.md, padding: 12, marginBottom: Spacing.md, borderWidth: 1, borderColor: item.isHoliday ? '#22c55e40' : item.isExam ? '#ef444440' : colors.border }}>
-                  <View style={{ width: 65, borderRightWidth: 1, borderRightColor: colors.border, paddingRight: 12, marginRight: 12, justifyContent: 'center' }}>
-                    <Text style={{ color: colors.text, fontSize: 14, fontFamily: 'Inter_600SemiBold' }}>{item.date.split('-')[0]} {item.date.split('-')[1]}</Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: 2 }}>{item.day.substring(0,3)}</Text>
-                  </View>
-                  <View style={{ flex: 1, justifyContent: 'center' }}>
-                    <Text style={{ color: item.isHoliday ? '#22c55e' : item.isExam ? '#ef4444' : colors.text, fontSize: 14, fontFamily: 'Inter_600SemiBold' }}>{item.activity}</Text>
-                  </View>
-                </View>
-              ))
-            ) : (
-              <Text style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>No events this month</Text>
-            )}
-          </ScrollView>
-        </View>
-      </Modal>
+      <AcademicCalendarModal
+        visible={isCalendarVisible}
+        onClose={() => setIsCalendarVisible(false)}
+      />
 
       {/* AutoSync Attendance */}
       <AutoSyncAttendance 
@@ -1068,8 +1086,6 @@ export default function StudyOSDashboard() {
     </View>
   );
 }
-
-import { agendaItems, markedDates } from '../../../constants/calendar';
 
 function SubjectCard({ title, code, credits, leaves, status, statusType, progress, attended, total, history, updateBadge, onPress }: any) {
   const colors = useThemeStore((s) => s.colors);
@@ -1213,14 +1229,14 @@ function CircularProgress({ value, color }: { value: number, color: string }) {
 
 const useStyles = (colors: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: 100 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  owlIcon: { width: 48, height: 48, backgroundColor: colors.text, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  greeting: { color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' },
-  userName: { color: colors.primary, fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold',  },
+  content: { paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: 100 },
+  headerRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, marginRight: 8 },
+  owlIcon: { width: 44, height: 44, backgroundColor: colors.text, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  greeting: { color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium' },
+  userName: { color: colors.primary, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
   sectionText: { color: colors.textDim, fontSize: 11, fontFamily: 'Inter_400Regular' },
-  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', flexShrink: 0, gap: 14, marginRight: 8 },
   
   profileCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.xl },
   profileCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
@@ -1280,30 +1296,76 @@ const useStyles = (colors: any) => StyleSheet.create({
     elevation: 10,
   },
   toastText: { color: '#ffffff', fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', flexShrink: 1 },
-  inlineServicesContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingVertical: 18,
+  facilitiesOuterWrapper: {
     marginHorizontal: Spacing.sm,
     marginBottom: Spacing.xl,
     marginTop: -4,
-    borderRadius: Radius.xl,
+  },
+  facilitiesContainer: {
+    borderRadius: 24,
+    borderWidth: 1.2,
+    borderTopWidth: 1.5,
+    paddingTop: 14,
+    paddingBottom: 16,
+    paddingHorizontal: 8,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
     elevation: 3,
   },
-  serviceItemWrapper: {
-    width: '20%',
+  facilitiesHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    paddingHorizontal: 12,
+    marginBottom: 14,
   },
-  inlineServiceIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+  facilityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  facilitiesHeaderTitle: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 11.5,
+    letterSpacing: 0.8,
+  },
+  facilityCountBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  facilitiesHeaderBadge: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 10.5,
+  },
+  facilitiesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 14,
+  },
+  facilityItem: {
+    width: '25%',
+    alignItems: 'center',
+  },
+  facilityIconPod: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
+    borderTopWidth: 1.5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  facilityLabel: {
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+    fontSize: 11.5,
+    marginTop: 6,
+    textAlign: 'center',
   },
 });

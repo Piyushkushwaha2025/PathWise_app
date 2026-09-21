@@ -5,31 +5,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="24746a27-06b2-422d-b194-c358cb91da96" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/_layout.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/(app)/_pathwise_dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/_pathwise_dashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/_pathwise_profile.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/_pathwise_profile.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/_pathwise_subscription.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/_pathwise_subscription.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/(app)/studyos/dashboard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/dashboard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/sync.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/sync.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/marks/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/marks/index.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/notifications.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/notifications.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/(app)/studyos/subjects/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/subjects/index.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/(app)/studyos/timetable/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(app)/studyos/timetable/index.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(auth)/sign-in.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(auth)/sign-in.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/(auth)/sign-up.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/(auth)/sign-up.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/_layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/app/_layout.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/models/User.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/models/User.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/server.js" beforeDir="false" afterPath="$PROJECT_DIR$/backend/server.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/components/AppLoading.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/AppLoading.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/components/CrashFallback.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/CrashFallback.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/components/DetailedAttendanceModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/DetailedAttendanceModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/AttendanceOverviewModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/AttendanceOverviewModal.tsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/components/FacilitiesModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/FacilitiesModal.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/components/studyos/SilentReconnectModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/studyos/SilentReconnectModal.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/constants/theme.ts" beforeDir="false" afterPath="$PROJECT_DIR$/constants/theme.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hooks/useSubscription.ts" beforeDir="false" afterPath="$PROJECT_DIR$/hooks/useSubscription.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/db.ts" beforeDir="false" afterPath="$PROJECT_DIR$/lib/db.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/store/studySessionStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/store/studySessionStore.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/store/studyosStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/store/studyosStore.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/store/useThemeStore.ts" beforeDir="false" afterPath="$PROJECT_DIR$/store/useThemeStore.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/components/layout/TabBar.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/components/layout/TabBar.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

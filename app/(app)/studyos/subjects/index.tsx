@@ -1,6 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl } from 'react-native';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, TextInput, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { WebView, WebViewNavigation } from 'react-native-webview';
@@ -18,6 +20,8 @@ const LMS_COURSES_CACHE_KEY = 'lms_courses_cache';
 
 export default function LmsCoursesScreen() {
   const colors = useThemeStore((s) => s.colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black' || theme === 'emerald';
   const styles = useStyles(colors);
   const router = useRouter();
   const { clearSession } = useStudySessionStore();
@@ -30,6 +34,8 @@ export default function LmsCoursesScreen() {
   const { isSubscriptionRequired } = useSubscription();
   const activeSection = dbUser?.section_code || profile?.section || null;
   const [pendingCount, setPendingCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'theory' | 'lab' | 'low'>('all');
 
   useEffect(() => {
     if (userId) {
@@ -578,6 +584,133 @@ export default function LmsCoursesScreen() {
     }
   });
 
+  // ── Helpers for Subject Attendance & Match Logic ──
+  const getSubjectAttendance = (sub: any) => {
+    const subCore = getCoreCode(sub.code || sub.name);
+    const subWords = getMeaningfulWords(sub.name);
+
+    if (Array.isArray(attendanceData) && attendanceData.length > 0) {
+      const matched = attendanceData.find(a => {
+        const aCore = getCoreCode(a.subjectName);
+        if (subCore && aCore && subCore === aCore) return true;
+        const aWords = getMeaningfulWords(a.subjectName);
+        const shared = aWords.filter((w: string) => subWords.includes(w));
+        return shared.length >= 2;
+      });
+
+      if (matched) {
+        return {
+          percentage: Math.round(matched.percentage),
+          attended: matched.attendedClasses,
+          total: matched.totalClasses,
+        };
+      }
+    }
+
+    if (sub.attendancePercentage !== undefined && sub.attendancePercentage !== null) {
+      return {
+        percentage: Math.round(sub.attendancePercentage),
+        attended: sub.attendedClasses ?? 0,
+        total: sub.totalClasses ?? 0,
+      };
+    }
+
+    return null;
+  };
+
+  const getAttendanceAdvice = (attended: number, total: number, percentage: number) => {
+    if (total === 0) return null;
+    if (percentage >= 75) {
+      const canSkip = Math.floor((attended - 0.75 * total) / 0.75);
+      if (canSkip > 0) {
+        return { text: `Can skip ${canSkip} lecture${canSkip > 1 ? 's' : ''}`, type: 'safe' as const };
+      }
+      return { text: 'On margin (75%)', type: 'warning' as const };
+    } else {
+      const need = Math.ceil((0.75 * total - attended) / 0.25);
+      return { text: `Need ${Math.max(1, need)} lecture${need > 1 ? 's' : ''}`, type: 'danger' as const };
+    }
+  };
+
+  const getMatchedMoodleCourse = (sub: any) => {
+    const coursesToSearch = scrapedCourses || mainCourses || [];
+    if (!coursesToSearch.length) return null;
+
+    const subCore = getCoreCode(sub.code || sub.name);
+    const subWords = getMeaningfulWords(sub.name);
+
+    const matched = coursesToSearch.find(c => {
+      if (!c || !c.id) return false;
+      const cCore = getCoreCode(c.shortname || c.fullname);
+      if (subCore && cCore && subCore === cCore) return true;
+      const cWords = getMeaningfulWords(c.fullname);
+      const shared = cWords.filter((w: string) => subWords.includes(w));
+      return shared.length >= 2;
+    });
+
+    return matched || null;
+  };
+
+  const overallAttendance = useMemo(() => {
+    if (!attendanceData || attendanceData.length === 0) {
+      if (erpSubjects && erpSubjects.length > 0) {
+        let totAttended = 0;
+        let totClasses = 0;
+        erpSubjects.forEach(s => {
+          totAttended += s.attendedClasses || 0;
+          totClasses += s.totalClasses || 0;
+        });
+        if (totClasses > 0) return Math.round((totAttended / totClasses) * 100);
+      }
+      return null;
+    }
+    let totalAttended = 0;
+    let totalLectures = 0;
+    attendanceData.forEach(a => {
+      totalAttended += a.attendedClasses || 0;
+      totalLectures += a.totalClasses || 0;
+    });
+    if (totalLectures === 0) return null;
+    return Math.round((totalAttended / totalLectures) * 100);
+  }, [attendanceData, erpSubjects]);
+
+  const filteredSubjects = useMemo(() => {
+    return erpSubjects.filter((sub) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const nameMatch = (sub.name || '').toLowerCase().includes(q);
+        const codeMatch = (sub.code || '').toLowerCase().includes(q);
+        if (!nameMatch && !codeMatch) return false;
+      }
+
+      const isLab = /lab|practical|workshop/i.test(sub.name || '') || /lab|practical/i.test(sub.code || '');
+      if (selectedFilter === 'theory' && isLab) return false;
+      if (selectedFilter === 'lab' && !isLab) return false;
+
+      if (selectedFilter === 'low') {
+        const att = getSubjectAttendance(sub);
+        if (!att || att.percentage >= 75) return false;
+      }
+
+      return true;
+    });
+  }, [erpSubjects, searchQuery, selectedFilter, attendanceData]);
+
+  const theoryCount = useMemo(() => {
+    return erpSubjects.filter(sub => !(/lab|practical|workshop/i.test(sub.name || '') || /lab|practical/i.test(sub.code || ''))).length;
+  }, [erpSubjects]);
+
+  const labCount = useMemo(() => {
+    return erpSubjects.filter(sub => /lab|practical|workshop/i.test(sub.name || '') || /lab|practical/i.test(sub.code || '')).length;
+  }, [erpSubjects]);
+
+  const lowAttendanceCount = useMemo(() => {
+    return erpSubjects.filter(sub => {
+      const att = getSubjectAttendance(sub);
+      return att && att.percentage < 75;
+    }).length;
+  }, [erpSubjects, attendanceData]);
+
   return (
     <View style={styles.container}>
       <ScrollView 
@@ -597,120 +730,362 @@ export default function LmsCoursesScreen() {
           />
         }
       >
+        {/* Modern Ambient Header */}
         <View style={styles.headerRow}>
-           <View style={{ flex: 1, paddingRight: 8, justifyContent: 'center' }}>
-              <Text style={styles.header}>LMS</Text>
-           </View>
-           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TouchableOpacity 
-                 onPress={() => router.push('/studyos/assignments' as any)} 
-                 style={{ 
-                    flexDirection: 'row', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    backgroundColor: colors.primary + '15', 
-                    borderWidth: 1,
-                    borderColor: colors.primary + '30',
-                    paddingHorizontal: 16, 
-                    height: 46, 
-                    borderRadius: 23 
-                 }}
-              >
-                 <Ionicons name="reader" size={20} color={colors.primary} />
-                 <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 13, marginLeft: 6 }}>Tasks</Text>
-                 {pendingCount > 0 && (
-                    <View style={{ backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 6 }}>
-                       <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'Inter_700Bold' }}>{pendingCount}</Text>
-                    </View>
-                 )}
-              </TouchableOpacity>
-
-               <TouchableOpacity
-                  onPress={() => router.push('/studyos/grades' as any)}
-                  style={{ 
-                     flexDirection: 'row',
-                     alignItems: 'center', 
-                     justifyContent: 'center',
-                     backgroundColor: colors.primary + '15', 
-                     borderWidth: 1,
-                     borderColor: colors.primary + '30',
-                     paddingHorizontal: 16,
-                     height: 46, 
-                     borderRadius: 23 
-                  }}
-               >
-                  <Ionicons name="stats-chart" size={20} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 13, marginLeft: 6 }}>Grades</Text>
-               </TouchableOpacity>
-           </View>
-        </View>
-         
-         {erpSubjects.length > 0 ? (
-            <>
-               {erpSubjects.map((sub, index) => (
-                 <TouchableOpacity 
-                   key={'erp-'+index} 
-                   style={styles.card}
-                   activeOpacity={0.7}
-                   onPress={() => {
-                     if (isSubscriptionRequired) {
-                       usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
-                       return;
-                     }
-                     router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
-                   }}
-                 >
-                   <View style={styles.cardHeader}>
-                     <View style={styles.cardIconBox}>
-                       <Ionicons name="book-outline" size={20} color={colors.primary} />
-                     </View>
-                     <View style={styles.cardInfo}>
-                       <Text style={styles.subjectName}>{sub.name}</Text>
-                       <Text style={styles.subjectCode}>{sub.code}</Text>
-                     </View>
-                     
-                     <TouchableOpacity 
-                       style={{ 
-                         backgroundColor: colors.primary, 
-                         paddingHorizontal: 16, 
-                         paddingVertical: 8, 
-                         borderRadius: 18, 
-                         marginRight: 8, 
-                         flexDirection: 'row', 
-                         alignItems: 'center',
-                         shadowColor: colors.primary,
-                         shadowOffset: { width: 0, height: 2 },
-                         shadowOpacity: 0.35,
-                         shadowRadius: 5,
-                         elevation: 4
-                       }}
-                       onPress={() => {
-                         if (isSubscriptionRequired) {
-                           usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
-                           return;
-                         }
-                         router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
-                       }}
-                     >
-                       <Ionicons name="sparkles" size={17} color="#fff" style={{ marginRight: 6 }} />
-                       <Text style={{ color: '#fff', fontSize: 15, fontFamily: 'Inter_700Bold' }}>AI</Text>
-                     </TouchableOpacity>
-                   </View>
-                 </TouchableOpacity>
-               ))}
-            </>
-         ) : (
-          <View style={styles.centerBox}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={{ color: colors.textMuted, marginTop: Spacing.md, textAlign: 'center' }}>
-               Loading subjects...
-            </Text>
+          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+              <Ionicons name="sparkles" size={13} color={colors.primary} />
+              <Text style={[styles.headerCategory, { color: colors.primary }]}>ACADEMIC LMS & SYLLABUS</Text>
+            </View>
+            <Text style={styles.headerTitle} numberOfLines={1}>Subjects & LMS</Text>
           </View>
-         )}
 
-         
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity 
+              onPress={() => {
+                try { Haptics.selectionAsync(); } catch {}
+                router.push('/studyos/assignments' as any);
+              }} 
+              style={styles.headerPillBtn}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="reader" size={15} color={colors.primary} />
+              <Text style={[styles.headerPillText, { color: colors.primary }]}>Tasks</Text>
+              {pendingCount > 0 && (
+                <View style={[styles.badgeCounter, { backgroundColor: colors.warning || '#f59e0b' }]}>
+                  <Text style={styles.badgeCounterText}>{pendingCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
 
-         <View style={{ height: 100 }} />
+            <TouchableOpacity
+              onPress={() => {
+                try { Haptics.selectionAsync(); } catch {}
+                router.push('/studyos/grades' as any);
+              }}
+              style={styles.headerPillBtn}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="stats-chart" size={15} color={colors.accent || '#8b5cf6'} />
+              <Text style={[styles.headerPillText, { color: colors.accent || '#8b5cf6' }]}>Grades</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Overview Hero Console Card */}
+        <View style={styles.heroCardWrapper}>
+          <LinearGradient
+            colors={
+              isDark
+                ? ['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.02)']
+                : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.85)']
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[
+              styles.heroCard,
+              {
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.95)',
+              }
+            ]}
+          >
+            <View style={styles.heroTopRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={[styles.liveDot, { backgroundColor: isScraping ? colors.warning : '#22c55e' }]} />
+                <Text style={[styles.heroSubtext, { color: colors.textMuted }]}>
+                  {isScraping ? 'Syncing Moodle Courses...' : 'Moodle & UIMS Synced'}
+                </Text>
+              </View>
+              {activeSection && (
+                <View style={[styles.sectionBadge, { backgroundColor: colors.primary + '18' }]}>
+                  <Text style={[styles.sectionBadgeText, { color: colors.primary }]}>{activeSection}</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.heroStatsRow}>
+              <View style={styles.heroStatItem}>
+                <Text style={[styles.heroStatValue, { color: colors.text }]}>{erpSubjects.length}</Text>
+                <Text style={[styles.heroStatLabel, { color: colors.textMuted }]}>Enrolled Courses</Text>
+              </View>
+              <View style={styles.heroStatDivider} />
+              <View style={styles.heroStatItem}>
+                <Text style={[
+                  styles.heroStatValue, 
+                  { color: overallAttendance !== null ? (overallAttendance >= 75 ? '#22c55e' : (colors.warning || '#f59e0b')) : colors.text }
+                ]}>
+                  {overallAttendance !== null ? `${overallAttendance}%` : '--'}
+                </Text>
+                <Text style={[styles.heroStatLabel, { color: colors.textMuted }]}>Avg Attendance</Text>
+              </View>
+              <View style={styles.heroStatDivider} />
+              <View style={styles.heroStatItem}>
+                <Text style={[styles.heroStatValue, { color: pendingCount > 0 ? (colors.warning || '#f59e0b') : colors.text }]}>
+                  {pendingCount}
+                </Text>
+                <Text style={[styles.heroStatLabel, { color: colors.textMuted }]}>Pending Tasks</Text>
+              </View>
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* Search & Filter Strip */}
+        <View style={styles.searchContainer}>
+          <View style={[styles.searchBar, { borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+            <Ionicons name="search" size={16} color={colors.textDim} style={{ marginLeft: 12, marginRight: 8 }} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.text }]}
+              placeholder="Search subject or code..."
+              placeholderTextColor={colors.textDim}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 6, marginRight: 6 }}>
+                <Ionicons name="close-circle" size={16} color={colors.textDim} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterStrip}>
+          <TouchableOpacity
+            onPress={() => { try { Haptics.selectionAsync(); } catch {}; setSelectedFilter('all'); }}
+            style={[styles.filterChip, selectedFilter === 'all' && [styles.filterChipActive, { backgroundColor: colors.primary }]]}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.filterChipText, selectedFilter === 'all' && styles.filterChipTextActive]}>
+              All ({erpSubjects.length})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => { try { Haptics.selectionAsync(); } catch {}; setSelectedFilter('theory'); }}
+            style={[styles.filterChip, selectedFilter === 'theory' && [styles.filterChipActive, { backgroundColor: colors.primary }]]}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.filterChipText, selectedFilter === 'theory' && styles.filterChipTextActive]}>
+              Theory ({theoryCount})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => { try { Haptics.selectionAsync(); } catch {}; setSelectedFilter('lab'); }}
+            style={[styles.filterChip, selectedFilter === 'lab' && [styles.filterChipActive, { backgroundColor: colors.primary }]]}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.filterChipText, selectedFilter === 'lab' && styles.filterChipTextActive]}>
+              Labs ({labCount})
+            </Text>
+          </TouchableOpacity>
+
+          {lowAttendanceCount > 0 && (
+            <TouchableOpacity
+              onPress={() => { try { Haptics.selectionAsync(); } catch {}; setSelectedFilter('low'); }}
+              style={[styles.filterChip, selectedFilter === 'low' && [styles.filterChipActive, { backgroundColor: '#ef4444' }]]}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, selectedFilter === 'low' && styles.filterChipTextActive]}>
+                Low Attendance ({lowAttendanceCount})
+              </Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+
+        {/* Subjects List */}
+        {erpSubjects.length > 0 ? (
+          filteredSubjects.length > 0 ? (
+            filteredSubjects.map((sub, index) => {
+              const isLab = /lab|practical|workshop/i.test(sub.name || '') || /lab|practical/i.test(sub.code || '');
+              const att = getSubjectAttendance(sub);
+              const advice = att ? getAttendanceAdvice(att.attended, att.total, att.percentage) : null;
+              const matchedLms = getMatchedMoodleCourse(sub);
+
+              const isSafe = att ? att.percentage >= 75 : true;
+              const attColor = att ? (isSafe ? '#22c55e' : (colors.warning || '#f59e0b')) : colors.textMuted;
+
+              return (
+                <View key={'sub-' + index} style={styles.cardWrapper}>
+                  <LinearGradient
+                    colors={
+                      isDark
+                        ? ['rgba(255, 255, 255, 0.06)', 'rgba(255, 255, 255, 0.015)']
+                        : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.88)']
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[
+                      styles.card,
+                      {
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.05)',
+                        borderTopColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.95)',
+                      }
+                    ]}
+                  >
+                    {/* Top Meta Row */}
+                    <View style={styles.cardTopRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                        <View style={[styles.cardIconBox, { backgroundColor: isLab ? '#06b6d418' : colors.primary + '18' }]}>
+                          <Ionicons
+                            name={isLab ? 'flask-outline' : 'book-outline'}
+                            size={16}
+                            color={isLab ? '#06b6d4' : colors.primary}
+                          />
+                        </View>
+                        <View style={styles.codePill}>
+                          <Text style={styles.codePillText} numberOfLines={1}>{sub.code}</Text>
+                        </View>
+                        {sub.credits ? (
+                          <View style={styles.creditPill}>
+                            <Text style={styles.creditPillText}>{sub.credits} Cr</Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      {/* Attendance Indicator */}
+                      {att && (
+                        <View style={[styles.attendancePill, { backgroundColor: isSafe ? '#22c55e18' : '#ef444418' }]}>
+                          <Ionicons
+                            name={isSafe ? 'checkmark-circle' : 'alert-circle'}
+                            size={13}
+                            color={isSafe ? '#22c55e' : '#ef4444'}
+                          />
+                          <Text style={[styles.attendancePillText, { color: isSafe ? '#22c55e' : '#ef4444' }]}>
+                            {att.percentage}%
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Subject Name */}
+                    <Text style={[styles.subjectTitle, { color: colors.text }]}>
+                      {sub.name}
+                    </Text>
+
+                    {/* Attendance Progress & Advice Bar */}
+                    {att && (
+                      <View style={styles.attendanceBarContainer}>
+                        <View style={styles.attendanceBarBg}>
+                          <View
+                            style={[
+                              styles.attendanceBarFill,
+                              { width: `${Math.min(100, Math.max(0, att.percentage))}%`, backgroundColor: attColor }
+                            ]}
+                          />
+                        </View>
+                        {advice && (
+                          <Text style={[
+                            styles.adviceText,
+                            { color: advice.type === 'safe' ? '#22c55e' : (advice.type === 'warning' ? (colors.warning || '#f59e0b' ) : '#ef4444') }
+                          ]}>
+                            {advice.text}
+                          </Text>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Action Buttons Row */}
+                    <View style={styles.cardActionsRow}>
+                      {/* AI Tutor Button */}
+                      <TouchableOpacity
+                        style={styles.aiTutorBtn}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                          if (isSubscriptionRequired) {
+                            usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
+                            return;
+                          }
+                          router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
+                        }}
+                      >
+                        <LinearGradient
+                          colors={[colors.primary, colors.accent || '#8b5cf6']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.aiTutorGradient}
+                        >
+                          <Ionicons name="sparkles" size={14} color="#ffffff" style={{ marginRight: 6 }} />
+                          <Text style={styles.aiTutorText}>Ask AI Tutor</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+
+                      {/* Moodle LMS Content Button (if ID exists) or Chat Button */}
+                      {matchedLms?.id ? (
+                        <TouchableOpacity
+                          style={[styles.lmsContentBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' }]}
+                          activeOpacity={0.75}
+                          onPress={() => {
+                            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                            router.push(`/studyos/subjects/${matchedLms.id}?name=${encodeURIComponent(sub.name)}` as any);
+                          }}
+                        >
+                          <Ionicons name="folder-open-outline" size={15} color={colors.primary} style={{ marginRight: 5 }} />
+                          <Text style={[styles.lmsContentBtnText, { color: colors.text }]}>Moodle</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={[styles.lmsContentBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' }]}
+                          activeOpacity={0.75}
+                          onPress={() => {
+                            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                            router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
+                          }}
+                        >
+                          <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} style={{ marginRight: 5 }} />
+                          <Text style={[styles.lmsContentBtnText, { color: colors.text }]}>Study Chat</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </LinearGradient>
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="search-outline" size={42} color={colors.textDim} />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No subjects found</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+                Try changing your search term or filter selection
+              </Text>
+              <TouchableOpacity
+                style={[styles.emptyResetBtn, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '35' }]}
+                onPress={() => {
+                  setSearchQuery('');
+                  setSelectedFilter('all');
+                }}
+              >
+                <Text style={[styles.emptyResetBtnText, { color: colors.primary }]}>Reset Filter</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        ) : (
+          <View style={{ gap: 12, marginTop: 8 }}>
+            {[1, 2, 3, 4].map((i) => (
+              <View
+                key={i}
+                style={[
+                  styles.skeletonCard,
+                  {
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+                    borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  }
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <View style={[styles.skeletonCircle, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+                  <View style={[styles.skeletonPill, { width: 90, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+                </View>
+                <View style={[styles.skeletonLine, { width: '80%', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+                <View style={[styles.skeletonLine, { width: '50%', marginTop: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
+              </View>
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* Hidden WebView for scraping — only active when needed */}
@@ -735,81 +1110,351 @@ export default function LmsCoursesScreen() {
 const useStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background, 
+    backgroundColor: colors.background,
   },
   content: {
-    padding: Spacing.lg,
-    paddingTop: 20,
-    paddingBottom: 100,
+    padding: Spacing.md,
+    paddingTop: Platform.OS === 'ios' ? 16 : 20,
+    paddingBottom: 110,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.xl,
+    marginBottom: 16,
   },
-  header: {
+  headerCategory: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10.5,
+    letterSpacing: 1.2,
+  },
+  headerTitle: {
     ...Typography.h1,
     color: colors.text,
-    marginBottom: Spacing.xs,
+    fontSize: 24,
+    lineHeight: 28,
   },
-  subheader: {
-    ...Typography.body,
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  iconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.surface,
+  headerPillBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: colors.surfaceHigh,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    gap: 5,
+  },
+  headerPillText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 12.5,
+  },
+  badgeCounter: {
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: 2,
+  },
+  badgeCounterText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontFamily: 'Inter_700Bold',
+  },
+
+  // Hero Card
+  heroCardWrapper: {
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  heroCard: {
+    borderRadius: Radius.lg,
+    padding: 14,
+    borderWidth: 1,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  heroSubtext: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_500Medium',
+  },
+  sectionBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  sectionBadgeText: {
+    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.5,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingTop: 4,
+  },
+  heroStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  heroStatValue: {
+    fontSize: 19,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    marginBottom: 2,
+  },
+  heroStatLabel: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_500Medium',
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: colors.border,
+  },
+
+  // Search & Filter
+  searchContainer: {
+    marginBottom: 12,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceHigh,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    height: 42,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13.5,
+    fontFamily: 'Inter_500Medium',
+    paddingVertical: 0,
+  },
+  filterStrip: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingBottom: 14,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceHigh,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterChipActive: {
+    borderColor: 'transparent',
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+    color: colors.textDim,
+  },
+  filterChipTextActive: {
+    color: '#ffffff',
+    fontFamily: 'Inter_700Bold',
+  },
+
+  // Subject Card
+  cardWrapper: {
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   card: {
-    backgroundColor: colors.surfaceHigh,
     borderRadius: Radius.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 10,
+    padding: 14,
+    borderWidth: 1,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  cardIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  codePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  cardHeader: {
+  codePillText: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 11,
+    color: colors.text,
+  },
+  creditPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.surface,
+  },
+  creditPillText: {
+    fontSize: 10,
+    fontFamily: 'Inter_500Medium',
+    color: colors.textDim,
+  },
+  attendancePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  attendancePillText: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_700Bold',
+  },
+  subjectTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  attendanceBarContainer: {
+    marginBottom: 12,
+  },
+  attendanceBarBg: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+    marginBottom: 5,
+  },
+  attendanceBarFill: {
+    height: 4,
+    borderRadius: 2,
+  },
+  attendanceBarMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  cardIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  attendanceMetaText: {
+    fontSize: 11,
+    fontFamily: 'Inter_500Medium',
   },
-  cardInfo: {
+  adviceText: {
+    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 2,
+  },
+  aiTutorBtn: {
     flex: 1,
-    paddingRight: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 2,
   },
-  subjectName: {
-    ...Typography.h3,
-    color: colors.text,
-    marginBottom: 2,
-    fontSize: 14.5,
-  },
-  subjectCode: {
-    ...Typography.small,
-    color: colors.textMuted,
-    fontSize: 11.5,
-  },
-  centerBox: {
+  aiTutorGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 60,
-    padding: Spacing.xl,
-  }
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  aiTutorText: {
+    color: '#ffffff',
+    fontSize: 12.5,
+    fontFamily: 'Inter_700Bold',
+  },
+  lmsContentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  lmsContentBtnText: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_600SemiBold',
+  },
+
+  // Skeletons
+  skeletonCard: {
+    borderRadius: Radius.lg,
+    padding: 16,
+    borderWidth: 1,
+  },
+  skeletonCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+  },
+  skeletonPill: {
+    height: 18,
+    borderRadius: 6,
+  },
+  skeletonLine: {
+    height: 14,
+    borderRadius: 4,
+  },
+
+  // Empty state
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter_600SemiBold',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  emptyResetBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  emptyResetBtnText: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_700Bold',
+  },
 });

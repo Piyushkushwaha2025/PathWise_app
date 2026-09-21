@@ -70,6 +70,13 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['transparent', colors.primary + '55', 'transparent']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.topSpecularLine}
+        pointerEvents="none"
+      />
       {(routesToRender as Array<{ key: string; name: string }>).map(
         (route) => {
           const index = state.routes.findIndex((r: any) => r.key === route.key);
@@ -207,9 +214,22 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                >
                  <View style={[styles.iconWrap, isFocused && styles.iconWrapActive]}>
                    {user?.imageUrl ? (
-                     <Image source={{ uri: user.imageUrl }} style={{ width: 24, height: 24, borderRadius: 12, borderWidth: isFocused ? 2 : 0, borderColor: colors.primary }} />
+                     <Image
+                       source={{ uri: user.imageUrl }}
+                       style={[
+                         styles.avatarImage,
+                         isFocused && { borderColor: colors.primary, borderWidth: 2 }
+                       ]}
+                     />
                    ) : (
-                     <Ionicons name={(isFocused ? tab.iconActive : tab.icon) as any} size={22} color={isFocused ? colors.primary : colors.textDim} />
+                     <Ionicons
+                       name={(isFocused ? tab.iconActive : tab.icon) as any}
+                       size={21}
+                       color={isFocused ? colors.primary : colors.textDim}
+                     />
+                   )}
+                   {isFocused && (
+                     <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
                    )}
                  </View>
                  <Text style={[styles.label, isFocused && styles.labelActive]}>
@@ -224,17 +244,20 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               key={route.key}
               style={styles.tab}
               onPress={onPress}
-              activeOpacity={0.7}
+              activeOpacity={1}
               accessibilityRole="button"
               accessibilityState={isFocused ? { selected: true } : {}}
               accessibilityLabel={options.tabBarAccessibilityLabel}
             >
               <View style={[styles.iconWrap, isFocused && styles.iconWrapActive]}>
-                  <Ionicons
-                    name={(isFocused ? tab.iconActive : tab.icon) as any}
-                    size={22}
-                    color={isFocused ? colors.primary : colors.textDim}
-                  />
+                <Ionicons
+                  name={(isFocused ? tab.iconActive : tab.icon) as any}
+                  size={21}
+                  color={isFocused ? colors.primary : colors.textDim}
+                />
+                {isFocused && (
+                  <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
+                )}
               </View>
               <Text style={[styles.label, isFocused && styles.labelActive]}>
                 {tab.label}
@@ -252,7 +275,7 @@ function CenterTabButton({ tab, isFocused, onPress, accessibilityLabel, colors, 
 
   const handlePressIn = () => {
     Animated.spring(scale, {
-      toValue: 0.92,
+      toValue: 0.90,
       useNativeDriver: true,
       speed: 50,
     }).start();
@@ -276,25 +299,41 @@ function CenterTabButton({ tab, isFocused, onPress, accessibilityLabel, colors, 
         activeOpacity={1}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
+        style={styles.centerTouchable}
       >
         <Animated.View
           style={[styles.centerButtonWrapper, { transform: [{ scale }] }]}
         >
-          <LinearGradient
-            colors={[colors.primary, colors.accent]}
-            style={styles.centerButton}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+          {/* Ambient outer halo ring */}
+          <View
+            style={[
+              styles.centerHaloRing,
+              {
+                backgroundColor: isFocused ? colors.primary + '25' : colors.primary + '12',
+                borderColor: isFocused ? colors.primary + '55' : colors.primary + '25',
+              },
+            ]}
           >
-            <Ionicons
-              name={(isFocused ? tab.iconActive : tab.icon) as any}
-              size={28}
-              color="white"
-            />
-          </LinearGradient>
+            <LinearGradient
+              colors={[colors.primary, colors.accent || '#8b5cf6']}
+              style={styles.centerButton}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              {/* Subtle top specular sheen */}
+              <View style={styles.centerSpecularShine} />
+              <Ionicons
+                name={(isFocused ? tab.iconActive : tab.icon) as any}
+                size={25}
+                color="#ffffff"
+              />
+            </LinearGradient>
+          </View>
         </Animated.View>
       </TouchableOpacity>
-      <Text style={styles.centerLabel}>{tab.label}</Text>
+      <Text style={[styles.centerLabel, isFocused && styles.centerLabelActive]}>
+        {tab.label}
+      </Text>
     </View>
   );
 }
@@ -305,44 +344,70 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    paddingBottom: Platform.OS === "ios" ? 28 : 12,
-    paddingTop: 10,
-    paddingHorizontal: 8,
+    paddingBottom: Platform.OS === "ios" ? 28 : 10,
+    paddingTop: 8,
+    paddingHorizontal: 6,
     position: "relative",
-    elevation: 0,
+    elevation: 16,
     justifyContent: "space-between",
-    alignItems: 'center'
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+  },
+  topSpecularLine: {
+    position: 'absolute',
+    top: -1,
+    left: 0,
+    right: 0,
+    height: 1.5,
   },
   // Normal Tab Styles
   tab: {
     flex: 1,
     alignItems: "center",
-    gap: 4,
     justifyContent: "center",
+    gap: 3,
+    paddingVertical: 2,
   },
   iconWrap: {
     width: 40,
-    height: 32,
-    borderRadius: 16,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    position: 'relative',
   },
   iconWrapActive: {},
+  activeDot: {
+    position: 'absolute',
+    bottom: -4,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  avatarImage: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
   label: {
     ...Typography.label,
     fontSize: 10,
     fontFamily: "Inter_500Medium",
     color: colors.textDim,
     paddingHorizontal: 2,
+    letterSpacing: 0.1,
   },
   labelActive: {
     color: colors.primary,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "Inter_700Bold",
   },
-  
 
-
-  // Center Floating Tab Styles (Normal Mode)
+  // Center Floating Tab Styles
   centerTabContainer: {
     flex: 1,
     alignItems: "center",
@@ -350,29 +415,58 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     position: "relative",
     zIndex: 10,
   },
+  centerTouchable: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   centerButtonWrapper: {
-    marginBottom: 20,
+    marginBottom: 16,
     shadowColor: colors.primary,
-    shadowRadius: 16,
-    shadowOpacity: 0.6,
+    shadowRadius: 14,
+    shadowOpacity: 0.55,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
+    elevation: 10,
+  },
+  centerHaloRing: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   centerButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  centerSpecularShine: {
+    position: 'absolute',
+    top: 0,
+    left: 6,
+    right: 6,
+    height: 12,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
   },
   centerLabel: {
     ...Typography.label,
     fontSize: 10,
     fontFamily: "Inter_600SemiBold",
-    color: colors.primary,
+    color: colors.textDim,
     position: "absolute",
-    bottom: -4,
+    bottom: -3,
     paddingHorizontal: 2,
+    letterSpacing: 0.1,
+  },
+  centerLabelActive: {
+    color: colors.primary,
+    fontFamily: "Inter_700Bold",
   },
 });
 

@@ -57,6 +57,8 @@ export default function DashboardScreen() {
 
 
   const colors = useThemeStore((s) => s.colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black';
   const styles = useStyles(colors);
   const { isStudyOSMode, toggleMode } = useStudySessionStore();
   
@@ -108,59 +110,73 @@ export default function DashboardScreen() {
         overScrollMode="never"
         bounces={true}
       >
-      <View style={[styles.header, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <BrainCircuit size={40} color={colors.primary} />
-          <Text style={styles.title}>Your Dashboard</Text>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <BrainCircuit size={28} color={colors.primary} />
+          <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">Dashboard</Text>
         </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
-            <TouchableOpacity
-              onPress={() => router.push('/(app)/rewards')}
-              style={{
-                backgroundColor: isSubscribed || isRewardPro
-                  ? '#FBBF24'
-                  : isTrialActive
-                    ? colors.primary + '20'
-                    : colors.surfaceHigh,
-                flexDirection: 'row',
-                height: 42,
-                paddingHorizontal: 16,
-                justifyContent: 'center',
-                alignItems: 'center',
-                borderRadius: 21,
-                borderWidth: 1,
-                borderColor: isSubscribed || isRewardPro
-                  ? '#F59E0B'
-                  : isTrialActive
-                    ? colors.primary
-                    : colors.border,
-                gap: 8
-              }}
-            >
-              {isTrialActive ? (
-                // Trial active → sirf days dikhao
-                <>
-                  <Ionicons name="time-outline" size={17} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 14 }}>
-                    {trialDaysLeft}d left
-                  </Text>
-                </>
-              ) : isSubscribed || isRewardPro ? (
-                // Paid Pro or Reward Pro
-                <>
-                  <Ionicons name="star" size={18} color="#fff" />
-                  <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Pro</Text>
-                </>
-              ) : (
-                // Free — show Free text
-                <>
-                  <Ionicons name="sparkles-outline" size={17} color={colors.textDim} />
-                  <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 15 }}>Free</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          <TouchableOpacity onPress={() => setNotificationsVisible(true)} style={{ padding: 6 }}>
-            <Ionicons name="notifications-outline" size={28} color={colors.text} />
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => router.push('/(app)/rewards')}
+            style={{
+              backgroundColor: isSubscribed || isRewardPro
+                ? '#FBBF24'
+                : isTrialActive
+                  ? colors.primary + '20'
+                  : colors.surfaceHigh,
+              flexDirection: 'row',
+              height: 36,
+              paddingHorizontal: 10,
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderRadius: 18,
+              borderWidth: 1,
+              borderColor: isSubscribed || isRewardPro
+                ? '#F59E0B'
+                : isTrialActive
+                  ? colors.primary
+                  : colors.border,
+              gap: 5,
+              flexShrink: 0,
+            }}
+          >
+            {isTrialActive ? (
+              <>
+                <Ionicons name="time-outline" size={15} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 12.5 }}>
+                  {trialDaysLeft}d
+                </Text>
+              </>
+            ) : isSubscribed || isRewardPro ? (
+              <>
+                <Ionicons name="star" size={15} color="#fff" />
+                <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Pro</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="sparkles-outline" size={14} color={colors.textDim} />
+                <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Free</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            activeOpacity={0.75}
+            onPress={() => setNotificationsVisible(true)} 
+            style={{ 
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+              alignItems: "center", 
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <Ionicons name="notifications-outline" size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -349,14 +365,30 @@ function EnrolledRoadmapCard({ roadmapMeta, index, progressData, colors, styles,
 
 const useStyles = (colors: any) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: Spacing.lg, paddingTop: 20, paddingBottom: 40 },
+  content: { paddingHorizontal: Spacing.md, paddingTop: 16, paddingBottom: 40 },
   header: {
+    width: '100%',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
+  },
+  headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
-    marginBottom: Spacing.xl,
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
   },
-  title: { ...Typography.h1, color: colors.text, fontSize: 28 },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    flexShrink: 0,
+    marginRight: 8,
+  },
+  title: { ...Typography.h1, color: colors.text, fontSize: 24 },
   section: { marginBottom: Spacing.xl },
   sectionHeader: {
     flexDirection: "row",

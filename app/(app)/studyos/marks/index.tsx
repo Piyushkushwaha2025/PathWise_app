@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator, RefreshControl, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polygon, Line, Text as SvgText, Circle } from 'react-native-svg';
 import { WebView, WebViewNavigation } from 'react-native-webview';
@@ -10,6 +10,8 @@ import { useThemeStore } from '../../../../store/useThemeStore';
 import { useStudyOSStore } from '../../../../store/studyosStore';
 import { useStudySessionStore } from '../../../../store/studySessionStore';
 import * as SecureStore from 'expo-secure-store';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 
 const { width } = Dimensions.get('window');
 const RADAR_SIZE = width - 180; // Adjusted size to make circle smaller
@@ -60,7 +62,9 @@ function buildSemesterList(raw: RawSemester[]): SemesterItem[] {
 
 export default function MarksScreen() {
   const colors = useThemeStore((s) => s.colors);
-  const styles = useStyles(colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black';
+  const styles = useStyles(colors, isDark);
   const { marks, subjects, semesterOptionsCache, resultCache, setScrapedData } = useStudyOSStore();
   const { clearSession } = useStudySessionStore();
   const router = useRouter();
@@ -588,7 +592,7 @@ export default function MarksScreen() {
         }
      });
   }
-  const overallPercentage = grandTotalMax > 0 ? ((grandTotalObtained / grandTotalMax) * 100).toFixed(2) + '%' : '';
+  const overallPercentage = grandTotalMax > 0 ? ((grandTotalObtained / grandTotalMax) * 100).toFixed(1) + '%' : '';
 
   return (
     <View style={styles.container}>
@@ -604,182 +608,249 @@ export default function MarksScreen() {
           />
         }
       >
+        {/* Modern Ambient Header */}
         <View style={styles.headerRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={{
-              width: 42,
-              height: 42,
-              borderRadius: 21,
-              backgroundColor: colors.primary + '15',
-              justifyContent: 'center',
-              alignItems: 'center',
-              borderWidth: 1.5,
-              borderColor: colors.primary + '30',
-              shadowColor: colors.primary,
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.2,
-              shadowRadius: 8,
-              elevation: 4
-            }}>
-              <Ionicons name="stats-chart-outline" size={24} color={colors.primary} />
+          <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+              <Ionicons name="sparkles" size={13} color={colors.primary} />
+              <Text style={[styles.headerCategory, { color: colors.primary }]}>ACADEMIC PERFORMANCE</Text>
             </View>
-            <View>
-              <Text style={styles.headerTitle}>Performance Radar</Text>
-              <Text style={styles.headerSubtitle}>Tap points for details</Text>
-            </View>
+            <Text style={styles.headerTitle} numberOfLines={1}>Marks & Results</Text>
           </View>
+
+          {/* Semester Selector Pill Button */}
           <TouchableOpacity 
             style={styles.semesterBtn} 
             onPress={() => {
               if (isLoading && semesterOptions.length === 0) return;
+              try { Haptics.selectionAsync(); } catch {}
               setIsModalVisible(true);
             }}
-            activeOpacity={isLoading && semesterOptions.length === 0 ? 1 : 0.7}
+            activeOpacity={isLoading && semesterOptions.length === 0 ? 1 : 0.75}
           >
             <Ionicons name="trophy-outline" size={14} color={colors.primary} />
-            <Text style={styles.semesterBtnText}>
+            <Text style={styles.semesterBtnText} numberOfLines={1}>
               {(isLoading && semesterOptions.length === 0) 
-                ? 'Loading Semesters...' 
+                ? 'Loading...' 
                 : (selectedSemLabel ? selectedSemLabel : 'Result')}
             </Text>
-            <Ionicons name="chevron-down" size={14} color={colors.primary} />
+            <Ionicons name="chevron-down" size={13} color={colors.primary} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.radarContainer}>
-          <RadarChart data={chartData} />
+        {/* Glass Radar Console Card */}
+        <View style={styles.radarCardWrapper}>
+          <LinearGradient
+            colors={
+              isDark
+                ? ['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.02)']
+                : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.82)']
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[
+              styles.radarGradient,
+              {
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.95)',
+              }
+            ]}
+          >
+            {/* Ambient center backlight */}
+            <View style={styles.radarAmbientGlow} pointerEvents="none" />
+
+            <View style={styles.radarTopRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={[styles.statusDot, { backgroundColor: colors.primary }]} />
+                <Text style={[styles.radarCardTitle, { color: colors.text }]}>Subject Strength Analysis</Text>
+              </View>
+              <View style={[styles.radarScopeBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+                <Text style={[styles.radarScopeText, { color: colors.textMuted }]}>
+                  {isCurrentSemester ? 'Internal Score' : 'Grade Points'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.radarContainer}>
+              <RadarChart data={chartData} />
+            </View>
+
+            {/* Radar Bottom Summary Capsule */}
+            <View style={[
+              styles.radarBottomBar, 
+              { 
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)', 
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.05)' 
+              }
+            ]}>
+              {isCurrentSemester ? (
+                <>
+                  <View style={styles.radarStatItem}>
+                    <Ionicons name="pie-chart-outline" size={13} color={colors.primary} />
+                    <Text style={styles.radarStatLabel}>Overall:</Text>
+                    <Text style={[styles.radarStatValue, { color: colors.primary }]}>{overallPercentage || 'Pending'}</Text>
+                  </View>
+                  <View style={styles.radarStatDivider} />
+                  <View style={styles.radarStatItem}>
+                    <Ionicons name="layers-outline" size={13} color={colors.textMuted} />
+                    <Text style={styles.radarStatLabel}>Evaluated:</Text>
+                    <Text style={styles.radarStatValue}>{marks?.length || 0} Subjects</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.radarStatItem}>
+                    <Ionicons name="ribbon-outline" size={13} color={colors.primary} />
+                    <Text style={styles.radarStatLabel}>SGPA:</Text>
+                    <Text style={[styles.radarStatValue, { color: colors.primary }]}>{resultData?.sgpa || 'N/A'}</Text>
+                  </View>
+                  <View style={styles.radarStatDivider} />
+                  <View style={styles.radarStatItem}>
+                    <Ionicons name="school-outline" size={13} color={colors.textMuted} />
+                    <Text style={styles.radarStatLabel}>Total:</Text>
+                    <Text style={styles.radarStatValue}>{resultData?.subjects?.length || 0} Subjects</Text>
+                  </View>
+                </>
+              )}
+            </View>
+          </LinearGradient>
         </View>
 
         {isLoading && (
           <View style={{ padding: 40, alignItems: 'center' }}>
             <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={{ color: colors.textMuted, marginTop: 12, fontFamily: Typography.body.fontFamily }}>
-              Fetching results from portal...
+            <Text style={{ color: colors.textMuted, marginTop: 12, fontFamily: 'Inter_500Medium', fontSize: 13 }}>
+              Fetching transcripts from portal...
             </Text>
           </View>
         )}
 
+        {/* Results View for Past Semester */}
         {resultData && resultData.subjects.length > 0 && !isLoading && (
-          <View style={[styles.listContainer, { marginBottom: 24 }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md }}>
-              <Text style={styles.listTitle}>Final Results</Text>
-              <View style={styles.sgpaBadge}>
-                <Text style={styles.sgpaText}>SGPA: {resultData.sgpa || 'N/A'}</Text>
+          <View style={styles.listContainer}>
+            {/* Hero SGPA Trophy Capsule */}
+            <LinearGradient
+              colors={
+                isDark
+                  ? ['rgba(59, 130, 246, 0.18)', 'rgba(59, 130, 246, 0.04)']
+                  : ['#eff6ff', '#dbeafe']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[
+                styles.sgpaHeroCard,
+                {
+                  borderColor: isDark ? 'rgba(59, 130, 246, 0.35)' : '#bfdbfe',
+                  borderTopColor: isDark ? 'rgba(59, 130, 246, 0.60)' : '#93c5fd',
+                }
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <Ionicons name="ribbon" size={15} color={colors.primary} />
+                  <Text style={[styles.sgpaHeroCategory, { color: colors.primary }]}>SEMESTER SGPA</Text>
+                </View>
+                <Text style={[styles.sgpaHeroScore, { color: colors.text }]}>{resultData.sgpa || 'N/A'}</Text>
+                <Text style={styles.sgpaHeroSub}>{resultData.subjects.length} Course Subjects Evaluated</Text>
+              </View>
+
+              <View style={[styles.sgpaTrophyCircle, { backgroundColor: colors.primary + '20', borderColor: colors.primary + '40' }]}>
+                <Ionicons name="trophy" size={26} color={colors.primary} />
+              </View>
+            </LinearGradient>
+
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.listTitle}>Course Grades</Text>
+              <View style={[styles.subjectCountChip, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+                <Text style={[styles.subjectCountText, { color: colors.textMuted }]}>{resultData.subjects.length} Subjects</Text>
               </View>
             </View>
 
             {resultData.subjects.map((sub, i) => (
-              <View key={`res-${i}`} style={styles.resultCard}>
-                <View style={{ flex: 1, paddingRight: 10 }}>
-                  <Text style={styles.resultSubName}>{sub.name}</Text>
-                  <Text style={styles.resultSubCode}>{sub.code} • {sub.credit} Credits</Text>
-                  {(sub.internal || sub.external) && (
-                    <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4 }}>
-                      Int: {sub.internal || '-'} • Ext: {sub.external || '-'}
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.gradeBadge}>
-                  <Text style={styles.gradeText}>{sub.grade}</Text>
-                </View>
-              </View>
+              <ResultSubjectCard key={`res-${i}`} sub={sub} isDark={isDark} colors={colors} />
             ))}
           </View>
         )}
 
+        {/* Current Semester: Internal Marks List */}
         {isCurrentSemester && (
           <View style={styles.listContainer}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={styles.listTitle}>Internal Marks</Text>
+            <View style={styles.sectionHeaderRow}>
+              <View>
+                <Text style={styles.listTitle}>Internal Marks</Text>
+                <Text style={styles.sectionSubTitle}>MST & practical assessment components</Text>
+              </View>
               {overallPercentage ? (
-                <View style={styles.sgpaBadge}>
-                  <Text style={styles.sgpaText}>{overallPercentage}</Text>
+                <View style={styles.overallBadge}>
+                  <Text style={styles.overallBadgeText}>{overallPercentage}</Text>
                 </View>
               ) : null}
             </View>
-              {marks && marks.length > 0 ? marks.map((item, index) => {
+
+            {marks && marks.length > 0 ? (
+              marks.map((item, index) => {
                 const isExpanded = expandedIndex === index;
-                
-                let totalObtained = 0;
-                let totalMax = 0;
-                let hasValidMarks = false;
-
-                if (item.mstMarks && item.mstMarks.includes('/')) {
-                   const p = item.mstMarks.split('/');
-                   if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-                      totalObtained += parseFloat(p[0]);
-                      totalMax += parseFloat(p[1]);
-                      hasValidMarks = true;
-                   }
-                }
-                if (item.practicalMarks && item.practicalMarks.includes('/')) {
-                   const p = item.practicalMarks.split('/');
-                   if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-                      totalObtained += parseFloat(p[0]);
-                      totalMax += parseFloat(p[1]);
-                      hasValidMarks = true;
-                   }
-                }
-                const percentage = hasValidMarks ? ((totalObtained / totalMax) * 100).toFixed(2) + '%' : '';
-
                 return (
-                  <View key={index.toString()} style={styles.accordionCard}>
-                    <TouchableOpacity 
-                      style={styles.accordionHeader} 
-                      onPress={() => setExpandedIndex(isExpanded ? null : index)}
-                    >
-                      <View style={{ flex: 1, paddingRight: 16 }}>
-                        <Text style={styles.accordionTitle}>{item.subjectName}</Text>
-                        {percentage ? (
-                          <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Inter_600SemiBold', marginTop: 4 }}>
-                             {percentage}
-                          </Text>
-                        ) : (
-                          <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 4 }}>
-                             Marks Not Available
-                          </Text>
-                        )}
-                      </View>
-                      <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.textDim} />
-                    </TouchableOpacity>
-                    
-                    {isExpanded && (
-                      <View style={styles.accordionContent}>
-                        <View style={styles.markRow}>
-                          <Text style={styles.markLabel}>MST</Text>
-                          <Text style={styles.markValue}>{item.mstMarks}</Text>
-                        </View>
-                        <View style={styles.markRow}>
-                          <Text style={styles.markLabel}>Practical</Text>
-                          <Text style={styles.markValue}>{item.practicalMarks}</Text>
-                        </View>
-                      </View>
-                    )}
-                  </View>
+                  <InternalMarkAccordion
+                    key={index.toString()}
+                    item={item}
+                    index={index}
+                    isExpanded={isExpanded}
+                    onToggle={() => setExpandedIndex(isExpanded ? null : index)}
+                    isDark={isDark}
+                    colors={colors}
+                  />
                 );
-              }) : (
-                <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 40, padding: 20 }}>
-                  <Ionicons name="document-text-outline" size={64} color="#3b82f640" />
-                  <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginTop: 16 }}>No Marks Uploaded Yet</Text>
-                  <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 8, fontSize: 13, lineHeight: 20 }}>
-                    There are no internal marks uploaded for the current session yet. You can check back later, or select a past semester from the top right to view your final results.
+              })
+            ) : (
+              <View style={styles.emptyInternalCard}>
+                <LinearGradient
+                  colors={
+                    isDark
+                      ? ['rgba(255, 255, 255, 0.06)', 'rgba(255, 255, 255, 0.01)']
+                      : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.82)']
+                  }
+                  style={styles.emptyInternalGradient}
+                >
+                  <View style={[styles.emptyIconCircle, { backgroundColor: colors.primary + '18' }]}>
+                    <Ionicons name="document-text-outline" size={32} color={colors.primary} />
+                  </View>
+                  <Text style={[styles.emptyInternalTitle, { color: colors.text }]}>No Marks Uploaded Yet</Text>
+                  <Text style={styles.emptyInternalDesc}>
+                    There are no internal marks uploaded on CUIMS for the current session yet. Select a past semester from the top to view final results.
                   </Text>
-                </View>
-              )}
-            </View>
+                </LinearGradient>
+              </View>
+            )}
+          </View>
         )}
       </ScrollView>
 
+      {/* Modern Frosted Semester Modal */}
       <Modal visible={isModalVisible} animationType="fade" transparent={true}>
-        <SafeAreaView style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity 
+            style={StyleSheet.absoluteFill} 
+            activeOpacity={1} 
+            onPress={() => setIsModalVisible(false)} 
+          />
+          <View style={[styles.modalContent, { backgroundColor: colors.surfaceHigh, borderColor: colors.border }]}>
+            <View style={styles.modalDragHandle} />
+
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Semester</Text>
-              <TouchableOpacity onPress={() => setIsModalVisible(false)}>
-                <Ionicons name="close" size={24} color={colors.text} />
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Select Semester</Text>
+                <Text style={styles.modalSub}>View internal or semester end transcripts</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setIsModalVisible(false)} 
+                style={[styles.modalCloseCircle, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}
+              >
+                <Ionicons name="close" size={18} color={colors.text} />
               </TouchableOpacity>
             </View>
-            <ScrollView>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 16 }}>
               {derivedSemesters.map((opt, i) => {
                 const isSel = selectedSemLabel === opt.label;
                 const isMay = opt.originalText.toLowerCase().includes('may') || opt.originalText.toLowerCase().includes('odd');
@@ -788,49 +859,60 @@ export default function MarksScreen() {
                 return (
                   <TouchableOpacity
                     key={i.toString()}
+                    activeOpacity={0.75}
                     style={[
-                      styles.modalOption,
-                      isSel && { backgroundColor: accentColor + '22', borderRadius: 12, borderBottomWidth: 0, borderWidth: 1, borderColor: accentColor + '60' }
+                      styles.modalOptionCard,
+                      {
+                        backgroundColor: isSel 
+                          ? accentColor + '18' 
+                          : (isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)'),
+                        borderColor: isSel ? accentColor : (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
+                      }
                     ]}
-                    onPress={() => selectSemester(opt)}
+                    onPress={() => {
+                      try { Haptics.selectionAsync(); } catch {}
+                      selectSemester(opt);
+                    }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <View style={[styles.sessionDot, { backgroundColor: accentColor + '30', borderColor: accentColor }]}>
+                      <View style={[styles.sessionIconBox, { backgroundColor: accentColor + '22', borderColor: accentColor + '40' }]}>
                         <Ionicons
                           name={isMay ? 'sunny-outline' : isDec ? 'snow-outline' : 'school-outline'}
-                          size={16}
+                          size={18}
                           color={accentColor}
                         />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.modalOptionText, isSel && { color: accentColor, fontFamily: 'Inter_700Bold' }]}>
+                        <Text style={[styles.modalOptionTitle, { color: isSel ? accentColor : colors.text }]}>
                           {opt.label}
                         </Text>
-                        {(isMay || isDec) && (
-                          <Text style={{ color: isMay ? '#f59e0b80' : '#3b82f680', fontSize: 11, marginTop: 2 }}>
-                            {isMay ? 'Summer Examination' : 'Winter Examination'}
-                          </Text>
-                        )}
+                        <Text style={styles.modalOptionSub}>
+                          {isMay ? 'Summer Examination Session' : isDec ? 'Winter Examination Session' : opt.originalText}
+                        </Text>
                       </View>
-                      {isSel && <Ionicons name="checkmark-circle" size={18} color={accentColor} />}
+                      {isSel && (
+                        <View style={[styles.activeCheckCircle, { backgroundColor: accentColor }]}>
+                          <Ionicons name="checkmark" size={14} color="#ffffff" />
+                        </View>
+                      )}
                     </View>
                   </TouchableOpacity>
                 );
               })}
               {semesterOptions.length === 0 && (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                   <ActivityIndicator size="small" color="#3b82f6" />
-                   <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 10 }}>Loading sessions from server...</Text>
-                   <Text style={{ color: '#666', textAlign: 'center', marginTop: 5, fontSize: 11 }}>This may take a few seconds.</Text>
+                <View style={{ padding: 28, alignItems: 'center' }}>
+                   <ActivityIndicator size="small" color={colors.primary} />
+                   <Text style={{ color: colors.textMuted, textAlign: 'center', marginTop: 12, fontFamily: 'Inter_500Medium' }}>
+                     Connecting to portal results...
+                   </Text>
                 </View>
               )}
             </ScrollView>
           </View>
-        </SafeAreaView>
+        </View>
       </Modal>
 
-      
-
+      {/* Hidden WebViews for Scraping */}
       <View style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: -1000 }}>
          <WebView
            ref={webViewRef}
@@ -859,9 +941,390 @@ export default function MarksScreen() {
   );
 }
 
+function parseMarksString(str?: string) {
+  if (!str || !str.includes('/')) return { obtained: 0, max: 0, isValid: false, pct: 0, text: str || 'N/A' };
+  const parts = str.split('/');
+  const obtained = parseFloat(parts[0]);
+  const max = parseFloat(parts[1]);
+  if (isNaN(obtained) || isNaN(max) || max <= 0) return { obtained: 0, max: 0, isValid: false, pct: 0, text: str };
+  const pct = Math.min(100, Math.max(0, (obtained / max) * 100));
+  return { obtained, max, isValid: true, pct, text: `${obtained}/${max}` };
+}
+
+function getGradeColor(grade?: string) {
+  const g = (grade || '').trim().toUpperCase();
+  if (g === 'O') return '#fbbf24'; // Gold
+  if (g === 'A+' || g === 'A') return '#22c55e'; // Emerald
+  if (g === 'B+' || g === 'B') return '#3b82f6'; // Blue
+  if (g === 'C+' || g === 'C') return '#f97316'; // Orange
+  if (g === 'P') return '#eab308'; // Yellow
+  return '#ef4444'; // Red
+}
+
+function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: any) {
+  const mst = parseMarksString(item.mstMarks);
+  const practical = parseMarksString(item.practicalMarks);
+
+  let totalObtained = 0;
+  let totalMax = 0;
+  let hasValid = false;
+
+  if (mst.isValid) {
+    totalObtained += mst.obtained;
+    totalMax += mst.max;
+    hasValid = true;
+  }
+  if (practical.isValid) {
+    totalObtained += practical.obtained;
+    totalMax += practical.max;
+    hasValid = true;
+  }
+
+  const scorePct = hasValid && totalMax > 0 ? (totalObtained / totalMax) * 100 : null;
+  const scoreBadgeColor = scorePct === null ? colors.textMuted : (scorePct >= 75 ? '#22c55e' : (scorePct >= 60 ? '#f59e0b' : '#ef4444'));
+
+  return (
+    <View style={stylesInternal.wrapper}>
+      <LinearGradient
+        colors={
+          isDark
+            ? ['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.02)']
+            : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.82)']
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[
+          stylesInternal.card,
+          {
+            borderColor: isExpanded 
+              ? (isDark ? colors.primary + '60' : colors.primary + '40')
+              : (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
+            borderTopColor: isExpanded 
+              ? colors.primary 
+              : (isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.95)'),
+          },
+          isExpanded && {
+            shadowColor: colors.primary,
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+            shadowRadius: 10,
+            elevation: 3,
+          }
+        ]}
+      >
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            try { Haptics.selectionAsync(); } catch {}
+            onToggle();
+          }}
+          style={stylesInternal.headerTouch}
+        >
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={[stylesInternal.title, { color: colors.text }]} numberOfLines={2}>
+              {item.subjectName}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <View style={[stylesInternal.miniDot, { backgroundColor: scoreBadgeColor }]} />
+              <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium' }}>
+                {hasValid ? `${totalObtained}/${totalMax} Total Marks` : 'Pending Evaluation'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {scorePct !== null ? (
+              <View style={[stylesInternal.pctBadge, { backgroundColor: scoreBadgeColor + '18', borderColor: scoreBadgeColor + '40' }]}>
+                <Text style={[stylesInternal.pctText, { color: scoreBadgeColor }]}>
+                  {scorePct.toFixed(1)}%
+                </Text>
+              </View>
+            ) : (
+              <View style={[stylesInternal.pctBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderColor: colors.border }]}>
+                <Text style={[stylesInternal.pctText, { color: colors.textMuted }]}>N/A</Text>
+              </View>
+            )}
+
+            <View style={[stylesInternal.chevronCircle, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+              <Ionicons
+                name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={colors.textMuted}
+              />
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {isExpanded && (
+          <View style={[stylesInternal.expandedBody, { borderTopColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)' }]}>
+            {/* MST Row */}
+            <View style={stylesInternal.metricBox}>
+              <View style={stylesInternal.metricLabelRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+                  <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Mid-Semester Test (MST)</Text>
+                </View>
+                <Text style={[stylesInternal.metricValue, { color: mst.isValid ? colors.text : colors.textMuted }]}>
+                  {mst.text}
+                </Text>
+              </View>
+              {mst.isValid ? (
+                <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                  <View 
+                    style={[
+                      stylesInternal.progressFill, 
+                      { 
+                        width: `${mst.pct}%`, 
+                        backgroundColor: mst.pct >= 75 ? '#22c55e' : (mst.pct >= 60 ? '#f59e0b' : '#ef4444') 
+                      }
+                    ]} 
+                  />
+                </View>
+              ) : null}
+            </View>
+
+            {/* Practical Row */}
+            <View style={stylesInternal.metricBox}>
+              <View style={stylesInternal.metricLabelRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="flask-outline" size={14} color={colors.success} />
+                  <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Practical / Lab Marks</Text>
+                </View>
+                <Text style={[stylesInternal.metricValue, { color: practical.isValid ? colors.text : colors.textMuted }]}>
+                  {practical.text}
+                </Text>
+              </View>
+              {practical.isValid ? (
+                <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                  <View 
+                    style={[
+                      stylesInternal.progressFill, 
+                      { 
+                        width: `${practical.pct}%`, 
+                        backgroundColor: practical.pct >= 75 ? '#22c55e' : (practical.pct >= 60 ? '#f59e0b' : '#ef4444') 
+                      }
+                    ]} 
+                  />
+                </View>
+              ) : null}
+            </View>
+          </View>
+        )}
+      </LinearGradient>
+    </View>
+  );
+}
+
+const stylesInternal = StyleSheet.create({
+  wrapper: {
+    marginBottom: 12,
+  },
+  card: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  headerTouch: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  title: {
+    fontSize: 14.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    lineHeight: 19,
+  },
+  miniDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  pctBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pctText: {
+    fontSize: 11.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  chevronCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandedBody: {
+    borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 14,
+    gap: 12,
+  },
+  metricBox: {
+    gap: 6,
+  },
+  metricLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  metricLabel: {
+    fontSize: 12,
+    fontFamily: 'Inter_500Medium',
+  },
+  metricValue: {
+    fontSize: 12.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  progressTrack: {
+    height: 5,
+    borderRadius: 2.5,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 2.5,
+  },
+});
+
+function ResultSubjectCard({ sub, isDark, colors }: any) {
+  const gradeColor = getGradeColor(sub.grade);
+
+  return (
+    <LinearGradient
+      colors={
+        isDark
+          ? ['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.02)']
+          : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.82)']
+      }
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[
+        stylesResult.card,
+        {
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+          borderTopColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.95)',
+        }
+      ]}
+    >
+      <View style={{ flex: 1, paddingRight: 12 }}>
+        <Text style={[stylesResult.name, { color: colors.text }]} numberOfLines={2}>
+          {sub.name}
+        </Text>
+        
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+          <View style={[stylesResult.codePill, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+            <Text style={[stylesResult.codeText, { color: colors.primary }]}>{sub.code}</Text>
+          </View>
+          {!!sub.credit && (
+            <View style={[stylesResult.codePill, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+              <Text style={[stylesResult.codeText, { color: colors.textMuted }]}>{sub.credit} Credits</Text>
+            </View>
+          )}
+        </View>
+
+        {(sub.internal || sub.external) && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
+            {!!sub.internal && (
+              <View style={stylesResult.marksChip}>
+                <Text style={stylesResult.marksChipLabel}>Int:</Text>
+                <Text style={[stylesResult.marksChipValue, { color: colors.text }]}>{sub.internal}</Text>
+              </View>
+            )}
+            {!!sub.external && (
+              <View style={stylesResult.marksChip}>
+                <Text style={stylesResult.marksChipLabel}>Ext:</Text>
+                <Text style={[stylesResult.marksChipValue, { color: colors.text }]}>{sub.external}</Text>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Circular Grade Badge */}
+      <View style={[stylesResult.gradeCircle, { backgroundColor: gradeColor + '18', borderColor: gradeColor + '50' }]}>
+        <Text style={[stylesResult.gradeText, { color: gradeColor }]}>{sub.grade}</Text>
+        <Text style={[stylesResult.gradeLabel, { color: gradeColor }]}>GRADE</Text>
+      </View>
+    </LinearGradient>
+  );
+}
+
+const stylesResult = StyleSheet.create({
+  card: {
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  name: {
+    fontSize: 14.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    lineHeight: 19,
+  },
+  codePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  codeText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  marksChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  marksChipLabel: {
+    color: '#94a3b8',
+    fontSize: 11.5,
+    fontFamily: 'Inter_500Medium',
+  },
+  marksChipValue: {
+    fontSize: 12,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  gradeCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 2,
+  },
+  gradeText: {
+    fontSize: 18,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    lineHeight: 20,
+  },
+  gradeLabel: {
+    fontSize: 8,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.5,
+    marginTop: 1,
+  },
+});
+
 function RadarChart({ data }: { data: { subject: string, score: number, hasMarks?: boolean }[] }) {
   const colors = useThemeStore((s) => s.colors);
-  const styles = useStyles(colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black';
+
+  const { width } = Dimensions.get('window');
+  const RADAR_SIZE = Math.min(width - 150, 230);
+  const CENTER = RADAR_SIZE / 2;
+  const RADIUS = (RADAR_SIZE / 2) - 28;
+
   const points = data.map((d, i) => {
     const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
     const r = (d.score / 100) * RADIUS;
@@ -869,15 +1332,15 @@ function RadarChart({ data }: { data: { subject: string, score: number, hasMarks
   }).join(' ');
 
   return (
-    <View style={[styles.chartContainer, { position: 'relative', width: RADAR_SIZE + 80, height: RADAR_SIZE + 80 }]}>
-      <Svg width={RADAR_SIZE} height={RADAR_SIZE} style={{ position: 'absolute', left: 40, top: 40 }}>
+    <View style={{ position: 'relative', width: RADAR_SIZE + 90, height: RADAR_SIZE + 90, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg width={RADAR_SIZE} height={RADAR_SIZE} style={{ position: 'absolute', left: 45, top: 45 }}>
         {[0.2, 0.4, 0.6, 0.8, 1].map((scale, i) => (
           <Circle
             key={`circle-${i}`}
             cx={CENTER}
             cy={CENTER}
             r={RADIUS * scale}
-            stroke={colors.border}
+            stroke={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'}
             strokeWidth="1"
             fill="none"
           />
@@ -886,16 +1349,48 @@ function RadarChart({ data }: { data: { subject: string, score: number, hasMarks
           const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
           const x = CENTER + RADIUS * Math.cos(angle);
           const y = CENTER + RADIUS * Math.sin(angle);
-          return <Line key={`line-${i}`} x1={CENTER} y1={CENTER} x2={x} y2={y} stroke={colors.border} strokeWidth="1" />;
+          return (
+            <Line 
+              key={`line-${i}`} 
+              x1={CENTER} 
+              y1={CENTER} 
+              x2={x} 
+              y2={y} 
+              stroke={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)'} 
+              strokeWidth="1" 
+            />
+          );
         })}
-        <Polygon points={points} fill="#3b82f640" stroke="#3b82f6" strokeWidth="2" />
+        <Polygon 
+          points={points} 
+          fill={colors.primary + '35'} 
+          stroke={colors.primary} 
+          strokeWidth="2" 
+        />
+        {data.map((d, i) => {
+          const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
+          const r = (d.score / 100) * RADIUS;
+          const px = CENTER + r * Math.cos(angle);
+          const py = CENTER + r * Math.sin(angle);
+          return (
+            <Circle
+              key={`vertex-${i}`}
+              cx={px}
+              cy={py}
+              r="3.5"
+              fill={colors.primary}
+              stroke="#ffffff"
+              strokeWidth="1.5"
+            />
+          );
+        })}
       </Svg>
 
       {data.map((d, i) => {
         const angle = (Math.PI * 2 * i) / data.length - Math.PI / 2;
-        const labelRadius = RADIUS + 45; // Sweet spot: not too close, not too far
-        const x = CENTER + labelRadius * Math.cos(angle) + 40; // +40 for wrapper offset
-        const y = CENTER + labelRadius * Math.sin(angle) + 40;
+        const labelRadius = RADIUS + 42;
+        const x = CENTER + labelRadius * Math.cos(angle) + 45;
+        const y = CENTER + labelRadius * Math.sin(angle) + 45;
         
         let percentColor = '#22c55e'; // Green
         if (d.score < 60) percentColor = '#ef4444'; // Red
@@ -908,17 +1403,17 @@ function RadarChart({ data }: { data: { subject: string, score: number, hasMarks
               position: 'absolute', 
               left: x, 
               top: y, 
-              transform: [{ translateX: -45 }, { translateY: -22 }],
+              transform: [{ translateX: -45 }, { translateY: -20 }],
               width: 90, 
               alignItems: 'center',
               justifyContent: 'center',
-            }}
+            }} 
           >
-            <Text style={{ color: colors.text, fontSize: 10, fontFamily: 'Inter_600SemiBold', textAlign: 'center' }} numberOfLines={3}>
+            <Text style={{ color: colors.text, fontSize: 10, fontFamily: 'Inter_600SemiBold', textAlign: 'center' }} numberOfLines={2}>
               {d.subject}
             </Text>
             {d.hasMarks && (
-              <Text style={{ color: percentColor, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginTop: 2 }}>
+              <Text style={{ color: percentColor, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 2 }}>
                 {d.score.toFixed(0)}%
               </Text>
             )}
@@ -929,58 +1424,322 @@ function RadarChart({ data }: { data: { subject: string, score: number, hasMarks
   );
 }
 
-const useStyles = (colors: any) => StyleSheet.create({
+const useStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: Spacing.lg, paddingTop: 20, paddingBottom: 100 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xl },
-  headerTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
-  headerSubtitle: { color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_400Regular' },
+  content: { paddingHorizontal: Spacing.md, paddingTop: 18, paddingBottom: 110 },
+  headerRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: Spacing.lg,
+    width: '100%',
+  },
+  headerCategory: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 10.5,
+    letterSpacing: 1,
+  },
+  headerTitle: { 
+    color: colors.text, 
+    fontSize: 21, 
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
   semesterBtn: {
     backgroundColor: colors.primary + '15',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 7,
     borderRadius: 20,
-    borderWidth: 1.5,
+    borderWidth: 1.2,
     borderColor: colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.25,
     shadowRadius: 6,
-    elevation: 4,
+    elevation: 3,
   },
-  semesterBtnText: { color: colors.primary, fontSize: 12, fontFamily: 'Inter_700Bold' },
+  semesterBtnText: { 
+    color: colors.primary, 
+    fontSize: 12, 
+    fontFamily: 'Inter_700Bold',
+  },
   
-  radarContainer: { alignItems: 'center', marginBottom: 0, marginTop: -10 },
-  chartContainer: { alignItems: 'center', justifyContent: 'center' },
-  
-  listContainer: { marginTop: Spacing.sm },
-  listTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, marginBottom: Spacing.md },
-  
-  accordionCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: colors.border },
-  accordionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  accordionTitle: { color: colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', flex: 1, paddingRight: 16 },
-  accordionContent: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: Spacing.md, marginTop: Spacing.xs },
-  markRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
-  markLabel: { color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' },
-  markValue: { color: colors.text, fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+  radarCardWrapper: {
+    marginBottom: Spacing.lg,
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  radarGradient: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderTopWidth: 1.5,
+    paddingTop: 16,
+    paddingBottom: 14,
+    paddingHorizontal: 10,
+    position: 'relative',
+    alignItems: 'center',
+  },
+  radarAmbientGlow: {
+    position: 'absolute',
+    top: 30,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: colors.primary,
+    opacity: isDark ? 0.08 : 0.05,
+  },
+  radarTopRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    marginBottom: 6,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  radarCardTitle: {
+    fontSize: 12,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    letterSpacing: 0.4,
+  },
+  radarScopeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  radarScopeText: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_500Medium',
+  },
+  radarContainer: { 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    marginVertical: 4,
+  },
+  radarBottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 6,
+    gap: 12,
+  },
+  radarStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  radarStatLabel: {
+    color: colors.textMuted,
+    fontSize: 11.5,
+    fontFamily: 'Inter_500Medium',
+  },
+  radarStatValue: {
+    color: colors.text,
+    fontSize: 12,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  radarStatDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+  },
 
-  sgpaBadge: { backgroundColor: '#3b82f620', paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, borderWidth: 1, borderColor: '#3b82f640' },
-  sgpaText: { color: '#3b82f6', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
-  resultCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, marginBottom: Spacing.md, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center' },
-  resultSubName: { color: colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, marginBottom: 4 },
-  resultSubCode: { color: colors.textMuted, fontSize: 12 },
-  gradeBadge: { backgroundColor: '#22c55e20', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#22c55e' },
-  gradeText: { color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
+  listContainer: { 
+    marginTop: Spacing.xs,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  listTitle: { 
+    color: colors.text, 
+    fontSize: 17, 
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  sectionSubTitle: {
+    color: colors.textMuted,
+    fontSize: 11.5,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
+  },
+  overallBadge: {
+    backgroundColor: '#22c55e18',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#22c55e40',
+  },
+  overallBadgeText: {
+    color: '#22c55e',
+    fontSize: 12.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.xl, paddingBottom: Spacing.xl + 8, maxHeight: '70%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.lg },
-  modalTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 },
-  modalOption: { paddingVertical: Spacing.md, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.border },
-  modalOptionText: { color: '#d1d5db', fontSize: 15, fontFamily: 'Inter_500Medium' },
-  modalOptionTextSelected: { color: colors.primary, fontFamily: 'Inter_700Bold' },
-  sessionDot: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  sgpaHeroCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderTopWidth: 1.5,
+    marginBottom: 16,
+  },
+  sgpaHeroCategory: {
+    fontSize: 10.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    letterSpacing: 0.8,
+  },
+  sgpaHeroScore: {
+    fontSize: 28,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    lineHeight: 34,
+  },
+  sgpaHeroSub: {
+    color: colors.textMuted,
+    fontSize: 11.5,
+    fontFamily: 'Inter_500Medium',
+    marginTop: 2,
+  },
+  sgpaTrophyCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subjectCountChip: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  subjectCountText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+  },
+
+  emptyInternalCard: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    marginTop: 10,
+  },
+  emptyInternalGradient: {
+    padding: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+  },
+  emptyIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyInternalTitle: {
+    fontSize: 16,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptyInternalDesc: {
+    color: colors.textMuted,
+    fontSize: 12.5,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.7)', 
+    justifyContent: 'flex-end',
+  },
+  modalContent: { 
+    borderTopLeftRadius: 28, 
+    borderTopRightRadius: 28, 
+    padding: 20, 
+    paddingBottom: 32, 
+    maxHeight: '72%',
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  modalDragHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(150, 150, 150, 0.3)',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modalHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 16,
+  },
+  modalTitle: { 
+    fontSize: 18, 
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  modalSub: {
+    color: colors.textMuted,
+    fontSize: 11.5,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
+  },
+  modalCloseCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalOptionCard: { 
+    paddingVertical: 12, 
+    paddingHorizontal: 14, 
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  modalOptionTitle: { 
+    fontSize: 14, 
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  modalOptionSub: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
+    marginTop: 2,
+  },
+  sessionIconBox: { 
+    width: 38, 
+    height: 38, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    borderWidth: 1,
+  },
+  activeCheckCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

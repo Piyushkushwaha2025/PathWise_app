@@ -11,9 +11,13 @@ import {
   BackHandler,
   Animated,
   Easing,
+  Platform,
+  StatusBar,
 } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import { useThemeStore } from '../store/useThemeStore';
 import { useStudyOSStore, CulkoSubject } from '../store/studyosStore';
 import { Typography, Spacing, Radius } from '../constants/theme';
@@ -45,127 +49,170 @@ interface ProcessedSubject {
   hasDetailedRecords: boolean;
 }
 
-// Memoized Subject Item Card for 60fps scrolling
+// Modern Glass Subject Card Item
 const SubjectCardItem = React.memo(({
   item,
   colors,
+  isDark,
   onPress,
 }: {
   item: ProcessedSubject;
   colors: any;
+  isDark: boolean;
   onPress: () => void;
 }) => {
   const sub = item.subject;
-  const statusColor = item.isSafe ? '#22c55e' : item.isWarning ? '#f59e0b' : '#ef4444';
-  const statusBg = item.isSafe ? '#22c55e15' : item.isWarning ? '#f59e0b15' : '#ef444415';
-  const statusBorder = item.isSafe ? '#22c55e35' : item.isWarning ? '#f59e0b35' : '#ef444435';
+  const statusColor = item.isSafe ? '#10b981' : item.isWarning ? '#f59e0b' : '#ef4444';
+  const statusBg = item.isSafe ? 'rgba(16, 185, 129, 0.12)' : item.isWarning ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)';
+  const statusBorder = item.isSafe ? 'rgba(16, 185, 129, 0.3)' : item.isWarning ? 'rgba(245, 158, 11, 0.3)' : 'rgba(239, 68, 68, 0.3)';
   const statusLabel = item.isSafe ? 'SAFE' : item.isWarning ? 'WARNING' : 'CRITICAL';
+
+  const cardGradColors = isDark
+    ? ['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.02)'] as const
+    : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.75)'] as const;
+
+  const glassBorderColor = isDark ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.07)';
+  const glassBorderTop = isDark ? 'rgba(255, 255, 255, 0.20)' : 'rgba(255, 255, 255, 0.95)';
 
   return (
     <TouchableOpacity
-      activeOpacity={0.75}
-      onPress={onPress}
-      style={[
-        styles.subjectCard,
-        {
-          backgroundColor: colors.surfaceHigh,
-          borderColor: colors.border,
-          borderLeftColor: statusColor,
-        },
-      ]}
+      activeOpacity={0.78}
+      onPress={() => {
+        try { Haptics.selectionAsync(); } catch {}
+        onPress();
+      }}
+      style={styles.cardOuter}
     >
-      {/* Top Header: Title, Code, Status & Percentage Badge */}
-      <View style={styles.cardHeader}>
-        <View style={{ flex: 1, paddingRight: 10 }}>
-          <Text style={[styles.subjectName, { color: colors.text }]} numberOfLines={2}>
-            {sub.name}
-          </Text>
-          <View style={styles.codeRow}>
-            <Text style={[styles.subjectCode, { color: colors.textDim }]}>{sub.code}</Text>
-            {sub.credits && sub.credits !== '0' && (
-              <View style={[styles.creditPill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Text style={[styles.creditText, { color: colors.textMuted }]}>{sub.credits} Credits</Text>
+      <LinearGradient
+        colors={cardGradColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[
+          styles.subjectCard,
+          {
+            borderColor: glassBorderColor,
+            borderTopColor: glassBorderTop,
+          },
+        ]}
+      >
+        {/* Left Glowing Accent Indicator */}
+        <View
+          style={[
+            styles.cardAccentBar,
+            {
+              backgroundColor: statusColor,
+              shadowColor: statusColor,
+            },
+          ]}
+        />
+
+        {/* Top Header: Title, Code, Status & Percentage Badge */}
+        <View style={styles.cardHeader}>
+          <View style={{ flex: 1, paddingRight: 10 }}>
+            <Text style={[styles.subjectName, { color: colors.text }]} numberOfLines={2}>
+              {sub.name}
+            </Text>
+            <View style={styles.codeRow}>
+              <View style={[styles.codeBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }]}>
+                <Text style={[styles.subjectCode, { color: colors.textDim }]}>{sub.code}</Text>
               </View>
-            )}
+              {sub.credits && sub.credits !== '0' && (
+                <View style={[styles.creditPill, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }]}>
+                  <Text style={[styles.creditText, { color: colors.textMuted }]}>{sub.credits} Credits</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={[styles.pctBadge, { backgroundColor: statusBg, borderColor: statusBorder }]}>
+            <Text style={[styles.pctBadgeValue, { color: statusColor }]}>{item.percentage}%</Text>
+            <Text style={[styles.pctStatusLabel, { color: statusColor }]}>{statusLabel}</Text>
           </View>
         </View>
 
-        <View style={[styles.pctBadge, { backgroundColor: statusBg, borderColor: statusBorder }]}>
-          <Text style={[styles.pctBadgeValue, { color: statusColor }]}>{item.percentage}%</Text>
-          <Text style={[styles.pctStatusLabel, { color: statusColor }]}>{statusLabel}</Text>
-        </View>
-      </View>
+        {/* Progress Line with 75% Goal Marker */}
+        <View style={styles.barWrapper}>
+          <View style={[styles.barTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)' }]}>
+            <LinearGradient
+              colors={
+                item.isSafe
+                  ? ['#10b981', '#34d399']
+                  : item.isWarning
+                  ? ['#f59e0b', '#fbbf24']
+                  : ['#ef4444', '#f87171']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[
+                styles.barFill,
+                {
+                  width: `${Math.min(100, Math.max(0, item.percentage))}%`,
+                },
+              ]}
+            />
+            {/* 75% Target Marker */}
+            <View style={styles.barGoalLine}>
+              <View style={[styles.barGoalTick, { backgroundColor: colors.text }]} />
+            </View>
+          </View>
 
-      {/* Progress Line with 75% Goal Marker */}
-      <View style={styles.barWrapper}>
-        <View style={[styles.barTrack, { backgroundColor: colors.border }]}>
-          <View
-            style={[
-              styles.barFill,
-              {
-                width: `${Math.min(100, Math.max(0, item.percentage))}%`,
-                backgroundColor: statusColor,
-              },
-            ]}
-          />
-          {/* 75% Goal Line */}
-          <View style={styles.barGoalLine}>
-            <View style={[styles.barGoalTick, { backgroundColor: colors.text }]} />
+          <View style={styles.barMetaRow}>
+            <Text style={[styles.barMetaText, { color: colors.textMuted }]}>
+              <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>{item.attended}</Text> attended of {item.total} classes
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.primary }} />
+              <Text style={[styles.barGoalText, { color: colors.primary }]}>75% Target</Text>
+            </View>
           </View>
         </View>
-        <View style={styles.barMetaRow}>
-          <Text style={[styles.barMetaText, { color: colors.textMuted }]}>
-            {item.attended} attended of {item.total} classes
-          </Text>
-          <Text style={[styles.barGoalText, { color: colors.primary }]}>75% Target</Text>
-        </View>
-      </View>
 
-      {/* Breakdown Pills Row: Present, Absent, DL, ML */}
-      <View style={styles.statsPillRow}>
-        <View style={[styles.miniPill, { backgroundColor: '#22c55e14', borderColor: '#22c55e30' }]}>
-          <Ionicons name="checkmark-circle" size={12} color="#22c55e" style={{ marginRight: 4 }} />
-          <Text style={[styles.miniPillText, { color: '#22c55e' }]}>{item.presentCount} Present</Text>
-        </View>
-
-        <View style={[styles.miniPill, { backgroundColor: '#ef444414', borderColor: '#ef444430' }]}>
-          <Ionicons name="close-circle" size={12} color="#ef4444" style={{ marginRight: 4 }} />
-          <Text style={[styles.miniPillText, { color: '#ef4444' }]}>{item.absentCount} Absent</Text>
-        </View>
-
-        {item.dutyLeaveCount > 0 && (
-          <View style={[styles.miniPill, { backgroundColor: '#3b82f614', borderColor: '#3b82f630' }]}>
-            <Ionicons name="briefcase" size={11} color="#3b82f6" style={{ marginRight: 4 }} />
-            <Text style={[styles.miniPillText, { color: '#3b82f6' }]}>{item.dutyLeaveCount} DL</Text>
+        {/* Breakdown Pills Row: Present, Absent, DL, ML */}
+        <View style={styles.statsPillRow}>
+          <View style={[styles.miniPill, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.25)' }]}>
+            <Ionicons name="checkmark-circle" size={13} color="#10b981" style={{ marginRight: 4 }} />
+            <Text style={[styles.miniPillText, { color: '#10b981' }]}>{item.presentCount} Present</Text>
           </View>
-        )}
 
-        {item.medicalLeaveCount > 0 && (
-          <View style={[styles.miniPill, { backgroundColor: '#f59e0b14', borderColor: '#f59e0b30' }]}>
-            <Ionicons name="medkit" size={11} color="#f59e0b" style={{ marginRight: 4 }} />
-            <Text style={[styles.miniPillText, { color: '#f59e0b' }]}>{item.medicalLeaveCount} ML</Text>
+          <View style={[styles.miniPill, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.25)' }]}>
+            <Ionicons name="close-circle" size={13} color="#ef4444" style={{ marginRight: 4 }} />
+            <Text style={[styles.miniPillText, { color: '#ef4444' }]}>{item.absentCount} Absent</Text>
           </View>
-        )}
-      </View>
 
-      {/* Smart Margin / Action Pill */}
-      <View style={[styles.marginBanner, { backgroundColor: statusBg, borderColor: statusBorder }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
-          <Ionicons
-            name={item.isSafe ? 'shield-checkmark-outline' : 'alert-circle-outline'}
-            size={15}
-            color={statusColor}
-          />
-          <Text style={[styles.marginBannerText, { color: statusColor }]} numberOfLines={1}>
-            {item.marginText}
-          </Text>
+          {item.dutyLeaveCount > 0 && (
+            <View style={[styles.miniPill, { backgroundColor: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.25)' }]}>
+              <Ionicons name="briefcase" size={12} color="#3b82f6" style={{ marginRight: 4 }} />
+              <Text style={[styles.miniPillText, { color: '#3b82f6' }]}>{item.dutyLeaveCount} DL</Text>
+            </View>
+          )}
+
+          {item.medicalLeaveCount > 0 && (
+            <View style={[styles.miniPill, { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.25)' }]}>
+              <Ionicons name="medkit" size={12} color="#f59e0b" style={{ marginRight: 4 }} />
+              <Text style={[styles.miniPillText, { color: '#f59e0b' }]}>{item.medicalLeaveCount} ML</Text>
+            </View>
+          )}
         </View>
 
-        <View style={styles.actionPrompt}>
-          <Text style={[styles.actionPromptText, { color: colors.primary }]}>Predictor</Text>
-          <Ionicons name="chevron-forward" size={13} color={colors.primary} />
+        {/* Smart Margin / Action Pill */}
+        <View style={[styles.marginBanner, { backgroundColor: statusBg, borderColor: statusBorder }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
+            <Ionicons
+              name={item.isSafe ? 'shield-checkmark' : 'alert-circle'}
+              size={15}
+              color={statusColor}
+            />
+            <Text style={[styles.marginBannerText, { color: statusColor }]} numberOfLines={1}>
+              {item.marginText}
+            </Text>
+          </View>
+
+          <View style={[styles.actionPrompt, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)' }]}>
+            <Text style={[styles.actionPromptText, { color: colors.primary }]}>Predictor</Text>
+            <Ionicons name="chevron-forward" size={12} color={colors.primary} />
+          </View>
         </View>
-      </View>
+      </LinearGradient>
     </TouchableOpacity>
   );
 });
@@ -175,7 +222,8 @@ export function AttendanceOverviewModal({
   onClose,
   onSelectSubject,
 }: AttendanceOverviewModalProps) {
-  const { colors } = useThemeStore();
+  const { colors, theme } = useThemeStore();
+  const isDark = theme === 'black';
   const { subjects, detailedAttendanceCache } = useStudyOSStore();
   const { width: SCREEN_WIDTH } = Dimensions.get('window');
   const slideAnim = React.useRef(new Animated.Value(SCREEN_WIDTH)).current;
@@ -390,6 +438,7 @@ export function AttendanceOverviewModal({
       <SubjectCardItem
         item={item}
         colors={colors}
+        isDark={isDark}
         onPress={() => {
           handleOpenDetail({
             code: item.subject.code,
@@ -400,245 +449,306 @@ export function AttendanceOverviewModal({
         }}
       />
     ),
-    [colors, handleOpenDetail]
+    [colors, isDark, handleOpenDetail]
   );
 
   // Circular gauge math for Hero card
-  const gaugeRadius = 44;
+  const gaugeRadius = 45;
   const gaugeCircumference = 2 * Math.PI * gaugeRadius;
   const gaugeOffset =
     gaugeCircumference - (gaugeCircumference * Math.min(100, Math.max(0, overallStats.overallPct))) / 100;
-  const gaugeColor = overallStats.isOverallSafe ? '#22c55e' : '#ef4444';
 
   const ListHeader = useMemo(
-    () => (
-      <View style={styles.headerComponentWrapper}>
-        {/* Overall Semester Health Hero Card */}
-        <View
-          style={[
-            styles.heroCard,
-            {
-              backgroundColor: colors.surfaceHigh,
-              borderColor: overallStats.isOverallSafe ? '#22c55e35' : '#ef444435',
-            },
-          ]}
-        >
-          <View style={styles.heroRow}>
-            {/* Left: SVG Radial Progress Ring */}
-            <View style={styles.radialWrapper}>
-              <Svg width={110} height={110} viewBox="0 0 110 110">
-                {/* Track Circle */}
-                <Circle
-                  cx="55"
-                  cy="55"
-                  r={gaugeRadius}
-                  stroke={colors.border}
-                  strokeWidth="8"
-                  fill="none"
-                />
-                {/* Progress Circle */}
-                <Circle
-                  cx="55"
-                  cy="55"
-                  r={gaugeRadius}
-                  stroke={gaugeColor}
-                  strokeWidth="8"
-                  strokeDasharray={gaugeCircumference}
-                  strokeDashoffset={gaugeOffset}
-                  strokeLinecap="round"
-                  fill="none"
-                  transform="rotate(-90 55 55)"
-                />
-              </Svg>
-              <View style={styles.radialCenterContent}>
-                <Text style={[styles.radialPctText, { color: colors.text }]}>
-                  {overallStats.overallPct}%
-                </Text>
-                <Text style={[styles.radialSubText, { color: colors.textMuted }]}>Overall</Text>
-              </View>
-            </View>
+    () => {
+      const heroGradColors = isDark
+        ? ['rgba(255, 255, 255, 0.09)', 'rgba(255, 255, 255, 0.02)'] as const
+        : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.80)'] as const;
+      const heroBorderColor = overallStats.isOverallSafe
+        ? 'rgba(16, 185, 129, 0.35)'
+        : 'rgba(239, 68, 68, 0.35)';
+      const heroBorderTop = isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.95)';
 
-            {/* Right: Aggregate Summary Metrics */}
-            <View style={styles.heroStatsRight}>
-              <View style={styles.statusPillRow}>
-                <View
-                  style={[
-                    styles.heroStatusBadge,
-                    {
-                      backgroundColor: overallStats.isOverallSafe ? '#22c55e15' : '#ef444415',
-                      borderColor: overallStats.isOverallSafe ? '#22c55e40' : '#ef444440',
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={overallStats.isOverallSafe ? 'shield-checkmark' : 'warning'}
-                    size={12}
-                    color={overallStats.isOverallSafe ? '#22c55e' : '#ef4444'}
+      return (
+        <View style={styles.headerComponentWrapper}>
+          {/* Overall Semester Health Hero Card */}
+          <LinearGradient
+            colors={heroGradColors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[
+              styles.heroCard,
+              {
+                borderColor: heroBorderColor,
+                borderTopColor: heroBorderTop,
+              },
+            ]}
+          >
+            <View style={styles.heroRow}>
+              {/* Left: SVG Radial Progress Ring with Gradient */}
+              <View style={styles.radialWrapper}>
+                <Svg width={116} height={116} viewBox="0 0 116 116">
+                  <Defs>
+                    <SvgGradient id="heroGaugeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <Stop offset="0%" stopColor={overallStats.isOverallSafe ? '#10b981' : '#ef4444'} />
+                      <Stop offset="100%" stopColor={overallStats.isOverallSafe ? '#06b6d4' : '#f97316'} />
+                    </SvgGradient>
+                  </Defs>
+                  {/* Track Circle */}
+                  <Circle
+                    cx="58"
+                    cy="58"
+                    r={gaugeRadius}
+                    stroke={isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.07)'}
+                    strokeWidth="9"
+                    fill="none"
                   />
-                  <Text
+                  {/* Progress Circle with Gradient */}
+                  <Circle
+                    cx="58"
+                    cy="58"
+                    r={gaugeRadius}
+                    stroke="url(#heroGaugeGrad)"
+                    strokeWidth="9"
+                    strokeDasharray={gaugeCircumference}
+                    strokeDashoffset={gaugeOffset}
+                    strokeLinecap="round"
+                    fill="none"
+                    transform="rotate(-90 58 58)"
+                  />
+                </Svg>
+                <View style={styles.radialCenterContent}>
+                  <Text style={[styles.radialPctText, { color: colors.text }]}>
+                    {overallStats.overallPct}%
+                  </Text>
+                  <View style={[styles.radialLabelPill, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                    <Text style={[styles.radialSubText, { color: colors.textMuted }]}>OVERALL</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Right: Aggregate Summary Metrics */}
+              <View style={styles.heroStatsRight}>
+                <View style={styles.statusPillRow}>
+                  <View
                     style={[
-                      styles.heroStatusText,
-                      { color: overallStats.isOverallSafe ? '#22c55e' : '#ef4444' },
+                      styles.heroStatusBadge,
+                      {
+                        backgroundColor: overallStats.isOverallSafe ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                        borderColor: overallStats.isOverallSafe ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
+                      },
                     ]}
                   >
-                    {overallStats.isOverallSafe ? 'SAFE ZONE' : 'ACTION REQUIRED'}
-                  </Text>
-                </View>
-              </View>
-
-              <Text style={[styles.heroRatioText, { color: colors.text }]}>
-                {overallStats.totalAttended}{' '}
-                <Text style={{ color: colors.textMuted, fontSize: 13 }}>/ {overallStats.totalClasses} classes</Text>
-              </Text>
-
-              <Text style={[styles.cushionText, { color: overallStats.isOverallSafe ? '#22c55e' : '#ef4444' }]}>
-                {overallStats.aggregateCushionText}
-              </Text>
-
-              {/* Course Ratio & Leaves tags */}
-              <View style={styles.tagRow}>
-                <View style={[styles.metaChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Text style={[styles.metaChipText, { color: '#22c55e' }]}>
-                    {overallStats.safeCount} Safe
-                  </Text>
-                </View>
-                {overallStats.criticalCount > 0 && (
-                  <View style={[styles.metaChip, { backgroundColor: '#ef444415', borderColor: '#ef444430' }]}>
-                    <Text style={[styles.metaChipText, { color: '#ef4444' }]}>
-                      {overallStats.criticalCount} Low
+                    <Ionicons
+                      name={overallStats.isOverallSafe ? 'shield-checkmark' : 'warning'}
+                      size={13}
+                      color={overallStats.isOverallSafe ? '#10b981' : '#ef4444'}
+                    />
+                    <Text
+                      style={[
+                        styles.heroStatusText,
+                        { color: overallStats.isOverallSafe ? '#10b981' : '#ef4444' },
+                      ]}
+                    >
+                      {overallStats.isOverallSafe ? 'SAFE ZONE' : 'ATTENTION REQUIRED'}
                     </Text>
                   </View>
-                )}
-                {(overallStats.totalDL > 0 || overallStats.totalML > 0) && (
-                  <View style={[styles.metaChip, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Text style={[styles.metaChipText, { color: colors.primary }]}>
-                      {overallStats.totalDL + overallStats.totalML} Leaves
+                </View>
+
+                <Text style={[styles.heroRatioText, { color: colors.text }]}>
+                  {overallStats.totalAttended}{' '}
+                  <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' }}>
+                    / {overallStats.totalClasses} classes
+                  </Text>
+                </Text>
+
+                <Text style={[styles.cushionText, { color: overallStats.isOverallSafe ? '#10b981' : '#ef4444' }]}>
+                  {overallStats.aggregateCushionText}
+                </Text>
+
+                {/* Course Ratio & Leaves tags */}
+                <View style={styles.tagRow}>
+                  <View style={[styles.metaChip, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
+                    <Text style={[styles.metaChipText, { color: '#10b981' }]}>
+                      {overallStats.safeCount} Safe
                     </Text>
                   </View>
-                )}
+                  {overallStats.criticalCount > 0 && (
+                    <View style={[styles.metaChip, { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)' }]}>
+                      <Text style={[styles.metaChipText, { color: '#ef4444' }]}>
+                        {overallStats.criticalCount} Low
+                      </Text>
+                    </View>
+                  )}
+                  {(overallStats.totalDL > 0 || overallStats.totalML > 0) && (
+                    <View style={[styles.metaChip, { backgroundColor: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.3)' }]}>
+                      <Text style={[styles.metaChipText, { color: '#3b82f6' }]}>
+                        {overallStats.totalDL + overallStats.totalML} Leaves
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </View>
             </View>
+          </LinearGradient>
+
+          {/* Search Input Bar */}
+          <View
+            style={[
+              styles.searchBar,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)',
+              },
+            ]}
+          >
+            <Ionicons name="search-outline" size={17} color={colors.primary} />
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search subject or course code..."
+              placeholderTextColor={colors.textMuted}
+              style={[styles.searchInput, { color: colors.text }]}
+            />
+            {searchQuery !== '' && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close-circle" size={17} color={colors.textMuted} />
+              </TouchableOpacity>
+            )}
           </View>
-        </View>
 
-        {/* Search Input Bar */}
-        <View style={[styles.searchBar, { backgroundColor: colors.surfaceHigh, borderColor: colors.border }]}>
-          <Ionicons name="search-outline" size={17} color={colors.textMuted} />
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search subject or course code..."
-            placeholderTextColor={colors.textMuted}
-            style={[styles.searchInput, { color: colors.text }]}
-          />
-          {searchQuery !== '' && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={17} color={colors.textMuted} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Filter Chips Bar */}
-        <View style={styles.filterChipsRow}>
-          <TouchableOpacity
-            onPress={() => setFilter('all')}
-            style={[
-              styles.filterChip,
-              {
-                backgroundColor: filter === 'all' ? colors.primary : colors.surfaceHigh,
-                borderColor: filter === 'all' ? colors.primary : colors.border,
-              },
-            ]}
-          >
-            <Text style={[styles.filterChipText, { color: filter === 'all' ? '#fff' : colors.textMuted }]}>
-              All ({subjectStats.length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setFilter('critical')}
-            style={[
-              styles.filterChip,
-              {
-                backgroundColor: filter === 'critical' ? '#ef4444' : colors.surfaceHigh,
-                borderColor: filter === 'critical' ? '#ef4444' : colors.border,
-              },
-            ]}
-          >
-            <Text style={[styles.filterChipText, { color: filter === 'critical' ? '#fff' : colors.textMuted }]}>
-              Critical ({overallStats.criticalCount})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setFilter('safe')}
-            style={[
-              styles.filterChip,
-              {
-                backgroundColor: filter === 'safe' ? '#22c55e' : colors.surfaceHigh,
-                borderColor: filter === 'safe' ? '#22c55e' : colors.border,
-              },
-            ]}
-          >
-            <Text style={[styles.filterChipText, { color: filter === 'safe' ? '#fff' : colors.textMuted }]}>
-              Safe ({overallStats.safeCount})
-            </Text>
-          </TouchableOpacity>
-
-          {(overallStats.totalDL > 0 || overallStats.totalML > 0) && (
+          {/* Filter Chips Bar */}
+          <View style={styles.filterChipsRow}>
             <TouchableOpacity
-              onPress={() => setFilter('leaves')}
+              onPress={() => {
+                try { Haptics.selectionAsync(); } catch {}
+                setFilter('all');
+              }}
               style={[
                 styles.filterChip,
                 {
-                  backgroundColor: filter === 'leaves' ? colors.primary : colors.surfaceHigh,
-                  borderColor: filter === 'leaves' ? colors.primary : colors.border,
+                  backgroundColor: filter === 'all' ? colors.primary : isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                  borderColor: filter === 'all' ? colors.primary : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
                 },
               ]}
             >
-              <Text style={[styles.filterChipText, { color: filter === 'leaves' ? '#fff' : colors.textMuted }]}>
-                Leaves
+              <Text style={[styles.filterChipText, { color: filter === 'all' ? '#fff' : colors.textMuted }]}>
+                All ({subjectStats.length})
               </Text>
             </TouchableOpacity>
-          )}
-        </View>
 
-        {/* Sorting Toggle Header */}
-        <View style={styles.sortHeaderRow}>
-          <Text style={[styles.sortSectionTitle, { color: colors.text }]}>
-            Courses ({filteredAndSortedSubjects.length})
-          </Text>
-
-          <View style={styles.sortActionsRow}>
             <TouchableOpacity
-              onPress={() =>
-                setSort((prev) =>
-                  prev === 'critical_first'
-                    ? 'highest_first'
-                    : prev === 'highest_first'
-                    ? 'alphabetical'
-                    : 'critical_first'
-                )
-              }
-              style={[styles.sortButton, { backgroundColor: colors.surfaceHigh, borderColor: colors.border }]}
+              onPress={() => {
+                try { Haptics.selectionAsync(); } catch {}
+                setFilter('critical');
+              }}
+              style={[
+                styles.filterChip,
+                {
+                  backgroundColor: filter === 'critical' ? '#ef4444' : isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                  borderColor: filter === 'critical' ? '#ef4444' : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                },
+              ]}
             >
-              <Ionicons name="swap-vertical" size={12} color={colors.primary} style={{ marginRight: 4 }} />
-              <Text style={[styles.sortButtonText, { color: colors.primary }]}>
-                {sort === 'critical_first'
-                  ? 'Critical First'
-                  : sort === 'highest_first'
-                  ? 'Highest %'
-                  : 'A-Z'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: filter === 'critical' ? '#fff' : '#ef4444' }} />
+                <Text style={[styles.filterChipText, { color: filter === 'critical' ? '#fff' : colors.textMuted }]}>
+                  Critical ({overallStats.criticalCount})
+                </Text>
+              </View>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                try { Haptics.selectionAsync(); } catch {}
+                setFilter('safe');
+              }}
+              style={[
+                styles.filterChip,
+                {
+                  backgroundColor: filter === 'safe' ? '#10b981' : isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                  borderColor: filter === 'safe' ? '#10b981' : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: filter === 'safe' ? '#fff' : '#10b981' }} />
+                <Text style={[styles.filterChipText, { color: filter === 'safe' ? '#fff' : colors.textMuted }]}>
+                  Safe ({overallStats.safeCount})
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {(overallStats.totalDL > 0 || overallStats.totalML > 0) && (
+              <TouchableOpacity
+                onPress={() => {
+                  try { Haptics.selectionAsync(); } catch {}
+                  setFilter('leaves');
+                }}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: filter === 'leaves' ? colors.primary : isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                    borderColor: filter === 'leaves' ? colors.primary : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: filter === 'leaves' ? '#fff' : colors.primary }} />
+                  <Text style={[styles.filterChipText, { color: filter === 'leaves' ? '#fff' : colors.textMuted }]}>
+                    Leaves
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Sorting Toggle Header */}
+          <View style={styles.sortHeaderRow}>
+            <Text style={[styles.sortSectionTitle, { color: colors.text }]}>
+              Courses ({filteredAndSortedSubjects.length})
+            </Text>
+
+            <View style={styles.sortActionsRow}>
+              <TouchableOpacity
+                onPress={() => {
+                  try { Haptics.selectionAsync(); } catch {}
+                  setSort((prev) =>
+                    prev === 'critical_first'
+                      ? 'highest_first'
+                      : prev === 'highest_first'
+                      ? 'alphabetical'
+                      : 'critical_first'
+                  );
+                }}
+                style={[
+                  styles.sortButton,
+                  {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)',
+                  },
+                ]}
+              >
+                <Ionicons name="swap-vertical" size={13} color={colors.primary} style={{ marginRight: 4 }} />
+                <Text style={[styles.sortButtonText, { color: colors.primary }]}>
+                  {sort === 'critical_first'
+                    ? 'Critical First'
+                    : sort === 'highest_first'
+                    ? 'Highest %'
+                    : 'A-Z'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
-    ),
+      );
+    },
     [
       colors,
+      isDark,
       overallStats,
-      gaugeColor,
       gaugeOffset,
       gaugeCircumference,
       gaugeRadius,
@@ -655,6 +765,7 @@ export function AttendanceOverviewModal({
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
+      statusBarTranslucent={true}
       onRequestClose={() => {
         if (isDetailOpen) {
           handleCloseDetail();
@@ -663,24 +774,53 @@ export function AttendanceOverviewModal({
         }
       }}
     >
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor="transparent"
+        translucent={true}
+      />
       <View style={[styles.container, { backgroundColor: colors.background, overflow: 'hidden' }]}>
+        {/* Ambient Backlight Glow Blobs (Glass Backdrop) */}
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <LinearGradient
+            colors={[overallStats.isOverallSafe ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)', 'transparent']}
+            style={{ position: 'absolute', top: -50, left: -50, width: 260, height: 260, borderRadius: 130 }}
+          />
+          <LinearGradient
+            colors={['rgba(59, 130, 246, 0.08)', 'transparent']}
+            style={{ position: 'absolute', top: 180, right: -70, width: 240, height: 240, borderRadius: 120 }}
+          />
+        </View>
+
         {/* Base Layer: Attendance Analytics List */}
         <View style={StyleSheet.absoluteFill}>
-          {/* Sticky Header */}
-          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          {/* Glass Sticky Header */}
+          <View style={[styles.header, { borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 8 }}>
               <TouchableOpacity
-                onPress={onClose}
-                style={[styles.closeButton, { backgroundColor: colors.surfaceHigh }]}
+                onPress={() => {
+                  try { Haptics.selectionAsync(); } catch {}
+                  onClose();
+                }}
+                style={[
+                  styles.closeButton,
+                  {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+                  },
+                ]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Ionicons name="arrow-back" size={20} color={colors.text} />
               </TouchableOpacity>
 
               <View style={{ flex: 1 }}>
-                <Text style={[styles.headerTitle, { color: colors.text }]}>Attendance Analytics</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.headerTitle, { color: colors.text }]}>Attendance Analytics</Text>
+                  <View style={[styles.liveDot, { backgroundColor: overallStats.isOverallSafe ? '#10b981' : '#ef4444' }]} />
+                </View>
                 <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-                  Comprehensive Subject Intelligence
+                  Semester Intelligence & Prediction Hub
                 </Text>
               </View>
             </View>
@@ -754,6 +894,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 20,
+    letterSpacing: -0.3,
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
   headerSubtitle: {
     fontFamily: 'Inter_500Medium',
@@ -761,9 +907,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   closeButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -775,10 +922,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   heroCard: {
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    padding: 16,
+    borderRadius: 24,
+    borderWidth: 1.2,
+    borderTopWidth: 1.5,
+    padding: 18,
     marginBottom: 16,
+    overflow: 'hidden',
   },
   heroRow: {
     flexDirection: 'row',
@@ -786,8 +935,8 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   radialWrapper: {
-    width: 110,
-    height: 110,
+    width: 116,
+    height: 116,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -798,13 +947,19 @@ const styles = StyleSheet.create({
   },
   radialPctText: {
     fontFamily: 'SpaceGrotesk_700Bold',
-    fontSize: 22,
+    fontSize: 23,
+    letterSpacing: -0.5,
+  },
+  radialLabelPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    marginTop: 2,
   },
   radialSubText: {
-    fontFamily: 'Inter_500Medium',
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontFamily: 'Inter_700Bold',
+    fontSize: 8.5,
+    letterSpacing: 0.8,
   },
   heroStatsRight: {
     flex: 1,
@@ -817,16 +972,16 @@ const styles = StyleSheet.create({
   heroStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2.5,
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
     borderRadius: Radius.full,
     borderWidth: 1,
   },
   heroStatusText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 9.5,
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   heroRatioText: {
     fontFamily: 'SpaceGrotesk_700Bold',
@@ -846,7 +1001,7 @@ const styles = StyleSheet.create({
   },
   metaChip: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 3.5,
     borderRadius: Radius.full,
     borderWidth: 1,
   },
@@ -857,12 +1012,12 @@ const styles = StyleSheet.create({
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: Radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 22,
     borderWidth: 1,
-    gap: 8,
-    marginBottom: 10,
+    gap: 10,
+    marginBottom: 12,
   },
   searchInput: {
     flex: 1,
@@ -873,12 +1028,12 @@ const styles = StyleSheet.create({
   filterChipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
     marginBottom: 14,
   },
   filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 5.5,
+    paddingHorizontal: 13,
+    paddingVertical: 6.5,
     borderRadius: Radius.full,
     borderWidth: 1,
   },
@@ -890,7 +1045,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
+    paddingHorizontal: 2,
   },
   sortSectionTitle: {
     fontFamily: 'SpaceGrotesk_700Bold',
@@ -903,21 +1059,39 @@ const styles = StyleSheet.create({
   sortButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
-    borderRadius: Radius.md,
+    paddingHorizontal: 11,
+    paddingVertical: 5.5,
+    borderRadius: 20,
     borderWidth: 1,
   },
   sortButtonText: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 11,
   },
-  subjectCard: {
-    borderRadius: Radius.xl,
-    padding: 14,
-    borderWidth: 1,
-    borderLeftWidth: 4,
+  cardOuter: {
     marginBottom: 12,
+  },
+  subjectCard: {
+    borderRadius: 22,
+    padding: 15,
+    paddingLeft: 18,
+    borderWidth: 1,
+    borderTopWidth: 1.5,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  cardAccentBar: {
+    position: 'absolute',
+    left: 0,
+    top: 14,
+    bottom: 14,
+    width: 4,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+    shadowOffset: { width: 1, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
+    elevation: 3,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -926,60 +1100,66 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   subjectName: {
-    fontFamily: 'SpaceGrotesk_600SemiBold',
-    fontSize: 14.5,
-    lineHeight: 19,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: -0.2,
   },
   codeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 4,
+    marginTop: 5,
+  },
+  codeBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   subjectCode: {
     fontFamily: 'Inter_600SemiBold',
-    fontSize: 11.5,
+    fontSize: 11,
   },
   creditPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   creditText: {
     fontFamily: 'Inter_500Medium',
     fontSize: 9.5,
   },
   pctBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: Radius.md,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: 'center',
-    minWidth: 64,
+    minWidth: 66,
   },
   pctBadgeValue: {
     fontFamily: 'SpaceGrotesk_700Bold',
-    fontSize: 16,
+    fontSize: 16.5,
+    letterSpacing: -0.3,
   },
   pctStatusLabel: {
     fontFamily: 'Inter_700Bold',
     fontSize: 8.5,
     marginTop: 1,
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   barWrapper: {
     marginBottom: 10,
   },
   barTrack: {
-    height: 6,
-    borderRadius: 3,
+    height: 7,
+    borderRadius: 3.5,
     overflow: 'hidden',
     position: 'relative',
   },
   barFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 3.5,
   },
   barGoalLine: {
     position: 'absolute',
@@ -996,7 +1176,8 @@ const styles = StyleSheet.create({
   barMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 4,
+    alignItems: 'center',
+    marginTop: 5,
   },
   barMetaText: {
     fontFamily: 'Inter_500Medium',
@@ -1017,20 +1198,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 3.5,
-    borderRadius: Radius.sm,
+    borderRadius: 8,
     borderWidth: 1,
   },
   miniPillText: {
     fontFamily: 'SpaceGrotesk_700Bold',
-    fontSize: 11,
+    fontSize: 10.5,
   },
   marginBanner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: Radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
     borderWidth: 1,
   },
   marginBannerText: {
@@ -1041,8 +1222,10 @@ const styles = StyleSheet.create({
   actionPrompt: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingLeft: 6,
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
   actionPromptText: {
     fontFamily: 'Inter_700Bold',
@@ -1059,3 +1242,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 });
+
