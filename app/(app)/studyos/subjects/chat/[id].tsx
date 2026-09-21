@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Animated, BackHandler, Linking, DeviceEventEmitter, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Animated, BackHandler, Linking, DeviceEventEmitter, FlatList, Image, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
@@ -9,13 +9,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { GoogleGenAI } from '@google/genai';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useThemeStore } from '../../../../../store/useThemeStore';
 import { CenterPopModal } from '../../../../../components/ui/CenterPopModal';
 import Markdown from 'react-native-markdown-display';
 import { generateAiResponse, reflectAndLearn } from '../../../../../lib/aiManager';
 import { useAuth } from '@clerk/clerk-expo';
 import { useSubscription } from '../../../../../hooks/useSubscription';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView, BlurTargetView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 
@@ -23,6 +24,7 @@ interface Message {
   id: string;
   role: 'user' | 'model';
   text: string;
+  imageUri?: string;
 }
 
 interface ChatSession {
@@ -196,6 +198,70 @@ export default function AITutorChatScreen() {
   // File Selection State
   const [showFileModal, setShowFileModal] = useState(false);
   const [showContextLimitModal, setShowContextLimitModal] = useState(false);
+
+  // Photo Doubt Solving State
+  const [attachedPhoto, setAttachedPhoto] = useState<{ uri: string; base64: string; mimeType: string } | null>(null);
+  const [showPhotoPickerModal, setShowPhotoPickerModal] = useState(false);
+  const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
+
+  const handleTakePhoto = async () => {
+    setShowPhotoPickerModal(false);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Camera access is needed to photograph your doubts.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setAttachedPhoto({
+          uri: asset.uri,
+          base64: asset.base64 || '',
+          mimeType: asset.mimeType || 'image/jpeg',
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.error("Take photo error:", e);
+      Alert.alert("Error", "Could not take photo. Please try again.");
+    }
+  };
+
+  const handleChooseFromGallery = async () => {
+    setShowPhotoPickerModal(false);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission Required", "Gallery access is needed to select doubt photos.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setAttachedPhoto({
+          uri: asset.uri,
+          base64: asset.base64 || '',
+          mimeType: asset.mimeType || 'image/jpeg',
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.error("Pick image error:", e);
+      Alert.alert("Error", "Could not pick image from gallery.");
+    }
+  };
   
   // Quick Chat Switcher Refs (State handled by standalone overlay to prevent full re-renders)
   const hoveredIndexRef = useRef(-1);
@@ -557,16 +623,27 @@ export default function AITutorChatScreen() {
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim() || !currentSessionId) return;
+    if ((!inputText.trim() && !attachedPhoto) || !currentSessionId) return;
 
     let currentText = inputText.trim();
+    if (!currentText && attachedPhoto) {
+       currentText = "Please analyze this image, extract the question/problem, and provide a clear step-by-step solution with explanations, formulas, and final answer.";
+    }
+
     if (selectedFiles.length > 0) {
        currentText += `\n\n[TOPIC FOCUS: ${selectedFiles.join('|||')}]. Please explain this subject comprehensively using the course syllabus and educational concepts. Even if specific extracts are not attached, provide a complete, exam-focused professor explanation of this topic.`;
     }
 
-    const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text: currentText };
+    const currentPhoto = attachedPhoto;
+    const newUserMsg: Message = { 
+      id: Date.now().toString(), 
+      role: 'user', 
+      text: currentText,
+      imageUri: currentPhoto?.uri,
+    };
     setInputText('');
     setInputHeight(44);
+    setAttachedPhoto(null);
     setIsTyping(true);
     setSelectedFiles([]);
     
@@ -579,7 +656,7 @@ export default function AITutorChatScreen() {
             let newTitle = s.title;
             // Auto rename title if it's the first message
             if (s.messages.length === 1 && currentText.length > 3) {
-               newTitle = currentText.substring(0, 20) + (currentText.length > 20 ? '...' : '');
+               newTitle = currentPhoto ? "📸 Photo Doubt" : (currentText.substring(0, 20) + (currentText.length > 20 ? '...' : ''));
             }
             return { ...s, messages: [...s.messages, newUserMsg], updatedAt: Date.now(), title: newTitle };
          }
@@ -600,7 +677,20 @@ export default function AITutorChatScreen() {
       history.push({ role: 'user', parts: [{ text: newUserMsg.text }] });
 
       const learningProfile = await AsyncStorage.getItem('ai_learning_profile') || undefined;
-      const aiText = await generateAiResponse(history, syllabusText, name as string, id as string, learningProfile, activeProvider);
+      const imagePayload = currentPhoto?.base64 ? {
+         base64: currentPhoto.base64,
+         mimeType: currentPhoto.mimeType || 'image/jpeg',
+      } : undefined;
+
+      const aiText = await generateAiResponse(
+         history, 
+         syllabusText, 
+         name as string, 
+         id as string, 
+         learningProfile, 
+         activeProvider,
+         imagePayload
+      );
 
       // Trigger self-learning in the background (non-blocking)
       if (apiKey) {
@@ -1188,6 +1278,23 @@ export default function AITutorChatScreen() {
                 <View style={[styles.messageBubble, msg.role === 'user' ? styles.userBubble : styles.aiBubble]}>
                    {msg.role === 'user' ? (
                       <View>
+                         {msg.imageUri && (
+                            <TouchableOpacity 
+                               onPress={() => setFullscreenImageUri(msg.imageUri || null)}
+                               activeOpacity={0.88}
+                               style={{ marginBottom: 10, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' }}
+                            >
+                               <Image 
+                                  source={{ uri: msg.imageUri }} 
+                                  style={{ width: 220, height: 160, borderRadius: 12 }} 
+                                  resizeMode="cover" 
+                               />
+                               <View style={{ position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                  <Ionicons name="expand-outline" size={11} color="white" />
+                                  <Text style={{ color: 'white', fontSize: 10, fontFamily: 'Inter_500Medium' }}>Tap to view</Text>
+                               </View>
+                            </TouchableOpacity>
+                         )}
                          {displayText ? <Text style={styles.userText}>{displayText}</Text> : <Text style={[styles.userText, { fontStyle: 'italic', opacity: 0.8 }]}>Can you explain this document?</Text>}
                          {hiddenFiles.length > 0 && (
                             <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
@@ -1230,9 +1337,44 @@ export default function AITutorChatScreen() {
              )}}
           />
 
+        {attachedPhoto && (
+           <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              backgroundColor: isDark ? '#14141c' : '#f1f5f9', 
+              paddingHorizontal: 14, 
+              paddingVertical: 10, 
+              borderTopWidth: 1, 
+              borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border,
+              gap: 12
+           }}>
+              <Image 
+                 source={{ uri: attachedPhoto.uri }} 
+                 style={{ width: 44, height: 44, borderRadius: 8, borderWidth: 1.5, borderColor: colors.primary }} 
+                 resizeMode="cover" 
+              />
+              <View style={{ flex: 1 }}>
+                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <Ionicons name="camera" size={13} color={colors.primary} />
+                    <Text style={{ fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>Doubt Photo Ready</Text>
+                 </View>
+                 <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.textDim }} numberOfLines={1}>
+                    AI will transcribe and solve the question in this photo
+                 </Text>
+              </View>
+              <TouchableOpacity 
+                 onPress={() => setAttachedPhoto(null)} 
+                 style={{ padding: 4 }}
+                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                 <Ionicons name="close-circle" size={22} color={colors.textMuted} />
+              </TouchableOpacity>
+           </View>
+        )}
+
         <View style={styles.inputArea}>
            <TouchableOpacity 
-             style={[styles.historyButton, { marginRight: 8 }]} 
+             style={[styles.historyButton, { marginRight: 6 }]} 
              onPress={() => {
                 setShowFileModal(true);
                 const totalFiles = Object.values(availableFiles).flat().length;
@@ -1251,9 +1393,16 @@ export default function AITutorChatScreen() {
               </View>
            </TouchableOpacity>
 
+           <TouchableOpacity 
+             style={[styles.historyButton, { marginRight: 8, backgroundColor: attachedPhoto ? colors.primary + '25' : colors.surface }]} 
+             onPress={() => setShowPhotoPickerModal(true)}
+           >
+              <Ionicons name={attachedPhoto ? "camera" : "camera-outline"} size={20} color={colors.primary} />
+           </TouchableOpacity>
+
             <AnimatedTextInput 
                style={[styles.chatInput, { height: animatedHeight }]}
-               placeholder="Ask about a topic..."
+               placeholder={attachedPhoto ? "Ask about this photo (optional)..." : "Ask about a topic..."}
                placeholderTextColor={colors.textMuted}
                value={inputText}
                onChangeText={setInputText}
@@ -1268,9 +1417,9 @@ export default function AITutorChatScreen() {
                }}
             />
            <TouchableOpacity 
-             style={[styles.sendButton, (!inputText.trim() || isTyping) && styles.sendButtonDisabled]} 
+             style={[styles.sendButton, ((!inputText.trim() && !attachedPhoto) || isTyping) && styles.sendButtonDisabled]} 
              onPress={sendMessage}
-             disabled={!inputText.trim() || isTyping}
+             disabled={(!inputText.trim() && !attachedPhoto) || isTyping}
            >
               <Ionicons name="send" size={18} color="white" style={{ marginLeft: 4 }} />
            </TouchableOpacity>
@@ -1480,6 +1629,82 @@ export default function AITutorChatScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Photo Doubt Picker Modal */}
+      <Modal visible={showPhotoPickerModal} animationType="fade" transparent={true} onRequestClose={() => setShowPhotoPickerModal(false)}>
+        <TouchableOpacity 
+           style={styles.modalOverlay} 
+           activeOpacity={1} 
+           onPress={() => setShowPhotoPickerModal(false)}
+        >
+          <View style={[styles.modalContent, { paddingBottom: (insets.bottom || 20) + 20 }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="camera" size={18} color={colors.primary} />
+                </View>
+                <Text style={styles.modalTitle}>Snap & Solve Doubt</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowPhotoPickerModal(false)}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.textDim, marginBottom: 18, lineHeight: 19 }}>
+              Take a photo of any question, math formula, circuit diagram, or textbook page to get an instant step-by-step solution from AI Tutor.
+            </Text>
+
+            <TouchableOpacity 
+               style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, backgroundColor: colors.primary + '18', borderRadius: 14, marginBottom: 12, borderWidth: 1, borderColor: colors.primary + '40', gap: 14 }}
+               onPress={handleTakePhoto}
+            >
+               <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="camera" size={20} color="white" />
+               </View>
+               <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>Take Photo with Camera</Text>
+                  <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.textDim, marginTop: 2 }}>Snap physical question paper or notebook</Text>
+               </View>
+               <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+               style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc', borderRadius: 14, borderWidth: 1, borderColor: colors.border, gap: 14 }}
+               onPress={handleChooseFromGallery}
+            >
+               <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="images-outline" size={20} color={colors.text} />
+               </View>
+               <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>Choose from Gallery</Text>
+                  <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.textDim, marginTop: 2 }}>Upload screenshot or saved problem</Text>
+               </View>
+               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Fullscreen Image Viewer Modal */}
+      <Modal visible={!!fullscreenImageUri} animationType="fade" transparent={true} onRequestClose={() => setFullscreenImageUri(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}>
+          <SafeAreaView style={{ position: 'absolute', top: 12, right: 16, zIndex: 10 }}>
+            <TouchableOpacity 
+              onPress={() => setFullscreenImageUri(null)}
+              style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.25)', justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Ionicons name="close" size={24} color="white" />
+            </TouchableOpacity>
+          </SafeAreaView>
+          {fullscreenImageUri && (
+            <Image 
+              source={{ uri: fullscreenImageUri }} 
+              style={{ width: '92%', height: '80%' }} 
+              resizeMode="contain" 
+            />
+          )}
         </View>
       </Modal>
 

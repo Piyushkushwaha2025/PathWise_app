@@ -830,6 +830,57 @@ export default function LmsCoursesScreen() {
           </LinearGradient>
         </View>
 
+        {/* Snap & Solve Photo Doubt Banner */}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => {
+            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+            if (isSubscriptionRequired) {
+              usePaywallStore.getState().showPaywall("Photo-Based Doubt Solving is a Pro feature. Upgrade to snap and solve any question instantly.");
+              return;
+            }
+            if (erpSubjects.length > 0) {
+              const targetSub = erpSubjects[0];
+              router.push(`/studyos/subjects/chat/${encodeURIComponent(targetSub.code)}?name=${encodeURIComponent(targetSub.name)}` as any);
+            } else {
+              router.push(`/studyos/subjects/chat/GENERAL?name=General Doubt Solving` as any);
+            }
+          }}
+          style={{
+            marginHorizontal: 16,
+            marginTop: 14,
+            marginBottom: 4,
+            borderRadius: 16,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: colors.primary + '40',
+            backgroundColor: isDark ? '#111116' : colors.surface,
+          }}
+        >
+          <LinearGradient
+            colors={[colors.primary + '18', (colors.accent || colors.primary) + '10']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+          >
+            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="camera" size={22} color="#ffffff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={{ fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>Snap & Solve Doubt</Text>
+                <View style={{ backgroundColor: colors.primary + '25', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.primary, textTransform: 'uppercase' }}>AI Vision</Text>
+                </View>
+              </View>
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.textDim, marginTop: 2 }}>
+                Take a photo of any question or math problem for instant step-by-step solutions
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+          </LinearGradient>
+        </TouchableOpacity>
+
         {/* Search & Filter Strip */}
         <View style={styles.searchContainer}>
           <View style={[styles.searchBar, { borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
