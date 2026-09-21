@@ -656,9 +656,6 @@ export default function MarksScreen() {
               }
             ]}
           >
-            {/* Ambient center backlight */}
-            <View style={styles.radarAmbientGlow} pointerEvents="none" />
-
             <View style={styles.radarTopRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <View style={[styles.statusDot, { backgroundColor: colors.primary }]} />
@@ -1334,6 +1331,14 @@ function RadarChart({ data }: { data: { subject: string, score: number, hasMarks
   return (
     <View style={{ position: 'relative', width: RADAR_SIZE + 90, height: RADAR_SIZE + 90, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={RADAR_SIZE} height={RADAR_SIZE} style={{ position: 'absolute', left: 45, top: 45 }}>
+        {/* Ambient center backlight circle - perfectly concentric with radar rings */}
+        <Circle
+          cx={CENTER}
+          cy={CENTER}
+          r={RADIUS}
+          fill={colors.primary}
+          opacity={isDark ? 0.08 : 0.05}
+        />
         {[0.2, 0.4, 0.6, 0.8, 1].map((scale, i) => (
           <Circle
             key={`circle-${i}`}
@@ -1481,15 +1486,6 @@ const useStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingHorizontal: 10,
     position: 'relative',
     alignItems: 'center',
-  },
-  radarAmbientGlow: {
-    position: 'absolute',
-    top: 30,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: colors.primary,
-    opacity: isDark ? 0.08 : 0.05,
   },
   radarTopRow: {
     width: '100%',
