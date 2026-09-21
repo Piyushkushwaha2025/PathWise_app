@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler, InteractionManager } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,11 +12,13 @@ import { useSubscription } from '../hooks/useSubscription';
 import { usePaywallStore } from '../store/usePaywallStore';
 import { isHolidayOrExam } from '../constants/calendar';
 import Slider from '@react-native-community/slider';
-import { Svg, Path, Defs, LinearGradient, Stop, Polygon, Circle, G, Text as SvgText } from 'react-native-svg';
+import { Svg, Path, Defs, LinearGradient as SvgLinearGradient, Stop, Polygon, Circle, G, Text as SvgText } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedProps, withTiming, withSpring, Easing, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Calendar } from 'react-native-calendars';
-import { CheckCircle2, XCircle, Stethoscope, Briefcase } from 'lucide-react-native';
+import { CheckCircle2, XCircle, Stethoscope, Briefcase, Clock, Calendar as CalendarIcon, User, Sparkles, BookOpen, FlaskConical } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import { AttendanceRingWidget } from './AttendanceRingWidget';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -169,11 +171,11 @@ const SpeedometerDual = ({ currentPct, attendPct, missPct, colors }: { currentPc
         {/* Tighter viewBox so the speedometer draws MUCH larger relative to its container */}
         <Svg viewBox="-12 -5 144 85" width="100%" height="100%" style={{ overflow: 'visible' }}>
           <Defs>
-            <LinearGradient id="gradModern" x1="0" y1="0" x2="1" y2="0">
+            <SvgLinearGradient id="gradModern" x1="0" y1="0" x2="1" y2="0">
               <Stop offset="0" stopColor={isSafe ? "#3b82f6" : gradientStart} stopOpacity="1" />
               <Stop offset="0.5" stopColor={isSafe ? "#06b6d4" : gradientStart} stopOpacity="1" />
               <Stop offset="1" stopColor={isSafe ? "#22c55e" : gradientEnd} stopOpacity="1" />
-            </LinearGradient>
+            </SvgLinearGradient>
           </Defs>
           
           {/* Background Track (Faint, sleek line without dark borders) */}
@@ -318,10 +320,10 @@ const Speedometer = ({ percentage, colors }: { percentage: number, colors: any }
     <View style={{ width: 120, height: 70, alignItems: 'center', justifyContent: 'flex-end', overflow: 'visible' }}>
       <Svg viewBox="0 0 120 70" width="100%" height="100%" style={{ overflow: 'visible' }}>
         <Defs>
-          <LinearGradient id="grad" x1="0" y1="0" x2="1" y2="0">
+          <SvgLinearGradient id="grad" x1="0" y1="0" x2="1" y2="0">
             <Stop offset="0" stopColor={startColor} stopOpacity="1" />
             <Stop offset="1" stopColor={endColor} stopOpacity="1" />
-          </LinearGradient>
+          </SvgLinearGradient>
         </Defs>
         <Path 
           d={`M 10 60 A ${radius} ${radius} 0 0 1 110 60`}
@@ -433,6 +435,45 @@ const getSlotClassType = (slot: any): 'Practical' | 'Lecture' => {
   return 'Lecture';
 };
 
+function formatMarkedBy(raw: string): { teacher: string; uid: string; markedDate: string } {
+  if (!raw) return { teacher: '', uid: '', markedDate: '' };
+  const onDatedSplit = raw.split(/on dated:/i);
+  const teacherPart = onDatedSplit[0] || '';
+  const datePart = onDatedSplit[1] || '';
+
+  const teacherSplit = teacherPart.split('::');
+  const teacher = (teacherSplit[0] || '').trim();
+  const uid = (teacherSplit[1] || '').trim();
+  const markedDate = datePart.trim();
+
+  return { teacher, uid, markedDate };
+}
+
+function calculateBunkMargin(attended: number, total: number, targetPct = 75): {
+  type: 'safe' | 'shortage' | 'exact';
+  count: number;
+  text: string;
+} {
+  if (total === 0) return { type: 'exact', count: 0, text: 'No classes held yet' };
+  const currentPct = (attended / total) * 100;
+
+  if (currentPct >= targetPct) {
+    const safeBunks = Math.floor((attended / (targetPct / 100)) - total);
+    return {
+      type: 'safe',
+      count: Math.max(0, safeBunks),
+      text: safeBunks > 0 ? `Can bunk next ${safeBunks} class${safeBunks > 1 ? 'es' : ''} safely` : 'On track for 75% attendance',
+    };
+  } else {
+    const needed = Math.ceil((targetPct * total - 100 * attended) / (100 - targetPct));
+    return {
+      type: 'shortage',
+      count: Math.max(1, needed),
+      text: `Attend next ${needed} class${needed > 1 ? 'es' : ''} to reach ${targetPct}%`,
+    };
+  }
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -464,6 +505,7 @@ export function DetailedAttendanceModal({
   const [predictDays, setPredictDays] = useState(3);
   const [missedClassesInput, setMissedClassesInput] = useState('');
   const [expectedClassFilter, setExpectedClassFilter] = useState<'all' | 'lecture' | 'practical'>('all');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT' | 'LEAVE'>('ALL');
   const { setSessionExpired } = useStudySessionStore();
   const router = useRouter();
   const { isSubscriptionRequired } = useSubscription();
@@ -830,21 +872,96 @@ export function DetailedAttendanceModal({
   const currentSubject = safeSubjects2.find(s => s.code === subjectCode);
   const totalClasses = currentSubject?.totalClasses || 0;
 
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black';
+
+  const filteredAttendanceData = useMemo(() => {
+    if (statusFilter === 'ALL') return safeAttendanceData;
+    return safeAttendanceData.filter((item) => {
+      const s = String(item?.status || '').toUpperCase().trim();
+      if (statusFilter === 'PRESENT') return s === 'P' || s.includes('PRESENT');
+      if (statusFilter === 'ABSENT') return s === 'A' || s.includes('ABSENT');
+      if (statusFilter === 'LEAVE') return s === 'DL' || s === 'ML' || s.includes('LEAVE') || s.includes('DUTY') || s.includes('MEDICAL');
+      return true;
+    });
+  }, [safeAttendanceData, statusFilter]);
+
+  const attendedFromStore = currentSubject?.attendedClasses != null
+    ? Number(currentSubject.attendedClasses)
+    : (presentCount + dutyLeaveCount + medicalLeaveCount);
+  const totalFromStore = currentSubject?.totalClasses != null
+    ? Number(currentSubject.totalClasses)
+    : safeAttendanceData.length;
+
+  const rawPct = currentSubject?.attendancePercentage != null
+    ? parseFloat(String(currentSubject.attendancePercentage).replace('%', ''))
+    : null;
+  const officialPct = (rawPct !== null && !isNaN(rawPct))
+    ? Math.round(rawPct)
+    : (totalFromStore > 0 ? Math.round((attendedFromStore / totalFromStore) * 100) : 0);
+
+  const bunkMargin = calculateBunkMargin(attendedFromStore, totalFromStore, 75);
+  const pctColor = officialPct >= 75 ? '#22c55e' : officialPct >= 65 ? '#f59e0b' : '#ef4444';
+
   const content = (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.surfaceHigh, marginRight: 10 }]}>
-            <Ionicons name="arrow-back" size={22} color={colors.text} />
+        {/* Modern Frosted Header */}
+        <View style={[styles.header, { borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', backgroundColor: colors.background }]}>
+          <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', marginRight: 10 }]}>
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
           </TouchableOpacity>
 
-          <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={[styles.title, { color: colors.text }]}>Detailed Attendance</Text>
-            <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>{subjectCode} • {subjectName}</Text>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>Attendance</Text>
+              <View style={[styles.codeBadge, { backgroundColor: colors.primary + '18', borderColor: colors.primary + '30' }]}>
+                <Text style={[styles.codeBadgeText, { color: colors.primary }]}>{subjectCode}</Text>
+              </View>
+            </View>
+            <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>
+              {subjectName}
+            </Text>
           </View>
-          <TouchableOpacity onPress={() => setIsPredicting(!isPredicting)} style={[styles.closeBtn, { backgroundColor: isPredicting ? colors.primary + '20' : colors.surfaceHigh }]}>
-            <Ionicons name="analytics" size={22} color={isPredicting ? colors.primary : colors.text} />
-          </TouchableOpacity>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <TouchableOpacity 
+              onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                setIsPredicting(!isPredicting);
+              }} 
+              style={[
+                styles.predictToggleBtn, 
+                { 
+                  backgroundColor: isPredicting ? colors.primary : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
+                  borderColor: isPredicting ? colors.primary : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'),
+                }
+              ]}
+            >
+              <Sparkles size={12} color={isPredicting ? '#ffffff' : colors.primary} />
+              <Text style={[styles.predictToggleText, { color: isPredicting ? '#ffffff' : colors.text }]}>
+                {isPredicting ? 'Records' : 'Predict'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              onPress={handleRefresh} 
+              disabled={isRefreshing || loading}
+              style={[
+                styles.iconBtn, 
+                { 
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                }
+              ]}
+            >
+              {isRefreshing ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="refresh" size={16} color={colors.text} />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {isPredicting && prediction && (
@@ -1153,47 +1270,382 @@ export function DetailedAttendanceModal({
                 )}
               </View>
             ) : (
-              safeAttendanceData.map((item, index) => {
-                const rawStatus = String(item?.status || '').toUpperCase().trim();
-                  let displayStatus = rawStatus;
-                  let color = '#ef4444'; // Default absent
-  
-                  if (rawStatus === 'P' || rawStatus === 'PRESENT') {
-                    displayStatus = 'Present';
-                    color = '#22c55e';
-                  } else if (rawStatus === 'A' || rawStatus === 'ABSENT') {
-                    displayStatus = 'Absent';
-                    color = '#ef4444';
-                  } else if (rawStatus === 'ML') {
-                    displayStatus = 'Medical Leave';
-                    color = '#3b82f6';
-                  } else if (rawStatus === 'DL') {
-                    displayStatus = 'Duty Leave';
-                    color = '#8b5cf6';
-                  } else if (rawStatus === 'L' || rawStatus.includes('LEAVE')) {
-                    displayStatus = 'Leave';
-                    color = '#f59e0b';
-                  } else if (rawStatus) {
-                    color = '#f59e0b';
-                  }
-  
-                  return (
-                    <View key={index} style={[styles.card, { backgroundColor: colors.surface }]}>
-                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                         <Text style={[styles.date, { color: colors.text }]}>{item?.date}</Text>
-                         <View style={[styles.badge, { backgroundColor: color + '20' }]}>
-                           <Text style={[styles.badgeText, { color }]}>{displayStatus}</Text>
-                       </View>
-                     </View>
-                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                       <Text style={[styles.meta, { color: colors.textMuted }]}>{item?.type} • {item?.time}</Text>
-                     </View>
-                     {item?.markedBy ? (
-                       <Text style={[styles.markedBy, { color: colors.textDim }]}>Marked By: {item.markedBy}</Text>
-                     ) : null}
+              <View>
+                {/* Hero Overview Card */}
+                <LinearGradient
+                  colors={isDark ? ['#1e1e24', '#121216'] : ['#f8fafc', '#ffffff']}
+                  style={[
+                    styles.heroCard,
+                    {
+                      borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+                      shadowColor: pctColor,
+                    },
+                  ]}
+                >
+                  <View style={styles.heroMainRow}>
+                    <View>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                        <Text style={[styles.heroPctNum, { color: pctColor }]}>{officialPct}</Text>
+                        <Text style={[styles.heroPctSymbol, { color: pctColor }]}>%</Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.heroStatusPill,
+                          {
+                            backgroundColor: officialPct >= 75 ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                            borderColor: officialPct >= 75 ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.heroStatusDot,
+                            { backgroundColor: officialPct >= 75 ? '#22c55e' : '#ef4444' },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.heroStatusText,
+                            { color: officialPct >= 75 ? '#22c55e' : '#ef4444' },
+                          ]}
+                        >
+                          {officialPct >= 75 ? 'Above 75% Safe' : 'Below 75% Alert'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end', flex: 1, paddingLeft: 16 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3 }}>
+                        <Text style={[styles.heroClassesRatio, { color: colors.text }]}>
+                          {attendedFromStore}
+                        </Text>
+                        <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.textMuted }}>
+                          / {totalFromStore}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: colors.textDim, marginBottom: 6 }}>
+                        Total Classes Attended
+                      </Text>
+
+                      <View
+                        style={[
+                          styles.heroAdvicePill,
+                          {
+                            backgroundColor: bunkMargin.type === 'safe' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            borderColor: bunkMargin.type === 'safe' ? 'rgba(34, 197, 94, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.heroAdviceText,
+                            { color: bunkMargin.type === 'safe' ? '#22c55e' : '#ef4444' },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {bunkMargin.text}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                );
-              })
+
+                  <View
+                    style={[
+                      styles.heroDivider,
+                      { backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' },
+                    ]}
+                  />
+
+                  <View style={styles.heroMiniStatsRow}>
+                    <View style={styles.heroMiniStat}>
+                      <View style={[styles.miniStatIconBox, { backgroundColor: 'rgba(34, 197, 94, 0.12)' }]}>
+                        <CheckCircle2 size={13} color="#22c55e" />
+                      </View>
+                      <View>
+                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{presentCount}</Text>
+                        <Text style={[styles.miniStatLbl, { color: colors.textMuted }]}>Present</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.heroMiniStat}>
+                      <View style={[styles.miniStatIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                        <XCircle size={13} color="#ef4444" />
+                      </View>
+                      <View>
+                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{absentCount}</Text>
+                        <Text style={[styles.miniStatLbl, { color: colors.textMuted }]}>Absent</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.heroMiniStat}>
+                      <View style={[styles.miniStatIconBox, { backgroundColor: 'rgba(139, 92, 246, 0.12)' }]}>
+                        <Briefcase size={13} color="#8b5cf6" />
+                      </View>
+                      <View>
+                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{dutyLeaveCount}</Text>
+                        <Text style={[styles.miniStatLbl, { color: colors.textMuted }]}>Duty L.</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.heroMiniStat}>
+                      <View style={[styles.miniStatIconBox, { backgroundColor: 'rgba(245, 158, 11, 0.12)' }]}>
+                        <Stethoscope size={13} color="#f59e0b" />
+                      </View>
+                      <View>
+                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{medicalLeaveCount}</Text>
+                        <Text style={[styles.miniStatLbl, { color: colors.textMuted }]}>Med L.</Text>
+                      </View>
+                    </View>
+                  </View>
+                </LinearGradient>
+
+                {/* Filter Section */}
+                <View style={styles.filterSection}>
+                  <View style={styles.filterHeaderRow}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Attendance History</Text>
+                    <Text style={[styles.recordsCount, { color: colors.textMuted }]}>
+                      {filteredAttendanceData.length} records
+                    </Text>
+                  </View>
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollRow}>
+                    {(
+                      [
+                        { key: 'ALL', label: 'All', count: safeAttendanceData.length, color: colors.primary },
+                        { key: 'PRESENT', label: 'Present', count: presentCount, color: '#22c55e' },
+                        { key: 'ABSENT', label: 'Absent', count: absentCount, color: '#ef4444' },
+                        { key: 'LEAVE', label: 'Leaves', count: dutyLeaveCount + medicalLeaveCount, color: '#8b5cf6' },
+                      ] as const
+                    ).map((filter) => {
+                      const active = statusFilter === filter.key;
+                      return (
+                        <TouchableOpacity
+                          key={filter.key}
+                          onPress={() => {
+                            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                            setStatusFilter(filter.key);
+                          }}
+                          style={[
+                            styles.filterPill,
+                            active
+                              ? { backgroundColor: filter.color, borderColor: filter.color }
+                              : {
+                                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                                },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.filterPillText,
+                              { color: active ? '#ffffff' : colors.textMuted },
+                            ]}
+                          >
+                            {filter.label}
+                          </Text>
+                          <View
+                            style={[
+                              styles.filterCountBadge,
+                              {
+                                backgroundColor: active
+                                  ? 'rgba(255,255,255,0.25)'
+                                  : isDark
+                                  ? 'rgba(255,255,255,0.08)'
+                                  : 'rgba(0,0,0,0.06)',
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.filterCountText,
+                                { color: active ? '#ffffff' : colors.text },
+                              ]}
+                            >
+                              {filter.count}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                {/* Attendance Cards or Empty Filter State */}
+                {filteredAttendanceData.length === 0 ? (
+                  <View style={[styles.emptyFilterCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                    {statusFilter === 'ABSENT' ? (
+                      <>
+                        <CheckCircle2 size={32} color="#22c55e" style={{ marginBottom: 8 }} />
+                        <Text style={[styles.emptyFilterTitle, { color: colors.text }]}>Zero Absents!</Text>
+                        <Text style={[styles.emptyFilterSubtitle, { color: colors.textMuted }]}>
+                          You haven't missed any recorded lectures or labs for this course. Keep it up!
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <CalendarIcon size={32} color={colors.textMuted} style={{ marginBottom: 8 }} />
+                        <Text style={[styles.emptyFilterTitle, { color: colors.text }]}>No records found</Text>
+                        <Text style={[styles.emptyFilterSubtitle, { color: colors.textMuted }]}>
+                          No attendance records match the selected "{statusFilter.toLowerCase()}" filter.
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                ) : (
+                  filteredAttendanceData.map((item, index) => {
+                    const rawStatus = String(item?.status || '').toUpperCase().trim();
+                    let displayStatus = rawStatus;
+                    let color = '#ef4444';
+                    let StatusIcon = XCircle;
+
+                    if (rawStatus === 'P' || rawStatus === 'PRESENT') {
+                      displayStatus = 'Present';
+                      color = '#22c55e';
+                      StatusIcon = CheckCircle2;
+                    } else if (rawStatus === 'A' || rawStatus === 'ABSENT') {
+                      displayStatus = 'Absent';
+                      color = '#ef4444';
+                      StatusIcon = XCircle;
+                    } else if (rawStatus === 'ML') {
+                      displayStatus = 'Medical Leave';
+                      color = '#f59e0b';
+                      StatusIcon = Stethoscope;
+                    } else if (rawStatus === 'DL') {
+                      displayStatus = 'Duty Leave';
+                      color = '#8b5cf6';
+                      StatusIcon = Briefcase;
+                    } else if (rawStatus === 'L' || rawStatus.includes('LEAVE')) {
+                      displayStatus = 'Leave';
+                      color = '#f59e0b';
+                      StatusIcon = Clock;
+                    } else if (rawStatus) {
+                      color = '#f59e0b';
+                      StatusIcon = Clock;
+                    }
+
+                    const rawType = String(item?.type || '').toUpperCase();
+                    const isPractical = rawType.includes('PRAC') || rawType.includes('LAB') || rawType === 'P';
+                    const typeLabel = isPractical ? 'Practical Lab' : 'Lecture';
+                    const TypeIcon = isPractical ? FlaskConical : BookOpen;
+                    const typeColor = isPractical ? '#8b5cf6' : (colors.primary || '#3b82f6');
+
+                    const teacherInfo = formatMarkedBy(item?.markedBy);
+
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.modernCard,
+                          {
+                            backgroundColor: colors.surface,
+                            borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                            borderLeftColor: color,
+                          },
+                        ]}
+                      >
+                        <View style={styles.cardHeaderRow}>
+                          <View style={styles.dateRow}>
+                            <CalendarIcon size={14} color={colors.textMuted} />
+                            <Text style={[styles.cardDateText, { color: colors.text }]}>{item?.date}</Text>
+                          </View>
+
+                          <View
+                            style={[
+                              styles.cardStatusBadge,
+                              {
+                                backgroundColor: color + '15',
+                                borderColor: color + '30',
+                              },
+                            ]}
+                          >
+                            <StatusIcon size={12} color={color} />
+                            <Text style={[styles.cardStatusText, { color }]}>{displayStatus}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.cardChipsRow}>
+                          <View
+                            style={[
+                              styles.typeChip,
+                              {
+                                backgroundColor: typeColor + '12',
+                                borderColor: typeColor + '25',
+                              },
+                            ]}
+                          >
+                            <TypeIcon size={11} color={typeColor} />
+                            <Text style={[styles.typeChipText, { color: typeColor }]}>{typeLabel}</Text>
+                          </View>
+
+                          {item?.time ? (
+                            <View
+                              style={[
+                                styles.timeChip,
+                                {
+                                  backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                                },
+                              ]}
+                            >
+                              <Clock size={11} color={colors.textDim} />
+                              <Text style={[styles.timeChipText, { color: colors.textMuted }]}>{item.time}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        {teacherInfo.teacher ? (
+                          <View
+                            style={[
+                              styles.cardTeacherFooter,
+                              {
+                                borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                              },
+                            ]}
+                          >
+                            <View style={styles.teacherMainRow}>
+                              <User size={12} color={colors.textDim} />
+                              <Text style={[styles.teacherNameText, { color: colors.textMuted }]} numberOfLines={1}>
+                                {teacherInfo.teacher}
+                              </Text>
+                              {teacherInfo.uid ? (
+                                <View
+                                  style={[
+                                    styles.uidBadge,
+                                    {
+                                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                                    },
+                                  ]}
+                                >
+                                  <Text style={[styles.uidText, { color: colors.textDim }]}>{teacherInfo.uid}</Text>
+                                </View>
+                              ) : null}
+                            </View>
+
+                            {teacherInfo.markedDate ? (
+                              <Text style={[styles.markedTimestamp, { color: colors.textDim }]} numberOfLines={1}>
+                                Marked: {teacherInfo.markedDate}
+                              </Text>
+                            ) : null}
+                          </View>
+                        ) : item?.markedBy ? (
+                          <View
+                            style={[
+                              styles.cardTeacherFooter,
+                              {
+                                borderTopColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.markedTimestamp, { color: colors.textDim }]} numberOfLines={1}>
+                              {item.markedBy}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })
+                )}
+              </View>
             )}
           </ScrollView>
         )}
@@ -1221,17 +1673,319 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: Spacing.xl,
-    paddingTop: 60,
+    paddingHorizontal: 16,
+    paddingTop: 56,
+    paddingBottom: 14,
     borderBottomWidth: 1,
   },
-  title: { fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold' },
-  subtitle: { fontSize: 13, marginTop: 4, fontFamily: 'Inter_500Medium' },
+  title: { fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold' },
+  subtitle: { fontSize: 12.5, marginTop: 2, fontFamily: 'Inter_500Medium' },
   closeBtn: { padding: 8, borderRadius: 20 },
+  codeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  codeBadgeText: {
+    fontSize: 11,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  predictToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+  },
+  predictToggleText: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  iconBtn: {
+    padding: 7,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   loadingText: { marginTop: 16, fontSize: 14, fontFamily: 'Inter_500Medium' },
   errorText: { marginTop: 16, fontSize: 16, fontFamily: 'SpaceGrotesk_600SemiBold' },
-  
+
+  // Hero Overview Card
+  heroCard: {
+    padding: 16,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    marginBottom: 16,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  heroMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  heroPctNum: {
+    fontSize: 40,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    lineHeight: 46,
+  },
+  heroPctSymbol: {
+    fontSize: 20,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    marginLeft: 2,
+  },
+  heroStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  heroStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  heroStatusText: {
+    fontSize: 10.5,
+    fontFamily: 'Inter_700Bold',
+  },
+  heroClassesRatio: {
+    fontSize: 22,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  heroAdvicePill: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    maxWidth: '100%',
+  },
+  heroAdviceText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  heroDivider: {
+    height: 1,
+    marginVertical: 14,
+  },
+  heroMiniStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  heroMiniStat: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  miniStatIconBox: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniStatVal: {
+    fontSize: 13,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    lineHeight: 16,
+  },
+  miniStatLbl: {
+    fontSize: 9.5,
+    fontFamily: 'Inter_500Medium',
+  },
+
+  // Filter Section
+  filterSection: {
+    marginBottom: 12,
+  },
+  filterHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  recordsCount: {
+    fontSize: 12,
+    fontFamily: 'Inter_500Medium',
+  },
+  filterScrollRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  filterPillText: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  filterCountBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 10,
+  },
+  filterCountText: {
+    fontSize: 10.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+
+  // Record Cards
+  modernCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderLeftWidth: 4,
+    padding: 12,
+    marginBottom: 10,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  cardDateText: {
+    fontSize: 14,
+    fontFamily: 'SpaceGrotesk_700Bold',
+  },
+  cardStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  cardStatusText: {
+    fontSize: 11,
+    fontFamily: 'Inter_700Bold',
+    textTransform: 'uppercase',
+  },
+  cardChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  typeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  typeChipText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  timeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  timeChipText: {
+    fontSize: 11,
+    fontFamily: 'Inter_500Medium',
+  },
+  cardTeacherFooter: {
+    borderTopWidth: 1,
+    paddingTop: 8,
+    marginTop: 4,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  teacherMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+  },
+  teacherNameText: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_500Medium',
+    flexShrink: 1,
+  },
+  uidBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  uidText: {
+    fontSize: 9.5,
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+  },
+  markedTimestamp: {
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+  },
+
+  // Empty Filter Card
+  emptyFilterCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  emptyFilterTitle: {
+    fontSize: 16,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    marginBottom: 4,
+  },
+  emptyFilterSubtitle: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_500Medium',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 16,
+  },
+
+  // Fallback card styles
   card: {
     padding: 16,
     borderRadius: Radius.lg,
