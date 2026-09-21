@@ -139,6 +139,8 @@ export default function AITutorChatScreen() {
   const { id, name } = useLocalSearchParams();
   const router = useRouter();
   const colors = useThemeStore((state) => state.colors);
+  const theme = useThemeStore((state) => state.theme);
+  const isDark = theme === 'black' || colors.text === '#f0f0f0' || colors.text === '#FFFFFF' || colors.background === '#050505';
   const { userId } = useAuth();
   const insets = useSafeAreaInsets();
   const kbOffset = insets.top;
@@ -670,11 +672,34 @@ export default function AITutorChatScreen() {
     buttonText: { color: 'white', fontFamily: 'Inter_600SemiBold', fontSize: 16 },
     
     chatContainer: { flex: 1 },
-    messagesList: { padding: 16, paddingBottom: 32 },
-    messageBubble: { maxWidth: '85%', padding: 12, borderRadius: 16, marginBottom: 16 },
-    userBubble: { backgroundColor: colors.primary, alignSelf: 'flex-end', borderBottomRightRadius: 4 },
-    aiBubble: { backgroundColor: colors.surface, alignSelf: 'flex-start', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: colors.border },
-    userText: { color: 'white', fontFamily: 'Inter_400Regular', fontSize: 15 },
+    messagesList: { paddingHorizontal: 12, paddingTop: 14, paddingBottom: 32 },
+    messageBubble: { marginBottom: 16 },
+    userBubble: { 
+      backgroundColor: colors.primary, 
+      alignSelf: 'flex-end', 
+      maxWidth: '85%', 
+      paddingHorizontal: 16, 
+      paddingVertical: 12, 
+      borderRadius: 18, 
+      borderBottomRightRadius: 4 
+    },
+    aiBubble: { 
+      width: '100%', 
+      maxWidth: '100%', 
+      alignSelf: 'stretch', 
+      backgroundColor: isDark ? '#111116' : colors.surface, 
+      borderWidth: 1, 
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border, 
+      borderRadius: 16, 
+      paddingHorizontal: 16, 
+      paddingVertical: 14,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0.2 : 0.05,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    userText: { color: 'white', fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 22 },
     
     inputArea: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'flex-end' },
     chatInput: { flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, textAlignVertical: 'top', lineHeight: 20 },
@@ -690,19 +715,208 @@ export default function AITutorChatScreen() {
     modalOption: { paddingVertical: 16, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: colors.border },
     modalOptionText: { color: '#d1d5db', fontSize: 15, fontFamily: 'Inter_500Medium' },
     modalOptionTextSelected: { color: colors.primary, fontFamily: 'Inter_700Bold' },
-  }), [colors]);
+  }), [colors, isDark, insets]);
 
-  const markdownStyles = {
-    body: { color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 22 },
-    heading1: { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 20, color: colors.text, marginVertical: 8 },
-    heading2: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 18, color: colors.text, marginVertical: 8 },
-    heading3: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 16, color: colors.text, marginVertical: 8 },
-    paragraph: { marginTop: 0, marginBottom: 10 },
-    code_inline: { backgroundColor: colors.background, fontFamily: 'JetBrainsMono_400Regular', color: colors.primary, padding: 4, borderRadius: 4 },
-    code_block: { backgroundColor: colors.background, fontFamily: 'JetBrainsMono_400Regular', color: colors.text, padding: 12, borderRadius: 8, marginVertical: 8 },
-    strong: { fontFamily: 'Inter_600SemiBold' },
-    link: { color: colors.primary, textDecorationLine: 'underline' } as const
-  };
+  const markdownStyles = useMemo(() => ({
+    body: { color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 23 },
+    heading1: { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 21, color: colors.text, marginTop: 14, marginBottom: 8 },
+    heading2: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 18, color: colors.text, marginTop: 12, marginBottom: 6 },
+    heading3: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 16, color: colors.text, marginTop: 10, marginBottom: 4 },
+    heading4: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 15, color: colors.text, marginTop: 8, marginBottom: 4 },
+    heading5: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 14, color: colors.text, marginTop: 6, marginBottom: 2 },
+    heading6: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 13, color: colors.text, marginTop: 4, marginBottom: 2 },
+    paragraph: { marginTop: 0, marginBottom: 10, color: colors.text, flexWrap: 'wrap' as const },
+    strong: { fontFamily: 'Inter_700Bold', color: colors.text },
+    em: { fontFamily: 'Inter_400Regular', fontStyle: 'italic' as const, color: colors.text },
+    s: { textDecorationLine: 'line-through' as const, color: colors.textDim },
+    link: { color: colors.primary, textDecorationLine: 'underline' as const },
+    blockquote: {
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)',
+      borderColor: colors.primary,
+      borderLeftWidth: 3.5,
+      borderRadius: 6,
+      marginLeft: 0,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginVertical: 8,
+    },
+    code_inline: { 
+      backgroundColor: isDark ? '#1a1a24' : '#e2e8f0', 
+      fontFamily: 'JetBrainsMono_400Regular', 
+      color: isDark ? '#60a5fa' : colors.primary, 
+      paddingHorizontal: 6, 
+      paddingVertical: 2, 
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+      fontSize: 13,
+    },
+    code_block: { 
+      backgroundColor: isDark ? '#14141b' : '#f1f5f9', 
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1',
+      borderWidth: 1,
+      fontFamily: 'JetBrainsMono_400Regular', 
+      color: isDark ? '#f1f5f9' : '#0f172a', 
+      padding: 12, 
+      borderRadius: 10, 
+      marginVertical: 8,
+      fontSize: 13,
+      lineHeight: 20,
+    },
+    fence: { 
+      backgroundColor: isDark ? '#14141b' : '#f1f5f9', 
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1',
+      borderWidth: 1,
+      fontFamily: 'JetBrainsMono_400Regular', 
+      color: isDark ? '#f1f5f9' : '#0f172a', 
+      padding: 12, 
+      borderRadius: 10, 
+      marginVertical: 8,
+      fontSize: 13,
+      lineHeight: 20,
+    },
+    pre: {
+      backgroundColor: 'transparent',
+    },
+    bullet_list: {
+      marginVertical: 4,
+    },
+    ordered_list: {
+      marginVertical: 4,
+    },
+    list_item: {
+      flexDirection: 'row' as const,
+      alignItems: 'flex-start' as const,
+      marginVertical: 3,
+    },
+    bullet_list_icon: {
+      marginLeft: 4,
+      marginRight: 8,
+      color: colors.primary,
+    },
+    ordered_list_icon: {
+      marginLeft: 4,
+      marginRight: 8,
+      color: colors.primary,
+      fontFamily: 'Inter_600SemiBold',
+    },
+    bullet_list_content: {
+      flex: 1,
+      color: colors.text,
+    },
+    ordered_list_content: {
+      flex: 1,
+      color: colors.text,
+    },
+    table: {
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(0, 0, 0, 0.12)',
+      borderRadius: 8,
+      marginVertical: 8,
+      backgroundColor: isDark ? '#14141a' : '#f8fafc',
+      overflow: 'hidden' as const,
+    },
+    thead: {
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+    },
+    tbody: {},
+    th: {
+      flex: 1,
+      padding: 8,
+      color: colors.text,
+      fontFamily: 'Inter_600SemiBold',
+      fontSize: 13,
+    },
+    tr: {
+      borderBottomWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+      flexDirection: 'row' as const,
+    },
+    td: {
+      flex: 1,
+      padding: 8,
+      color: colors.text,
+      fontFamily: 'Inter_400Regular',
+      fontSize: 13,
+    },
+    hr: {
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)',
+      height: 1,
+      marginVertical: 12,
+    },
+    text: {
+      color: colors.text,
+    },
+  }), [colors, isDark]);
+
+  const markdownRules = useMemo(() => ({
+    fence: (node: any) => {
+      let content = node.content;
+      if (typeof content === 'string' && content.charAt(content.length - 1) === '\n') {
+        content = content.substring(0, content.length - 1);
+      }
+      return (
+        <ScrollView
+          key={node.key}
+          horizontal
+          nestedScrollEnabled={true}
+          showsHorizontalScrollIndicator={false}
+          style={{
+            backgroundColor: isDark ? '#14141b' : '#f1f5f9',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1',
+            borderRadius: 10,
+            marginVertical: 8,
+            padding: 12,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: 'JetBrainsMono_400Regular',
+              color: isDark ? '#f1f5f9' : '#0f172a',
+              fontSize: 13,
+              lineHeight: 20,
+            }}
+          >
+            {content}
+          </Text>
+        </ScrollView>
+      );
+    },
+    code_block: (node: any) => {
+      let content = node.content;
+      if (typeof content === 'string' && content.charAt(content.length - 1) === '\n') {
+        content = content.substring(0, content.length - 1);
+      }
+      return (
+        <ScrollView
+          key={node.key}
+          horizontal
+          nestedScrollEnabled={true}
+          showsHorizontalScrollIndicator={false}
+          style={{
+            backgroundColor: isDark ? '#14141b' : '#f1f5f9',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#cbd5e1',
+            borderRadius: 10,
+            marginVertical: 8,
+            padding: 12,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: 'JetBrainsMono_400Regular',
+              color: isDark ? '#f1f5f9' : '#0f172a',
+              fontSize: 13,
+              lineHeight: 20,
+            }}
+          >
+            {content}
+          </Text>
+        </ScrollView>
+      );
+    },
+  }), [isDark]);
 
   if (!isAccessGranted || isInitializingSettings) {
     return (
@@ -964,7 +1178,7 @@ export default function AITutorChatScreen() {
             onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
             onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
             ListFooterComponent={isTyping ? (
-               <View style={[styles.messageBubble, styles.aiBubble, { width: 80, alignItems: 'center' }]}>
+               <View style={[styles.messageBubble, styles.aiBubble, { width: 72, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center', paddingVertical: 12 }]}>
                  <ActivityIndicator size="small" color={colors.primary} />
                </View>
             ) : null}
@@ -1000,9 +1214,17 @@ export default function AITutorChatScreen() {
                          )}
                       </View>
                    ) : (
-                      <Markdown style={markdownStyles}>
-                         {msg.text}
-                      </Markdown>
+                      <View style={{ width: '100%' }}>
+                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 6 }}>
+                            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center' }}>
+                               <Ionicons name="sparkles" size={12} color={colors.primary} />
+                            </View>
+                            <Text style={{ fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', color: colors.primary, letterSpacing: 0.3 }}>AI Tutor</Text>
+                         </View>
+                         <Markdown style={markdownStyles} rules={markdownRules}>
+                            {msg.text}
+                         </Markdown>
+                      </View>
                    )}
                 </View>
              )}}
