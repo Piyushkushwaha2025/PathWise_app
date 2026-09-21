@@ -1,6 +1,6 @@
 import "react-native-gesture-handler";
 import "react-native-reanimated";
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { View, StyleSheet, LogBox, Image, Animated, useColorScheme } from "react-native";
 import { Stack } from "expo-router";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
@@ -84,6 +84,7 @@ import { registerBackgroundSync } from "../tasks/backgroundSync";
 
 import { useStudySessionStore } from "../store/studySessionStore";
 import { useStudyOSStore } from "../store/studyosStore";
+import { useSubscription } from "../hooks/useSubscription";
 
 if (LogBox) {
   LogBox.ignoreLogs([
@@ -113,6 +114,35 @@ function RootLayoutInner() {
   const colors = useThemeStore((state) => state.colors);
   const initTheme = useThemeStore((state) => state.initTheme);
   const theme = useThemeStore((state) => state.theme);
+  const { isPro } = useSubscription();
+
+  const [cachedIsPro, setCachedIsPro] = useState<boolean | null>(null);
+
+  // Load cached Pro / Trial state instantly from local storage for seamless cold starts
+  useEffect(() => {
+    AsyncStorage.getItem('@pathwise_cached_is_pro')
+      .then((val) => {
+        if (val !== null) {
+          setCachedIsPro(val === 'true');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Sync Pro / Trial status to local cache whenever it updates
+  useEffect(() => {
+    if (isLoaded && user) {
+      AsyncStorage.setItem('@pathwise_cached_is_pro', isPro ? 'true' : 'false').catch(() => {});
+    }
+  }, [isLoaded, user, isPro]);
+
+  // If user has Pro, is on active 30-day trial, has reward Pro, or was cached as Pro -> DO NOT show ads
+  const isProEffective = isPro || cachedIsPro === true;
+  const isProEffectiveRef = useRef(isProEffective);
+
+  useEffect(() => {
+    isProEffectiveRef.current = isProEffective;
+  }, [isProEffective]);
 
   useEffect(() => {
     // Fire-and-forget — never block UI on local reads
@@ -123,63 +153,78 @@ function RootLayoutInner() {
   }, []);
 
   useEffect(() => {
+    // Only show starting AppOpenAd to authenticated users who DO NOT have Pro or an Active Trial
+    if (!isLoaded || !user || isProEffective) {
+      return;
+    }
+
+    if (Platform.OS === "web") return;
+
     let appOpenAd: AppOpenAd | null = null;
     let isAdLoaded = false;
     let isShowingAd = false;
     let hasShownInitialAd = false; // Track cold start ad
 
-    if (Platform.OS !== "web") {
-      const adUnitId = __DEV__
-        ? TestIds.APP_OPEN
-        : "ca-app-pub-4632911659428084/4454731771";
+    const adUnitId = __DEV__
+      ? TestIds.APP_OPEN
+      : "ca-app-pub-4632911659428084/4454731771";
 
-      try {
-        appOpenAd = AppOpenAd.createForAdRequest(adUnitId, {
-          requestNonPersonalizedAdsOnly: true,
-        });
+    try {
+      appOpenAd = AppOpenAd.createForAdRequest(adUnitId, {
+        requestNonPersonalizedAdsOnly: true,
+      });
 
-        appOpenAd.addAdEventListener(AdEventType.LOADED, () => {
-          isAdLoaded = true;
-          // Show immediately on cold start if app is active
-          if (!hasShownInitialAd && AppState.currentState === 'active' && !isShowingAd && !(global as any).isAdShowing) {
-            hasShownInitialAd = true;
-            isShowingAd = true;
-            appOpenAd?.show();
-          }
-        });
-        
-        appOpenAd.addAdEventListener(AdEventType.CLOSED, () => {
-          isShowingAd = false;
-          isAdLoaded = false;
-          appOpenAd?.load(); // Load next ad
-        });
+      appOpenAd.addAdEventListener(AdEventType.LOADED, () => {
+        isAdLoaded = true;
+        // Strictly verify that user is NOT Pro/Trial before showing
+        if (isProEffectiveRef.current) return;
 
-        appOpenAd.addAdEventListener(AdEventType.ERROR, (error) => {
-          isShowingAd = false;
-          isAdLoaded = false;
-          console.warn("AppOpenAd error:", error);
-        });
-
-        // Load the first ad
-        appOpenAd.load();
-      } catch (e) {
-        console.warn("Could not initialize AppOpenAd", e);
-      }
-
-      const appStateSubscription = AppState.addEventListener("change", (nextAppState) => {
-        // Show the ad when app comes to foreground (active), EXCEPT if a rewarded ad is showing
-        if (nextAppState === "active" && appOpenAd && isAdLoaded && !isShowingAd && !(global as any).isAdShowing) {
+        // Show immediately on cold start if app is active
+        if (!hasShownInitialAd && AppState.currentState === 'active' && !isShowingAd && !(global as any).isAdShowing) {
           hasShownInitialAd = true;
           isShowingAd = true;
-          appOpenAd.show();
+          appOpenAd?.show();
+        }
+      });
+      
+      appOpenAd.addAdEventListener(AdEventType.CLOSED, () => {
+        isShowingAd = false;
+        isAdLoaded = false;
+        // Only preload next ad if the user is still not Pro/Trial
+        if (!isProEffectiveRef.current) {
+          appOpenAd?.load();
         }
       });
 
-      return () => {
-        appStateSubscription.remove();
-      };
+      appOpenAd.addAdEventListener(AdEventType.ERROR, (error) => {
+        isShowingAd = false;
+        isAdLoaded = false;
+        console.warn("AppOpenAd error:", error);
+      });
+
+      // Load the first ad
+      appOpenAd.load();
+    } catch (e) {
+      console.warn("Could not initialize AppOpenAd", e);
     }
-  }, []);
+
+    const appStateSubscription = AppState.addEventListener("change", (nextAppState) => {
+      // Strictly verify that user is NOT Pro/Trial before showing
+      if (isProEffectiveRef.current) return;
+
+      // Show the ad when app comes to foreground (active), EXCEPT if a rewarded ad is showing
+      if (nextAppState === "active" && appOpenAd && isAdLoaded && !isShowingAd && !(global as any).isAdShowing) {
+        hasShownInitialAd = true;
+        isShowingAd = true;
+        appOpenAd.show();
+      }
+    });
+
+    return () => {
+      appStateSubscription.remove();
+      appOpenAd = null;
+    };
+  }, [isLoaded, !!user, isProEffective]);
 
   useEffect(() => {
     if (!user?.id) return;
