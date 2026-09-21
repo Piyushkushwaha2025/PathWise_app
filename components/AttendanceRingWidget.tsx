@@ -26,15 +26,15 @@ export function AttendanceRingWidget({
   predictTotal,
   colors,
   predictType = 'attend',
-  size = 152,
+  size = 144,
 }: Props) {
   const width = size;
-  const height = size * 0.95;
+  const svgHeight = 98;
 
   const cx = width / 2;
-  const cy = height * 0.48;
-  const r = size * 0.38;
-  const strokeWidth = 10;
+  const cy = 52;
+  const r = 43;
+  const strokeWidth = 9;
 
   // 260 degree arc: opens at bottom (from 140 deg to 400 deg)
   const startAngle = 140;
@@ -102,71 +102,71 @@ export function AttendanceRingWidget({
   });
 
   return (
-    <View style={[styles.container, { width, height }]}>
-      <Svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`}>
-        <Defs>
-          <SvgLinearGradient id="gaugeCurrentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor={currentGradStart} />
-            <Stop offset="100%" stopColor={currentGradEnd} />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="gaugePredictGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor={isMiss ? '#ef4444' : '#06b6d4'} />
-            <Stop offset="100%" stopColor={isMiss ? '#991b1b' : '#3b82f6'} />
-          </SvgLinearGradient>
-        </Defs>
+    <View style={[styles.container, { width }]}>
+      {/* Top Arc Gauge */}
+      <View style={{ width, height: svgHeight, position: 'relative' }}>
+        <Svg width={width} height={svgHeight} viewBox={`0 0 ${width} ${svgHeight}`}>
+          <Defs>
+            <SvgLinearGradient id="gaugeCurrentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={currentGradStart} />
+              <Stop offset="100%" stopColor={currentGradEnd} />
+            </SvgLinearGradient>
+            <SvgLinearGradient id="gaugePredictGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={isMiss ? '#ef4444' : '#22c55e'} />
+              <Stop offset="100%" stopColor={isMiss ? '#991b1b' : '#10b981'} />
+            </SvgLinearGradient>
+          </Defs>
 
-        {/* Outer Background Track */}
-        <Path
-          d={trackPath}
-          stroke={trackColor}
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeLinecap="round"
-        />
+          {/* Outer Background Track */}
+          <Path
+            d={trackPath}
+            stroke={trackColor}
+            strokeWidth={strokeWidth}
+            fill="none"
+            strokeLinecap="round"
+          />
 
-        {/* Projected Ghost Arc (if predicting attend higher than current) */}
-        {!isMiss && predictPct > currentPct && (
+          {/* Projected Ghost Arc (forward progress gain) */}
+          {!isMiss && predictPct > currentPct && (
+            <AnimatedPath
+              d={trackPath}
+              stroke="url(#gaugePredictGrad)"
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray={arcLength}
+              opacity={0.4}
+              animatedProps={animatedPredictProps}
+            />
+          )}
+
+          {/* Current Active Progress Arc */}
           <AnimatedPath
             d={trackPath}
-            stroke="url(#gaugePredictGrad)"
+            stroke="url(#gaugeCurrentGrad)"
             strokeWidth={strokeWidth}
             fill="none"
             strokeLinecap="round"
             strokeDasharray={arcLength}
-            opacity={0.4}
-            animatedProps={animatedPredictProps}
+            animatedProps={animatedCurrentProps}
           />
-        )}
 
-        {/* Current Active Progress Arc */}
-        <AnimatedPath
-          d={trackPath}
-          stroke="url(#gaugeCurrentGrad)"
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={arcLength}
-          animatedProps={animatedCurrentProps}
-        />
+          {/* Miss Drop Arc */}
+          {isMiss && predictPct < currentPct && (
+            <AnimatedPath
+              d={trackPath}
+              stroke="url(#gaugePredictGrad)"
+              strokeWidth={strokeWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray={arcLength}
+              animatedProps={animatedPredictProps}
+            />
+          )}
+        </Svg>
 
-        {/* If Miss: show the reduced prediction path overlaid */}
-        {isMiss && predictPct < currentPct && (
-          <AnimatedPath
-            d={trackPath}
-            stroke="url(#gaugePredictGrad)"
-            strokeWidth={strokeWidth + 0.5}
-            fill="none"
-            strokeLinecap="round"
-            strokeDasharray={arcLength}
-            animatedProps={animatedPredictProps}
-          />
-        )}
-      </Svg>
-
-      {/* High-Resolution Native Center Overlay */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <View style={[styles.centerOverlay, { paddingTop: cy - 36 }]}>
-          {/* Main Percentage */}
+        {/* Center Text: Absolutely positioned strictly within the upper inner circle */}
+        <View style={styles.centerTextOverlay} pointerEvents="none">
           <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
             <Text style={[styles.mainPctText, { color: currentColor }]}>
               {currentPct}
@@ -177,38 +177,40 @@ export function AttendanceRingWidget({
           <Text style={[styles.statusSubLabel, { color: colors.textMuted }]}>
             CURRENT
           </Text>
-
-          {/* Outcome Badge */}
-          {predictPct !== currentPct ? (
-            <View
-              style={[
-                styles.deltaBadge,
-                {
-                  backgroundColor: isMiss ? 'rgba(239, 68, 68, 0.14)' : 'rgba(34, 197, 94, 0.14)',
-                  borderColor: isMiss ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)',
-                },
-              ]}
-            >
-              <Text style={[styles.deltaText, { color: deltaColor }]}>
-                {isMiss ? '▼' : '▲'} {predictPct}%
-              </Text>
-              <Text style={[styles.deltaSubText, { color: deltaColor }]}>
-                {isMiss ? 'if miss' : 'predicted'}
-              </Text>
-            </View>
-          ) : (
-            <View
-              style={[
-                styles.neutralBadge,
-                { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' },
-              ]}
-            >
-              <Text style={[styles.neutralText, { color: colors.textDim }]}>
-                {currentAttended}/{currentTotal} held
-              </Text>
-            </View>
-          )}
         </View>
+      </View>
+
+      {/* Outcome Chip: Rendered below the arc so it NEVER overlaps the stroke */}
+      <View style={styles.outcomeRow}>
+        {predictPct !== currentPct ? (
+          <View
+            style={[
+              styles.deltaBadge,
+              {
+                backgroundColor: isMiss ? 'rgba(239, 68, 68, 0.12)' : 'rgba(34, 197, 94, 0.12)',
+                borderColor: isMiss ? 'rgba(239, 68, 68, 0.28)' : 'rgba(34, 197, 94, 0.28)',
+              },
+            ]}
+          >
+            <Text style={[styles.deltaText, { color: deltaColor }]}>
+              {isMiss ? '▼' : '▲'} {predictPct}%
+            </Text>
+            <Text style={[styles.deltaSubText, { color: deltaColor }]}>
+              {isMiss ? 'if miss' : 'predicted'}
+            </Text>
+          </View>
+        ) : (
+          <View
+            style={[
+              styles.neutralBadge,
+              { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' },
+            ]}
+          >
+            <Text style={[styles.neutralText, { color: colors.textDim }]}>
+              {currentAttended}/{currentTotal} held
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -218,28 +220,36 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
-  centerOverlay: {
+  centerTextOverlay: {
+    position: 'absolute',
+    top: 22,
+    left: 0,
+    right: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
   mainPctText: {
-    fontSize: 30,
+    fontSize: 27,
     fontFamily: 'SpaceGrotesk_700Bold',
-    lineHeight: 34,
+    lineHeight: 31,
   },
   mainPctSymbol: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: 'SpaceGrotesk_700Bold',
     marginLeft: 1,
   },
   statusSubLabel: {
-    fontSize: 9.5,
+    fontSize: 8.5,
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
-    marginTop: 1,
+    marginTop: 0,
+  },
+  outcomeRow: {
+    marginTop: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   deltaBadge: {
     flexDirection: 'row',
@@ -247,9 +257,8 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 2.5,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    marginTop: 6,
   },
   deltaText: {
     fontSize: 11,
@@ -260,10 +269,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
   },
   neutralBadge: {
-    paddingHorizontal: 7,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
-    marginTop: 5,
+    borderRadius: 8,
   },
   neutralText: {
     fontSize: 9.5,
