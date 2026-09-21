@@ -997,58 +997,116 @@ export function DetailedAttendanceModal({
               </View>
 
                 {/* Predict control panel */}
-              <View style={{ backgroundColor: colors.surface, borderRadius: 8, padding: 8, borderWidth: 1, borderColor: colors.border, marginTop: 6 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
-                    <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>{predictDays}</Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>days</Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 12, marginLeft: 4 }}>|</Text>
-                    <Text style={{ color: colors.text, fontSize: 12, fontFamily: 'Inter_600SemiBold', marginLeft: 4 }}>
-                      {prediction.count} classes expected
-                      {prediction.count > 0 && (
-                        <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
-                          {' '}({prediction.lectureCount}L • {prediction.practicalCount}P)
+                {/* Modernized Predict Control Panel */}
+                <View
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderRadius: Radius.lg,
+                    padding: 12,
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                    marginTop: 8,
+                  }}
+                >
+                  {/* Header Row: Days indicator + Missed Input */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ backgroundColor: colors.primary + '18', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                        <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold' }}>
+                          Next {predictDays} Days
                         </Text>
-                      )}
-                    </Text>
-                  </View>
-                  {/* Miss input */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Miss:</Text>
-                    <TextInput
-                      value={missedClassesInput}
-                      onChangeText={(v) => {
-                        const n = parseInt(v, 10);
-                        if (v === '') { setMissedClassesInput(''); return; }
-                        if (!isNaN(n)) setMissedClassesInput(String(Math.min(n, prediction.count)));
-                      }}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      placeholderTextColor={colors.textMuted}
-                      style={{ width: 44, height: 26, borderRadius: 6, borderWidth: 1, borderColor: parseInt(missedClassesInput, 10) > 0 ? '#ef4444' : colors.border, backgroundColor: colors.background, color: colors.text, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', textAlign: 'center', paddingVertical: 0 }}
-                      maxLength={2}
-                    />
-                  </View>
-                </View>
-
-                <PremiumSlider min={1} max={30} value={predictDays} onValueChange={(val: number) => handleSetPredictDays(val)} colors={colors} />
-
-                {/* Result row */}
-                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 8 }}>
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <View style={{ alignItems: 'center' }}>
-                      <Text style={{ color: '#22c55e', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.attendedAllPct}%</Text>
-                      <Text style={{ color: colors.textMuted, fontSize: 10 }}>if attend all</Text>
+                      </View>
+                      <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium' }}>
+                        {prediction.count} classes ({prediction.lectureCount}L • {prediction.practicalCount}P)
+                      </Text>
                     </View>
+
+                    {/* Miss input chip */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium' }}>Miss:</Text>
+                      <TextInput
+                        value={missedClassesInput}
+                        onChangeText={(v) => {
+                          const n = parseInt(v, 10);
+                          if (v === '') { setMissedClassesInput(''); return; }
+                          if (!isNaN(n)) setMissedClassesInput(String(Math.min(n, prediction.count)));
+                        }}
+                        keyboardType="number-pad"
+                        placeholder="0"
+                        placeholderTextColor={colors.textMuted}
+                        style={{
+                          width: 42,
+                          height: 28,
+                          borderRadius: 6,
+                          borderWidth: 1,
+                          borderColor: parseInt(missedClassesInput, 10) > 0 ? '#ef4444' : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                          backgroundColor: parseInt(missedClassesInput, 10) > 0 ? '#ef444415' : colors.background,
+                          color: parseInt(missedClassesInput, 10) > 0 ? '#ef4444' : colors.text,
+                          fontSize: 13,
+                          fontFamily: 'SpaceGrotesk_700Bold',
+                          textAlign: 'center',
+                          paddingVertical: 0,
+                        }}
+                        maxLength={2}
+                      />
+                    </View>
+                  </View>
+
+                  <PremiumSlider min={1} max={30} value={predictDays} onValueChange={(val: number) => handleSetPredictDays(val)} colors={colors} />
+
+                  {/* Outcome Cards Row */}
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <View
+                      style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: 8,
+                        borderRadius: 8,
+                        backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                        borderWidth: 1,
+                        borderColor: 'rgba(34, 197, 94, 0.25)',
+                      }}
+                    >
+                      <CheckCircle2 size={16} color="#22c55e" />
+                      <View>
+                        <Text style={{ color: '#22c55e', fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', lineHeight: 18 }}>
+                          {prediction.attendedAllPct}%
+                        </Text>
+                        <Text style={{ color: colors.textMuted, fontSize: 9.5, fontFamily: 'Inter_500Medium' }}>
+                          If attend all classes
+                        </Text>
+                      </View>
+                    </View>
+
                     {(prediction?.validMissed ?? 0) > 0 && (
-                      <View style={{ alignItems: 'center' }}>
-                        <Text style={{ color: '#ef4444', fontSize: 14, fontFamily: 'SpaceGrotesk_700Bold' }}>{prediction.missedPct}%</Text>
-                        <Text style={{ color: colors.textMuted, fontSize: 10 }}>if miss {prediction.validMissed}</Text>
+                      <View
+                        style={{
+                          flex: 1,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: 8,
+                          borderRadius: 8,
+                          backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                          borderWidth: 1,
+                          borderColor: 'rgba(239, 68, 68, 0.25)',
+                        }}
+                      >
+                        <XCircle size={16} color="#ef4444" />
+                        <View>
+                          <Text style={{ color: '#ef4444', fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', lineHeight: 18 }}>
+                            {prediction.missedPct}%
+                          </Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 9.5, fontFamily: 'Inter_500Medium' }}>
+                            If miss {prediction.validMissed} class{prediction.validMissed > 1 ? 'es' : ''}
+                          </Text>
+                        </View>
                       </View>
                     )}
                   </View>
                 </View>
-              </View>
           </View>
         )}
 
