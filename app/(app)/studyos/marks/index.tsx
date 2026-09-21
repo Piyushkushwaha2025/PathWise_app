@@ -36,7 +36,7 @@ function parseSession(text: string): { year: number; month: number } {
   return { year, month };
 }
 
-function buildSemesterList(raw: RawSemester[]): SemesterItem[] {
+function buildSemesterList(raw: RawSemester[], studentSemStr?: string): SemesterItem[] {
   const sorted = [...raw].sort((a, b) => {
     const A = parseSession(a.text);
     const B = parseSession(b.text);
@@ -44,18 +44,72 @@ function buildSemesterList(raw: RawSemester[]): SemesterItem[] {
     return A.month - B.month;
   });
 
-  const list: SemesterItem[] = sorted.map((opt, i) => ({
-    label: `Semester ${i + 1}`,
-    value: opt.value,
-    originalText: opt.text,
-  }));
+  // Extract student's actual current semester from profile (e.g. "3" -> 3)
+  let studentCurrentSem = 0;
+  if (studentSemStr && studentSemStr !== 'N/A') {
+    const match = studentSemStr.match(/(\d+)/);
+    if (match) {
+      studentCurrentSem = parseInt(match[1], 10);
+    }
+  }
 
-  // Append the current/ongoing semester (since it hasn't appeared in the portal's Results dropdown yet)
-  list.push({
-    label: `Semester ${list.length + 1} (Current)`,
-    value: null,
-    originalText: 'Current Session'
+  // If student's current semester is known from portal profile (e.g. Semester 3)
+  if (studentCurrentSem > 0) {
+    const list: SemesterItem[] = [];
+    for (let i = 1; i <= studentCurrentSem; i++) {
+      const isCurrent = (i === studentCurrentSem);
+      const rawOpt = sorted[i - 1];
+
+      if (isCurrent) {
+        list.push({
+          label: `Semester ${i} (Current)`,
+          value: rawOpt ? rawOpt.value : null,
+          originalText: rawOpt ? rawOpt.text : 'Current Session',
+        });
+      } else {
+        list.push({
+          label: `Semester ${i}`,
+          value: rawOpt ? rawOpt.value : `sem_${i}`,
+          originalText: rawOpt ? rawOpt.text : `Semester ${i} Session`,
+        });
+      }
+    }
+    return list;
+  }
+
+  // Fallback if profile semester is not available:
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+
+  const list: SemesterItem[] = sorted.map((opt, i) => {
+    const sess = parseSession(opt.text);
+    const isOngoing = (sess.year === currentYear && ((sess.month >= 7 && currentMonth >= 7) || (sess.month <= 6 && currentMonth <= 6)));
+    const isLast = i === sorted.length - 1;
+    
+    if (isLast && isOngoing) {
+      return {
+        label: `Semester ${i + 1} (Current)`,
+        value: opt.value,
+        originalText: opt.text,
+      };
+    }
+
+    return {
+      label: `Semester ${i + 1}`,
+      value: opt.value,
+      originalText: opt.text,
+    };
   });
+
+  const hasCurrent = list.some(item => item.label.includes('(Current)'));
+  if (!hasCurrent) {
+    list.push({
+      label: `Semester ${list.length + 1} (Current)`,
+      value: null,
+      originalText: 'Current Session',
+    });
+  }
 
   return list;
 }
@@ -65,7 +119,7 @@ export default function MarksScreen() {
   const theme = useThemeStore((s) => s.theme);
   const isDark = theme === 'black';
   const styles = useStyles(colors, isDark);
-  const { marks, subjects, semesterOptionsCache, resultCache, setScrapedData } = useStudyOSStore();
+  const { marks, subjects, semesterOptionsCache, resultCache, setScrapedData, profile } = useStudyOSStore();
   const { clearSession } = useStudySessionStore();
   const router = useRouter();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
@@ -77,11 +131,10 @@ export default function MarksScreen() {
   const [resultData, setResultData] = useState<{sgpa: string, subjects: any[]} | null>(null);
   const [isLoading, setIsLoading] = useState(semesterOptionsCache?.length ? false : true);
 
-  // Semester picker list: real portal sessions only, relabelled "Semester N"
-  // in chronological order. Unuploaded (future) semesters are not shown.
+  // Semester picker list: aligned with real portal profile semester
   const derivedSemesters = useMemo(
-    () => buildSemesterList(semesterOptions),
-    [semesterOptions]
+    () => buildSemesterList(semesterOptions, profile?.semester),
+    [semesterOptions, profile?.semester]
   );
 
   // Latest (current) semester = last item in chronological list
@@ -512,9 +565,8 @@ export default function MarksScreen() {
   );
 
   const selectSemester = (item: SemesterItem) => {
-    // Upcoming semester that has no portal data yet — just show it as selected
-    // with an empty result, no postback needed.
-    if (item.value === null) {
+    // Current ongoing semester uses internal marks & radar — no portal postback needed
+    if (item.value === null || item.label.includes('(Current)')) {
       setIsModalVisible(false);
       setSelectedSemester(item.label);
       setResultData(null);
@@ -632,7 +684,7 @@ export default function MarksScreen() {
             <Text style={styles.semesterBtnText} numberOfLines={1}>
               {(isLoading && semesterOptions.length === 0) 
                 ? 'Loading...' 
-                : (selectedSemLabel ? selectedSemLabel : 'Result')}
+                : (selectedSemLabel ? selectedSemLabel : (derivedSemesters[derivedSemesters.length - 1]?.label || 'Result'))}
             </Text>
             <Ionicons name="chevron-down" size={13} color={colors.primary} />
           </TouchableOpacity>
@@ -849,10 +901,11 @@ export default function MarksScreen() {
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 16 }}>
               {derivedSemesters.map((opt, i) => {
-                const isSel = selectedSemLabel === opt.label;
+                const isCurrent = opt.label.includes('(Current)');
+                const isSel = selectedSemLabel ? selectedSemLabel === opt.label : isCurrent;
                 const isMay = opt.originalText.toLowerCase().includes('may') || opt.originalText.toLowerCase().includes('odd');
                 const isDec = opt.originalText.toLowerCase().includes('dec') || opt.originalText.toLowerCase().includes('even') || opt.originalText.toLowerCase().includes('nov');
-                const accentColor = isMay ? '#f59e0b' : isDec ? '#3b82f6' : colors.primary;
+                const accentColor = isCurrent ? colors.primary : isMay ? '#f59e0b' : isDec ? '#3b82f6' : colors.primary;
                 return (
                   <TouchableOpacity
                     key={i.toString()}
@@ -874,7 +927,7 @@ export default function MarksScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                       <View style={[styles.sessionIconBox, { backgroundColor: accentColor + '22', borderColor: accentColor + '40' }]}>
                         <Ionicons
-                          name={isMay ? 'sunny-outline' : isDec ? 'snow-outline' : 'school-outline'}
+                          name={isCurrent ? 'school-outline' : isMay ? 'sunny-outline' : isDec ? 'snow-outline' : 'trophy-outline'}
                           size={18}
                           color={accentColor}
                         />
@@ -884,7 +937,13 @@ export default function MarksScreen() {
                           {opt.label}
                         </Text>
                         <Text style={styles.modalOptionSub}>
-                          {isMay ? 'Summer Examination Session' : isDec ? 'Winter Examination Session' : opt.originalText}
+                          {isCurrent
+                            ? 'Current Ongoing Session'
+                            : isMay
+                            ? 'Summer Examination Session'
+                            : isDec
+                            ? 'Winter Examination Session'
+                            : opt.originalText}
                         </Text>
                       </View>
                       {isSel && (
