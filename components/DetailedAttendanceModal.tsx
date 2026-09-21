@@ -357,26 +357,77 @@ const Speedometer = ({ percentage, colors }: { percentage: number, colors: any }
 };
 
 const MiniStatBox = ({ label, value, colors, color, icon: Icon }: any) => (
-  <View style={{ 
+  <View
+    style={{
       flex: 1,
-      marginBottom: 3, 
       backgroundColor: colors.surface,
-      paddingVertical: 4,
-      paddingHorizontal: 6,
-      borderRadius: 6,
+      paddingVertical: 7,
+      paddingHorizontal: 8,
+      borderRadius: 10,
       borderWidth: 1,
       borderColor: colors.border,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6
-  }}>
-    <View style={{ backgroundColor: color + '15', padding: 4, borderRadius: 4 }}>
-      <Icon size={12} color={color} />
+      gap: 7,
+      position: 'relative',
+      overflow: 'hidden',
+    }}
+  >
+    {/* Left Icon with tinted container */}
+    <View
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        backgroundColor: color + '15',
+        borderWidth: 1,
+        borderColor: color + '30',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Icon size={14} color={color} />
     </View>
-    <View>
-      <Text style={{ fontSize: 9, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>{label}</Text>
-      <Text style={{ fontSize: 13, color: colors.text, fontFamily: 'SpaceGrotesk_700Bold' }}>{value}</Text>
+
+    {/* Label & Value */}
+    <View style={{ flex: 1 }}>
+      <Text
+        style={{
+          fontSize: 9.5,
+          color: colors.textMuted,
+          fontFamily: 'Inter_600SemiBold',
+          textTransform: 'uppercase',
+          letterSpacing: 0.2,
+        }}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      <Text
+        style={{
+          fontSize: 16,
+          color: colors.text,
+          fontFamily: 'SpaceGrotesk_700Bold',
+          lineHeight: 19,
+        }}
+      >
+        {value}
+      </Text>
     </View>
+
+    {/* Subtle indicator dot */}
+    <View
+      style={{
+        position: 'absolute',
+        top: 5,
+        right: 5,
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: color,
+        opacity: 0.8,
+      }}
+    />
   </View>
 );
 
@@ -965,36 +1016,44 @@ export function DetailedAttendanceModal({
         </View>
 
         {isPredicting && prediction && (
-          <View style={{ padding: 8, paddingBottom: 16, backgroundColor: colors.surfaceHigh, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-              {/* Row: Speedometer + Stat Tiles */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 8 }}>
-                  {/* Circular Gauge */}
-                  <View style={{ flex: 1, alignItems: 'center' }}>
-                    <AttendanceRingWidget
-                      currentPct={prediction.currentPct ?? 0}
-                      predictPct={(prediction.validMissed ?? 0) > 0 ? (prediction.missedPct ?? 0) : (prediction.attendedAllPct ?? 0)}
-                      currentAttended={prediction.currAttended ?? 0}
-                      currentTotal={prediction.currTotal ?? 0}
-                      predictAttended={(prediction.validMissed ?? 0) > 0 ? (prediction.predictedAttendedWithMiss ?? 0) : ((prediction.currAttended ?? 0) + (prediction.count ?? 0))}
-                      predictTotal={prediction.newTotal ?? 0}
-                      predictType={(prediction.validMissed ?? 0) > 0 ? 'miss' : 'attend'}
-                      colors={colors}
-                      size={150}
-                    />
-                  </View>
-
-                  {/* Stat tiles */}
-                  <View style={{ flex: 1.1, paddingLeft: 12 }}>
-                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
-                      <MiniStatBox label="Present" value={presentCount} colors={colors} color="#22c55e" icon={CheckCircle2} />
-                      <MiniStatBox label="Absent" value={absentCount} colors={colors} color="#ef4444" icon={XCircle} />
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 6 }}>
-                      <MiniStatBox label="Med L." value={medicalLeaveCount} colors={colors} color="#f59e0b" icon={Stethoscope} />
-                      <MiniStatBox label="Duty L." value={dutyLeaveCount} colors={colors} color="#3b82f6" icon={Briefcase} />
-                    </View>
-                  </View>
+          <View
+            style={{
+              padding: 12,
+              paddingBottom: 16,
+              backgroundColor: isDark ? '#101014' : colors.surfaceHigh,
+              borderBottomWidth: 1,
+              borderBottomColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            }}
+          >
+            {/* Row: Speedometer + Stat Tiles */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 4 }}>
+              {/* Circular Gauge */}
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <AttendanceRingWidget
+                  currentPct={prediction.currentPct ?? 0}
+                  predictPct={(prediction.validMissed ?? 0) > 0 ? (prediction.missedPct ?? 0) : (prediction.attendedAllPct ?? 0)}
+                  currentAttended={prediction.currAttended ?? 0}
+                  currentTotal={prediction.currTotal ?? 0}
+                  predictAttended={(prediction.validMissed ?? 0) > 0 ? (prediction.predictedAttendedWithMiss ?? 0) : ((prediction.currAttended ?? 0) + (prediction.count ?? 0))}
+                  predictTotal={prediction.newTotal ?? 0}
+                  predictType={(prediction.validMissed ?? 0) > 0 ? 'miss' : 'attend'}
+                  colors={colors}
+                  size={144}
+                />
               </View>
+
+              {/* Bento Stat tiles */}
+              <View style={{ flex: 1.15, paddingLeft: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
+                  <MiniStatBox label="Present" value={presentCount} colors={colors} color="#22c55e" icon={CheckCircle2} />
+                  <MiniStatBox label="Absent" value={absentCount} colors={colors} color="#ef4444" icon={XCircle} />
+                </View>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  <MiniStatBox label="Med L." value={medicalLeaveCount} colors={colors} color="#f59e0b" icon={Stethoscope} />
+                  <MiniStatBox label="Duty L." value={dutyLeaveCount} colors={colors} color="#3b82f6" icon={Briefcase} />
+                </View>
+              </View>
+            </View>
 
                 {/* Predict control panel */}
                 {/* Modernized Predict Control Panel */}
