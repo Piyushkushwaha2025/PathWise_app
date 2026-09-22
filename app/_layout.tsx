@@ -85,6 +85,7 @@ import { registerBackgroundSync } from "../tasks/backgroundSync";
 import { useStudySessionStore } from "../store/studySessionStore";
 import { useStudyOSStore } from "../store/studyosStore";
 import { useSubscription } from "../hooks/useSubscription";
+import { savePushToken } from "../lib/db";
 
 if (LogBox) {
   LogBox.ignoreLogs([
@@ -242,13 +243,8 @@ function RootLayoutInner() {
             try {
               const projectId = "6ec620f1-e4e6-4862-8223-6418976b86e4";
               const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
-              const API_URL = process.env.EXPO_PUBLIC_API_URL;
-              if (API_URL && tokenData?.data) {
-                fetch(`${API_URL}/api/user/push-token`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-clerk-user-id': user.id },
-                  body: JSON.stringify({ expoPushToken: tokenData.data })
-                }).catch(e => console.error("Error saving token:", e));
+              if (tokenData?.data) {
+                await savePushToken(user.id, tokenData.data);
               }
             } catch (error: any) {
               console.warn("⚠️ Push token generation skipped:", error?.message);

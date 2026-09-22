@@ -213,8 +213,10 @@ function getExamsForDate(datesheet: any[], dateObj: Date) {
   });
 }
 
-function CurrentClassWidget() {
+function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, string> }) {
   const colors = useThemeStore((s) => s.colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black' || theme === 'emerald';
   const { timetable, subjects, detailedAttendanceCache, datesheet } = useStudyOSStore();
   const today = getCurrentDay();
   
@@ -243,6 +245,7 @@ function CurrentClassWidget() {
   const isOngoing = !!activeClass;
 
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (isOngoing && displayClass) {
@@ -259,12 +262,25 @@ function CurrentClassWidget() {
     }
   }, [isOngoing, currentMinutes, displayClass]);
 
+  useEffect(() => {
+    if (isOngoing) {
+      const anim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.25, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true })
+        ])
+      );
+      anim.start();
+      return () => anim.stop();
+    }
+  }, [isOngoing]);
+
   if (!displayClass) {
     if (classesToday.length === 0) {
       return (
         <View style={{ marginBottom: Spacing.xl }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md, marginTop: Spacing.sm }}>
-            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold',  }}>Today's Schedule </Text>
+            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>Today's Schedule</Text>
             <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>No classes</Text>
           </View>
           <View style={{
@@ -279,7 +295,7 @@ function CurrentClassWidget() {
                 <Ionicons name="cafe-outline" size={20} color={colors.textMuted} />
               </View>
               <View>
-                <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold',  }}>No Classes Today!</Text>
+                <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>No Classes Today!</Text>
                 <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' }}>Enjoy your free time.</Text>
               </View>
             </View>
@@ -292,7 +308,7 @@ function CurrentClassWidget() {
     return (
       <View style={{ marginBottom: Spacing.xl }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md, marginTop: Spacing.sm }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold',  }}>Today's Schedule </Text>
+          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>Today's Schedule</Text>
           <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Completed</Text>
         </View>
         <View style={{
@@ -307,7 +323,7 @@ function CurrentClassWidget() {
               <Ionicons name="checkmark-done" size={20} color={colors.textMuted} />
             </View>
             <View>
-              <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold',  }}>All Done for Today!</Text>
+              <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>All Done for Today!</Text>
               <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' }}>You have completed {classesToday.length} classes today.</Text>
             </View>
           </View>
@@ -321,9 +337,22 @@ function CurrentClassWidget() {
   let baseCode = rawSubjectName.split(' ')[0]; // "25CSH-211"
   let suffix = rawSubjectName.substring(baseCode.length); // " (Lab)"
   
-  const matchedSubject = subjects?.find(s => s.code === baseCode);
+  const matchedSubject = subjects?.find(s => s.code === baseCode || (s.code && baseCode.includes(s.code.replace(/^[A-Z]+_/, ''))));
   const fullNameToDisplay = matchedSubject ? `${matchedSubject.name}${suffix}` : rawSubjectName;
   const history = matchedSubject ? getHistoryStatuses(detailedAttendanceCache?.[matchedSubject.code]) : [];
+
+  // Find today's attendance record
+  const todayRecord = history.find(h => h.isToday);
+  let attendanceStatus: 'present' | 'absent' | 'leave' | 'pending' = 'pending';
+  if (todayRecord) {
+    if (todayRecord.type === 'P') attendanceStatus = 'present';
+    else if (todayRecord.type === 'A') attendanceStatus = 'absent';
+    else if (todayRecord.type === 'DL' || todayRecord.type === 'ML') attendanceStatus = 'leave';
+  } else if (matchedSubject && justUpdated?.[matchedSubject.code]) {
+    const ju = justUpdated[matchedSubject.code].toLowerCase();
+    if (ju.includes('present')) attendanceStatus = 'present';
+    else if (ju.includes('absent')) attendanceStatus = 'absent';
+  }
 
   let whatIfAttend = null;
   let whatIfMiss = null;
@@ -340,41 +369,97 @@ function CurrentClassWidget() {
     whatIfMiss = missPctNum.toFixed(1) + '%';
   }
 
+  // Border and accent colors based on attendance status
+  const cardBorderColor = 
+    attendanceStatus === 'present' ? '#10b981' :
+    attendanceStatus === 'absent' ? '#ef4444' :
+    isOngoing ? '#22c55e' : colors.primary;
+
   return (
     <View style={{ marginBottom: 16 }}>
-      {/* Section Header positioned above tile just like Your Subjects */}
+      {/* Section Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold',  }}>
+          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>
             {isOngoing ? 'Ongoing Class' : 'Upcoming Class'}
           </Text>
-          <View style={{ backgroundColor: isOngoing ? '#22c55e20' : colors.primary + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: Radius.full }}>
+          
+          {/* Live / Scheduled Badge */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: isOngoing ? '#22c55e20' : colors.primary + '20',
+            paddingHorizontal: 8,
+            paddingVertical: 3,
+            borderRadius: Radius.full,
+            borderWidth: 1,
+            borderColor: isOngoing ? '#22c55e40' : colors.primary + '40',
+          }}>
+            {isOngoing && (
+              <Animated.View style={{
+                width: 6,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: '#22c55e',
+                opacity: pulseAnim,
+                marginRight: 5
+              }} />
+            )}
             <Text style={{ color: isOngoing ? '#22c55e' : colors.primary, fontSize: 10, fontFamily: 'Inter_700Bold' }}>
-              {isOngoing ? 'LIVE' : 'SCHEDULED'}
+              {isOngoing ? 'LIVE NOW' : 'SCHEDULED'}
             </Text>
           </View>
         </View>
+
+        {/* Live Attendance Status Pill in Header */}
+        {attendanceStatus === 'present' ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#10b98122', paddingHorizontal: 9, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: '#10b98150' }}>
+            <Ionicons name="checkmark-circle" size={13} color="#10b981" />
+            <Text style={{ color: '#10b981', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>PRESENT</Text>
+          </View>
+        ) : attendanceStatus === 'absent' ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ef444422', paddingHorizontal: 9, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: '#ef444450' }}>
+            <Ionicons name="close-circle" size={13} color="#ef4444" />
+            <Text style={{ color: '#ef4444', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>ABSENT</Text>
+          </View>
+        ) : attendanceStatus === 'leave' ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b22', paddingHorizontal: 9, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: '#f59e0b50' }}>
+            <Ionicons name="document-text" size={13} color="#f59e0b" />
+            <Text style={{ color: '#f59e0b', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>LEAVE</Text>
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: colors.border }}>
+            <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+            <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_600SemiBold' }}>PENDING</Text>
+          </View>
+        )}
       </View>
 
+      {/* Main Glass Card */}
       <View style={{
         backgroundColor: colors.surfaceHigh,
         borderRadius: Radius.lg,
         borderLeftWidth: 4,
-        borderColor: isOngoing ? '#22c55e' : colors.primary,
+        borderColor: cardBorderColor,
         borderWidth: 1,
         borderTopColor: colors.border,
         borderRightColor: colors.border,
         borderBottomColor: colors.border,
         overflow: 'hidden',
+        shadowColor: cardBorderColor,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: isDark ? 0.25 : 0.08,
+        shadowRadius: 6,
+        elevation: 3,
       }}>
-        {/* Absolute Progress Background */}
+        {/* Absolute Progress Background for ongoing class */}
         {isOngoing && (
           <Animated.View style={{
             position: 'absolute',
             top: 0,
             left: 0,
             bottom: 0,
-            backgroundColor: '#22c55e15',
+            backgroundColor: attendanceStatus === 'present' ? '#10b98112' : attendanceStatus === 'absent' ? '#ef444410' : '#22c55e12',
             borderTopRightRadius: Radius.lg,
             borderBottomRightRadius: Radius.lg,
             width: progressAnim.interpolate({
@@ -384,39 +469,57 @@ function CurrentClassWidget() {
           }} />
         )}
 
-        {/* Card Content - Optimized height & compact padding */}
-        <View style={{ paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center' }}>
+        {/* Card Main Info */}
+        <View style={{ paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ flex: 1, paddingRight: 8 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
-              <Text style={{ color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_700Bold', flex: 1,  }}>{fullNameToDisplay}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
+              <Text style={{ color: colors.text, fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', flex: 1 }}>
+                {fullNameToDisplay}
+              </Text>
             </View>
             
             {!!matchedSubject && (
-              <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium', marginBottom: 4 }}>
+              <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium', marginBottom: 6 }}>
                 {rawSubjectName}
               </Text>
             )}
             
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="time-outline" size={13} color={colors.textMuted} style={{ marginRight: 5 }} />
-              <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>{displayClass.time}</Text>
+            {/* Metadata Chips (Time, Room, Faculty) */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                <Ionicons name="time-outline" size={12} color={colors.textMuted} style={{ marginRight: 4 }} />
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>{displayClass.time}</Text>
+              </View>
+
+              {!!displayClass.room && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                  <Ionicons name="location-outline" size={12} color={colors.primary} style={{ marginRight: 4 }} />
+                  <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>{displayClass.room}</Text>
+                </View>
+              )}
+
+              {!!displayClass.teacher && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                  <Ionicons name="person-outline" size={12} color={colors.textMuted} style={{ marginRight: 4 }} />
+                  <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }} numberOfLines={1}>
+                    {displayClass.teacher}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
 
+          {/* Right Circular Attendance Meter */}
           <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: colors.border + '80', marginLeft: 6 }}>
             {matchedSubject && typeof matchedSubject.attendancePercentage === 'number' ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-                  <CircularProgress 
-                     value={matchedSubject.attendancePercentage} 
-                     color={matchedSubject.attendancePercentage < 75 ? '#ef4444' : '#22c55e'} 
-                  />
-                  <Text style={{ color: colors.text, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 2, minWidth: 60, textAlign: 'center', paddingHorizontal: 4 }}>
-                    {matchedSubject.attendedClasses}/{matchedSubject.totalClasses}
-                  </Text>
-                </View>
-
-                
+              <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                <CircularProgress 
+                   value={matchedSubject.attendancePercentage} 
+                   color={matchedSubject.attendancePercentage < 75 ? '#ef4444' : '#22c55e'} 
+                />
+                <Text style={{ color: colors.text, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 3, minWidth: 55, textAlign: 'center' }}>
+                  {matchedSubject.attendedClasses}/{matchedSubject.totalClasses}
+                </Text>
               </View>
             ) : (
               <View style={{ padding: 10 }}>
@@ -425,44 +528,121 @@ function CurrentClassWidget() {
             )}
           </View>
         </View>
-        
-        {/* What-If Prediction Strip - Visual Layout */}
-        {matchedSubject && whatIfAttend && whatIfMiss && (
-          <View style={{ flexDirection: 'row', padding: 12, backgroundColor: colors.surfaceHigh, borderTopWidth: 1, borderTopColor: colors.border + '50' }}>
-            
-            {/* If Attend Block */}
-            <View style={{ flex: 1, paddingRight: 12, borderRightWidth: 1, borderRightColor: colors.border + '50' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+
+        {/* ─── BOTTOM STRIP: CONDITIONAL BASED ON ATTENDANCE STATUS ─── */}
+        {attendanceStatus === 'present' ? (
+          /* PRESENT BANNER (What-If is removed as requested by user) */
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(16, 185, 129, 0.25)',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#10b98125', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="checkmark-sharp" size={15} color="#10b981" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#10b981', fontSize: 12.5, fontFamily: 'SpaceGrotesk_700Bold' }}>
+                  Marked Present Today!
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
+                  Counted in your {currentPctNum.toFixed(1)}% score
+                </Text>
+              </View>
+            </View>
+            <View style={{ backgroundColor: '#10b98120', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: '#10b98140' }}>
+              <Text style={{ color: '#10b981', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>+1 Attended</Text>
+            </View>
+          </View>
+        ) : attendanceStatus === 'absent' ? (
+          /* ABSENT BANNER (What-If is removed as requested by user) */
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(239, 68, 68, 0.25)',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#ef444425', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="close" size={15} color="#ef4444" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#ef4444', fontSize: 12.5, fontFamily: 'SpaceGrotesk_700Bold' }}>
+                  Marked Absent Today
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
+                  Class missed · Total: {currentPctNum.toFixed(1)}%
+                </Text>
+              </View>
+            </View>
+            <View style={{ backgroundColor: '#ef444420', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: '#ef444440' }}>
+              <Text style={{ color: '#ef4444', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>Missed</Text>
+            </View>
+          </View>
+        ) : attendanceStatus === 'leave' ? (
+          /* LEAVE BANNER */
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)',
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(245, 158, 11, 0.25)',
+          }}>
+            <Ionicons name="document-text" size={16} color="#f59e0b" style={{ marginRight: 8 }} />
+            <Text style={{ color: '#f59e0b', fontSize: 12.5, fontFamily: 'SpaceGrotesk_700Bold' }}>
+              Official Duty / Medical Leave Recorded
+            </Text>
+          </View>
+        ) : (
+          /* WHAT-IF PREDICTION STRIP (Only shown when attendance is pending / not yet marked!) */
+          matchedSubject && whatIfAttend && whatIfMiss && (
+            <View style={{ flexDirection: 'row', padding: 12, backgroundColor: colors.surfaceHigh, borderTopWidth: 1, borderTopColor: colors.border + '50' }}>
+              
+              {/* If Attend Block */}
+              <View style={{ flex: 1, paddingRight: 12, borderRightWidth: 1, borderRightColor: colors.border + '50' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="checkmark-circle" size={14} color="#22c55e" style={{ marginRight: 4 }} />
                     <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>If Attend</Text>
                   </View>
-                  <Text style={{ fontSize: 14, color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold',  }}>{whatIfAttend}</Text>
+                  <Text style={{ fontSize: 13.5, color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold' }}>{whatIfAttend}</Text>
                 </View>
-              {/* Visual Bar */}
-              <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
-                 <View style={{ height: '100%', width: `${Math.min(currentPctNum, 100)}%`, backgroundColor: '#22c55e', opacity: 0.4 }} />
-                 <View style={{ height: '100%', width: `${Math.max(0, attendPctNum - currentPctNum)}%`, backgroundColor: '#22c55e' }} />
+                {/* Visual Bar */}
+                <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
+                  <View style={{ height: '100%', width: `${Math.min(currentPctNum, 100)}%`, backgroundColor: '#22c55e', opacity: 0.4 }} />
+                  <View style={{ height: '100%', width: `${Math.max(0, attendPctNum - currentPctNum)}%`, backgroundColor: '#22c55e' }} />
+                </View>
               </View>
-            </View>
 
-            {/* If Miss Block */}
-            <View style={{ flex: 1, paddingLeft: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              {/* If Miss Block */}
+              <View style={{ flex: 1, paddingLeft: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="close-circle" size={14} color="#ef4444" style={{ marginRight: 4 }} />
                     <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>If Miss</Text>
                   </View>
-                  <Text style={{ fontSize: 14, color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold',  }}>{whatIfMiss}</Text>
+                  <Text style={{ fontSize: 13.5, color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold' }}>{whatIfMiss}</Text>
                 </View>
-              {/* Visual Bar */}
-              <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
-                 <View style={{ height: '100%', width: `${Math.min(missPctNum, 100)}%`, backgroundColor: '#ef4444' }} />
-                 <View style={{ height: '100%', width: `${Math.max(0, currentPctNum - missPctNum)}%`, backgroundColor: '#ef4444', opacity: 0.3 }} />
+                {/* Visual Bar */}
+                <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
+                  <View style={{ height: '100%', width: `${Math.min(missPctNum, 100)}%`, backgroundColor: '#ef4444' }} />
+                  <View style={{ height: '100%', width: `${Math.max(0, currentPctNum - missPctNum)}%`, backgroundColor: '#ef4444', opacity: 0.3 }} />
+                </View>
               </View>
-            </View>
 
-          </View>
+            </View>
+          )
         )}
       </View>
     </View>
@@ -675,6 +855,14 @@ export default function StudyOSDashboard() {
     setRefreshing(true);
   };
 
+  // Auto-sync on app open / cold start (runs after dashboard renders)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      triggerSync(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Auto-refresh when user successfully reconnects from a disconnected state
   const wasDisconnected = useRef(isSessionDisconnected);
   useEffect(() => {
@@ -686,7 +874,7 @@ export default function StudyOSDashboard() {
     wasDisconnected.current = isSessionDisconnected;
   }, [isSessionDisconnected]);
 
-  // Auto-sync when app comes to foreground (only if inactive for > 15 mins)
+  // Auto-sync when app comes to foreground (if inactive for > 2 mins)
   const lastBackgroundTime = useRef<number>(0);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
@@ -695,8 +883,8 @@ export default function StudyOSDashboard() {
       }
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
         const timeInBackground = Date.now() - lastBackgroundTime.current;
-        if (timeInBackground > 15 * 60 * 1000) { // 15 mins
-          console.log('[Dashboard] App foregrounded after >15m — triggering sync');
+        if (timeInBackground > 2 * 60 * 1000) { // 2 mins
+          console.log('[Dashboard] App foregrounded after >2m — triggering sync');
           triggerSync(true);
         }
       }
@@ -739,10 +927,11 @@ export default function StudyOSDashboard() {
             body: `Marked Present in: ${pNames}`,
             sound: true,
             color: '#10b981',
-          },
+            channelId: 'pathwise-default-v2',
+          } as any,
           trigger: {
             channelId: 'pathwise-default-v2',
-          },
+          } as any,
         });
 
         await Notifications.scheduleNotificationAsync({
@@ -751,10 +940,11 @@ export default function StudyOSDashboard() {
             body: `Marked Absent in: ${aNames}`,
             sound: true,
             color: '#ef4444',
-          },
+            channelId: 'pathwise-streak-v2',
+          } as any,
           trigger: {
             channelId: 'pathwise-streak-v2',
-          },
+          } as any,
         });
       } else if (presentChanges.length > 0) {
         const names = presentChanges.map(c => c.subjectName).join(', ');
@@ -771,10 +961,11 @@ export default function StudyOSDashboard() {
             body: bodyText,
             sound: true,
             color: '#10b981',
-          },
+            channelId: 'pathwise-default-v2',
+          } as any,
           trigger: {
             channelId: 'pathwise-default-v2',
-          },
+          } as any,
         });
       } else if (absentChanges.length > 0) {
         const names = absentChanges.map(c => c.subjectName).join(', ');
@@ -791,10 +982,11 @@ export default function StudyOSDashboard() {
             body: bodyText,
             sound: true,
             color: '#ef4444',
-          },
+            channelId: 'pathwise-streak-v2',
+          } as any,
           trigger: {
             channelId: 'pathwise-streak-v2',
-          },
+          } as any,
         });
       } else {
         showToast('All course records verified with portal', {
@@ -1060,7 +1252,7 @@ export default function StudyOSDashboard() {
 
 
         {/* Current Class Widget */}
-        <CurrentClassWidget />
+        <CurrentClassWidget justUpdated={justUpdated} />
 
         {/* Your Subjects List */}
         <View style={[styles.sectionHeader, { marginTop: Spacing.md, marginBottom: showFilters ? 12 : Spacing.md }]}>

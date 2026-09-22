@@ -22,7 +22,7 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
     
     // 1. Fetch Attendance
     try {
-      const attRes = await fetch('https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx', {
+      const attRes = await fetch('https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx?type=etgkYfqBdH1fSfc255iYGw==', {
         headers: { 'Cookie': cookies, 'User-Agent': 'Mozilla/5.0' }
       });
       const attHtml = await attRes.text();
@@ -31,77 +31,135 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
         let updatedSubjects = [...oldData.subjects];
         let hasAttChanges = false;
         
-        // Simple regex to parse table rows
+        // Parse table rows
         const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
         let rowMatch;
         while ((rowMatch = rowRegex.exec(attHtml)) !== null) {
-           const rowHtml = rowMatch[1];
-           const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
-           let cells = [];
-           let cellMatch;
-           while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
-              // Strip inner HTML tags to get pure text
-              let text = cellMatch[1].replace(/<[^>]*>/g, '').trim();
-              cells.push(text);
-           }
-           
-           if (cells.length >= 8) {
-              const code = cells[0];
-              const total = parseInt(cells[2]) || 0;
-              const attended = parseInt(cells[3]) || 0;
-              const percentage = parseFloat(cells[10]) || 0;
-              
-              if (code) {
-                 // Find matching subject
-                 const subjIndex = updatedSubjects.findIndex(s => s.code.includes(code) || code.includes(s.code.replace(/^[A-Z]+_/, '')));
-                 if (subjIndex !== -1) {
-                    const oldSubj = updatedSubjects[subjIndex];
-                    
-                    if (attended > oldSubj.attendedClasses) {
-                       // Marked Present
-                        await Notifications.scheduleNotificationAsync({
-                           content: {
-                              title: '🎉 Attendance Marked: Present!',
-                              body: `Marked Present in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
-                              sound: true,
-                              color: '#10b981',
-                           },
-                           trigger: {
-                              channelId: 'pathwise-default-v2',
-                           },
-                        });
-                        notificationsSent++;
-                        hasAttChanges = true;
-                     } else if (total > oldSubj.totalClasses && attended === oldSubj.attendedClasses) {
-                        // Marked Absent
-                        await Notifications.scheduleNotificationAsync({
-                           content: {
-                              title: '⚠️ Attendance Alert: Marked Absent!',
-                              body: `Marked Absent in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
-                              sound: true,
-                              color: '#ef4444',
-                           },
-                           trigger: {
-                              channelId: 'pathwise-streak-v2',
-                           },
-                        });
-                       notificationsSent++;
-                       hasAttChanges = true;
-                    }
-                    
-                    updatedSubjects[subjIndex] = {
-                       ...oldSubj,
-                       totalClasses: total,
-                       attendedClasses: attended,
-                       attendancePercentage: percentage
-                    };
-                 }
+          const rowHtml = rowMatch[1];
+          const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
+          let cells = [];
+          let cellMatch;
+          while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
+            let text = cellMatch[1].replace(/<[^>]*>/g, '').trim();
+            cells.push(text);
+          }
+          
+          if (cells.length >= 4) {
+            let code: string | null = null;
+            for (let x = 0; x < cells.length; x++) {
+              if (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(cells[x])) {
+                code = cells[x];
+                break;
               }
-           }
+            }
+
+            let numArr: number[] = [];
+            let explicitPerc: number | null = null;
+            for (let j = 0; j < cells.length; j++) {
+              const rawVal = cells[j].trim();
+              if (rawVal.includes('%')) explicitPerc = Number(rawVal.replace('%', '').trim());
+              const clean = rawVal.replace('%', '').trim();
+              if (clean !== '' && !isNaN(Number(clean))) numArr.push(Number(clean));
+            }
+
+            let total = 0, attended = 0, percentage = 0;
+            if (numArr.length >= 2) {
+              percentage = (explicitPerc !== null && !isNaN(explicitPerc)) ? explicitPerc : numArr[numArr.length - 1];
+              let bestMatch: { attended: number; total: number } | null = null;
+              let bestDiff = 999;
+
+              if (percentage > 0) {
+                for (let p1 = 0; p1 < numArr.length; p1++) {
+                  for (let p2 = 0; p2 < numArr.length; p2++) {
+                    const A = numArr[p1], B = numArr[p2];
+                    if (B > 0 && A <= B && B <= 500 && A !== percentage && B !== percentage) {
+                      const calc = (A / B) * 100;
+                      const diff = Math.abs(calc - percentage);
+                      if (diff <= 1.5) {
+                        if (diff < bestDiff - 0.01 || (Math.abs(diff - bestDiff) <= 0.01 && B > (bestMatch ? bestMatch.total : 0))) {
+                          bestDiff = diff;
+                          bestMatch = { attended: A, total: B };
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              if (bestMatch && bestDiff <= 1.5) {
+                attended = bestMatch.attended;
+                total = bestMatch.total;
+              } else {
+                const validCounts = numArr.slice(0, numArr.length - 1).filter(n => n >= 0 && n <= 500);
+                if (validCounts.length >= 2) {
+                  attended = Math.min(validCounts[validCounts.length - 1], validCounts[validCounts.length - 2]);
+                  total = Math.max(validCounts[validCounts.length - 1], validCounts[validCounts.length - 2]);
+                } else {
+                  attended = numArr[numArr.length - 2] || 0;
+                  total = numArr[numArr.length - 3] || 0;
+                }
+              }
+            }
+
+            if (total > 0 && attended > 0 && (percentage === 0 || isNaN(percentage))) {
+              percentage = Number(((attended / total) * 100).toFixed(2));
+            }
+            
+            if (code && total > 0) {
+              const cleanCode = code.replace(/^[A-Z]+_/, '').trim();
+              const subjIndex = updatedSubjects.findIndex((s: any) => 
+                s.code === code || 
+                s.code.includes(cleanCode) || 
+                code!.includes(s.code.replace(/^[A-Z]+_/, ''))
+              );
+              
+              if (subjIndex !== -1) {
+                const oldSubj = updatedSubjects[subjIndex];
+                
+                if (attended > oldSubj.attendedClasses) {
+                  // Marked Present
+                  await Notifications.scheduleNotificationAsync({
+                    content: {
+                      title: '🎉 Attendance Marked: Present!',
+                      body: `Marked Present in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
+                      sound: true,
+                      color: '#10b981',
+                    },
+                    trigger: {
+                      channelId: 'pathwise-default-v2',
+                    } as any,
+                  });
+                  notificationsSent++;
+                  hasAttChanges = true;
+                } else if (total > oldSubj.totalClasses && attended === oldSubj.attendedClasses) {
+                  // Marked Absent
+                  await Notifications.scheduleNotificationAsync({
+                    content: {
+                      title: '⚠️ Attendance Alert: Marked Absent!',
+                      body: `Marked Absent in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
+                      sound: true,
+                      color: '#ef4444',
+                    },
+                    trigger: {
+                      channelId: 'pathwise-streak-v2',
+                    } as any,
+                  });
+                  notificationsSent++;
+                  hasAttChanges = true;
+                }
+                
+                updatedSubjects[subjIndex] = {
+                  ...oldSubj,
+                  totalClasses: total,
+                  attendedClasses: attended,
+                  attendancePercentage: percentage
+                };
+              }
+            }
+          }
         }
         
         if (hasAttChanges) {
-           oldData.subjects = updatedSubjects;
+          oldData.subjects = updatedSubjects;
         }
       }
     } catch(e) { console.error('BG Sync Att Err:', e); }
@@ -187,32 +245,66 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
       }
     } catch(e) { console.error('BG Sync Marks Err:', e); }
 
-    // 3. Check for new Assignments
+    // 3. Check for new Assignments & CR Announcements from Backend
     try {
-      const ASSIGNMENTS_JSON_URL = "https://raw.githubusercontent.com/Piyushkushwaha2025/PathWise_app/master/assignments.json";
-      const res = await fetch(`${ASSIGNMENTS_JSON_URL}?t=${Date.now()}`);
-      if (res.ok) {
-         const assignments = await res.json();
-         const storedCountStr = await AsyncStorage.getItem("pathwise_assignments_count");
-         const storedCount = storedCountStr ? parseInt(storedCountStr, 10) : 0;
-         
-         if (storedCountStr !== null && storedCount > 0 && assignments.length > storedCount) {
-            const newAsg = assignments[assignments.length - 1];
-            await Notifications.scheduleNotificationAsync({
-               content: {
-                  title: '📚 New Assignment Added!',
-                  body: `${newAsg.title} for ${newAsg.subject}`,
-                  sound: true,
-               },
-               trigger: {
-                  channelId: 'pathwise-default-v2',
-               },
-            });
-            notificationsSent++;
-         }
-         await AsyncStorage.setItem("pathwise_assignments_count", assignments.length.toString());
+      const API_URL = process.env.EXPO_PUBLIC_API_URL;
+      const userSection = oldData.profile?.section;
+      if (API_URL && userSection) {
+        // Fetch CR Notifications
+        try {
+          const notifRes = await fetch(`${API_URL}/notifications?section=${encodeURIComponent(userSection)}`);
+          if (notifRes.ok) {
+            const notifications: any[] = await notifRes.json();
+            const lastSeenNotifId = await AsyncStorage.getItem('last_seen_cr_notif_id');
+            if (notifications && notifications.length > 0) {
+              const newest = notifications[0];
+              if (lastSeenNotifId && newest._id !== lastSeenNotifId) {
+                await Notifications.scheduleNotificationAsync({
+                  content: {
+                    title: `📢 CR Announcement: ${newest.title}`,
+                    body: newest.message?.length > 100 ? `${newest.message.substring(0, 97)}...` : newest.message,
+                    sound: true,
+                    color: '#3b82f6',
+                  },
+                  trigger: {
+                    channelId: 'pathwise-default-v2',
+                  } as any,
+                });
+                notificationsSent++;
+              }
+              await AsyncStorage.setItem('last_seen_cr_notif_id', newest._id);
+            }
+          }
+        } catch (ne) { console.error('BG Sync CR Notif Err:', ne); }
+
+        // Fetch Assignments
+        try {
+          const asgnRes = await fetch(`${API_URL}/assignments?section=${encodeURIComponent(userSection)}`);
+          if (asgnRes.ok) {
+            const assignments: any[] = await asgnRes.json();
+            const lastSeenAsgnId = await AsyncStorage.getItem('last_seen_assignment_id');
+            if (assignments && assignments.length > 0) {
+              const newestAsgn = assignments[assignments.length - 1];
+              if (lastSeenAsgnId && newestAsgn._id !== lastSeenAsgnId) {
+                await Notifications.scheduleNotificationAsync({
+                  content: {
+                    title: `📝 New Assignment: ${newestAsgn.title}`,
+                    body: `${newestAsgn.subject} — Due: ${new Date(newestAsgn.dueDate).toLocaleDateString()}`,
+                    sound: true,
+                    color: '#3b82f6',
+                  },
+                  trigger: {
+                    channelId: 'pathwise-default-v2',
+                  } as any,
+                });
+                notificationsSent++;
+              }
+              await AsyncStorage.setItem('last_seen_assignment_id', newestAsgn._id);
+            }
+          }
+        } catch (ae) { console.error('BG Sync Assignments Err:', ae); }
       }
-    } catch(e) { console.error('BG Sync Assignments Err:', e); }
+    } catch(e) { console.error('BG Sync Backend Err:', e); }
 
     if (notificationsSent > 0) {
        await AsyncStorage.setItem('studyos_scraped_data', JSON.stringify(oldData));

@@ -270,6 +270,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         clerkUserId: req.clerkUserId,
         uid: incomingUid,
         section_code: req.body.section_code || null,
+        expoPushToken: req.body.expoPushToken || null,
         app_first_opened_date: new Date(),
         trial_started_at: new Date(), // ← Start 30-day trial on first login
       });
@@ -282,6 +283,10 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       }
       if (req.body.section_code && user.section_code !== req.body.section_code) {
         user.section_code = req.body.section_code;
+        changed = true;
+      }
+      if (req.body.expoPushToken && user.expoPushToken !== req.body.expoPushToken) {
+        user.expoPushToken = req.body.expoPushToken;
         changed = true;
       }
       // Backfill trial_started_at for existing users who don't have it yet
@@ -300,7 +305,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
 });
 
 // 2. Save Push Token
-app.post('/api/user/push-token', getClerkId, async (req, res) => {
+app.post(['/api/user/push-token', '/user/push-token'], getClerkId, async (req, res) => {
   try {
     const { expoPushToken } = req.body;
     if (!expoPushToken) return res.status(400).json({ error: 'Missing token' });
@@ -423,30 +428,36 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
     });
     await assignment.save();
 
-    // Send push notifications to all students in this section
-    const students = await User.find({
-      section_code: req.crUser.section_code,
-      role: 'student',
-      expoPushToken: { $ne: null }
-    });
+    // Send push notifications to all students in this section (excluding creator)
+    try {
+      const students = await User.find({
+        section_code: req.crUser.section_code,
+        clerkUserId: { $ne: req.clerkUserId },
+        expoPushToken: { $ne: null }
+      });
 
-    const expo = await getExpo();
-    const { Expo } = await import('expo-server-sdk');
-    const messages = students
-      .filter(s => Expo.isExpoPushToken(s.expoPushToken))
-      .map(s => ({
-        to: s.expoPushToken,
-        sound: 'default',
-        title: '📋 New Assignment Posted!',
-        body: `${title} — Due: ${new Date(dueDate).toLocaleDateString()}`,
-        data: { assignmentId: assignment._id.toString() },
-      }));
+      const expo = await getExpo();
+      const { Expo } = await import('expo-server-sdk');
+      const messages = students
+        .filter(s => s.expoPushToken && Expo.isExpoPushToken(s.expoPushToken))
+        .map(s => ({
+          to: s.expoPushToken,
+          sound: 'default',
+          channelId: 'pathwise-default-v2',
+          title: '📋 New Assignment Posted!',
+          body: `${title} (${subject}) — Due: ${new Date(dueDate).toLocaleDateString()}`,
+          data: { assignmentId: assignment._id.toString(), type: 'assignment' },
+          priority: 'high',
+        }));
 
-    if (messages.length > 0) {
-      const chunks = expo.chunkPushNotifications(messages);
-      for (const chunk of chunks) {
-        try { await expo.sendPushNotificationsAsync(chunk); } catch (_) {}
+      if (messages.length > 0) {
+        const chunks = expo.chunkPushNotifications(messages);
+        for (const chunk of chunks) {
+          try { await expo.sendPushNotificationsAsync(chunk); } catch (_) {}
+        }
       }
+    } catch (pushErr) {
+      console.error('Error dispatching assignment pushes:', pushErr);
     }
 
     res.json({ success: true, assignment });
@@ -587,6 +598,41 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
     });
 
     await notification.save();
+
+    // Send instant push notifications to all students in this section (excluding creator)
+    try {
+      const students = await User.find({
+        section_code: finalSection,
+        clerkUserId: { $ne: req.clerkUserId },
+        expoPushToken: { $ne: null }
+      });
+
+      const expo = await getExpo();
+      const { Expo } = await import('expo-server-sdk');
+      const pushMessages = students
+        .filter(s => s.expoPushToken && Expo.isExpoPushToken(s.expoPushToken))
+        .map(s => ({
+          to: s.expoPushToken,
+          sound: 'default',
+          channelId: 'pathwise-default-v2',
+          title: `📢 CR Announcement: ${title}`,
+          body: message.length > 120 ? `${message.substring(0, 117)}...` : message,
+          data: { notificationId: notification._id.toString(), type: 'cr_notification' },
+          priority: 'high',
+        }));
+
+      if (pushMessages.length > 0) {
+        const chunks = expo.chunkPushNotifications(pushMessages);
+        for (const chunk of chunks) {
+          try { await expo.sendPushNotificationsAsync(chunk); } catch (err) {
+            console.error('Error sending CR notification push chunk:', err);
+          }
+        }
+      }
+    } catch (pushErr) {
+      console.error('Error dispatching CR announcement pushes:', pushErr);
+    }
+
     res.json(notification);
   } catch (e) {
     res.status(500).json({ error: e.message });

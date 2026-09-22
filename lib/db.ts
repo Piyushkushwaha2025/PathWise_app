@@ -34,7 +34,8 @@ export interface AssignmentData {
 export async function syncUserWithDB(
   clerkId: string,
   section_code?: string,
-  uid?: string
+  uid?: string,
+  expoPushToken?: string
 ): Promise<UserData> {
   const res = await fetch(`${API_URL}/user/sync`, {
     method: 'POST',
@@ -42,7 +43,7 @@ export async function syncUserWithDB(
       'Content-Type': 'application/json',
       'x-clerk-user-id': clerkId
     },
-    body: JSON.stringify({ section_code, uid })
+    body: JSON.stringify({ section_code, uid, expoPushToken })
   });
   
   if (res.status === 409) {
@@ -54,6 +55,23 @@ export async function syncUserWithDB(
   
   if (!res.ok) throw new Error('Failed to sync user');
   return res.json();
+}
+
+export async function savePushToken(clerkId: string, expoPushToken: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_URL}/user/push-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-clerk-user-id': clerkId
+      },
+      body: JSON.stringify({ expoPushToken })
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('Failed to save push token:', e);
+    return false;
+  }
 }
 
 export async function deleteUserFromDB(clerkId: string): Promise<void> {

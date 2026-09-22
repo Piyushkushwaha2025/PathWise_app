@@ -375,6 +375,7 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
         
         if (freshCookie) {
           await SecureStore.setItemAsync('culko_cookies', freshCookie).catch(() => {});
+          await AsyncStorage.setItem('culko_cookies', freshCookie).catch(() => {});
         }
         
         console.log('[AutoSync] Scraped attendance summary keys:', Object.keys(newData));
