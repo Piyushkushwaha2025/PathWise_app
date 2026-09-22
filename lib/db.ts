@@ -1,6 +1,7 @@
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Use localhost for emulator, or your local IP for physical device testing
 // In production, this would be your hosted backend URL (e.g., Render, Heroku)
@@ -48,13 +49,41 @@ export async function syncUserWithDB(
   
   if (res.status === 409) {
     const data = await res.json();
-    const err = new Error(data.message || 'This UIMS account is already linked to another PathWise account.') as any;
-    err.code = 'UID_ALREADY_LINKED';
+    const err = new Error(data.message || 'This college ID is already linked to another PathWise account.') as any;
+    err.code = data.error || 'UID_ALREADY_LINKED';
+    err.boundUid = data.boundUid;
     throw err;
   }
   
   if (!res.ok) throw new Error('Failed to sync user');
-  return res.json();
+  const data = await res.json();
+  if (data?.user?.trial_started_at) {
+    AsyncStorage.setItem(`@pathwise_trial_start_${clerkId}`, data.user.trial_started_at).catch(() => {});
+  }
+  return data;
+}
+
+export async function verifyUidWithDB(
+  clerkId: string,
+  uid: string
+): Promise<{ allowed: boolean; boundUid: string | null }> {
+  const res = await fetch(`${API_URL}/user/verify-uid`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-clerk-user-id': clerkId
+    },
+    body: JSON.stringify({ uid })
+  });
+
+  const data = await res.json();
+  if (res.status === 409 || !res.ok) {
+    const err = new Error(data.message || data.error || 'UID verification failed') as any;
+    err.code = data.error || 'UID_NOT_ALLOWED';
+    err.boundUid = data.boundUid;
+    throw err;
+  }
+  return data;
 }
 
 export async function savePushToken(clerkId: string, expoPushToken: string): Promise<boolean> {
@@ -136,6 +165,9 @@ export interface NotificationData {
   created_by: string;
   expiresAt: string;
   createdAt: string;
+  pdf_key?: string | null;
+  pdf_filename?: string | null;
+  pdf_download_url?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,14 +230,22 @@ export async function fetchNotifications(clerkId: string, section?: string): Pro
   }
 }
 
-export async function createNotification(clerkId: string, title: string, message: string, expiresAt: string, section_code: string): Promise<NotificationData> {
+export async function createNotification(
+  clerkId: string, 
+  title: string, 
+  message: string, 
+  expiresAt: string, 
+  section_code: string,
+  pdf_key?: string,
+  pdf_filename?: string
+): Promise<NotificationData> {
   const res = await fetch(`${API_URL}/notifications`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-clerk-user-id': clerkId
     },
-    body: JSON.stringify({ title, message, expiresAt, section_code })
+    body: JSON.stringify({ title, message, expiresAt, section_code, pdf_key, pdf_filename })
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to create notification');
@@ -254,43 +294,127 @@ export async function toggleAssignment(clerkId: string, assignmentId: string): P
   return data.status;
 }
 
-export function uploadPdf(clerkId: string, file: { uri: string; name: string; type: string }): Promise<{ pdf_key: string; pdf_filename: string }> {
+function inferClientMimeType(name: string, fallbackType?: string): string {
+  const ext = (name || '').toLowerCase().split('.').pop() || '';
+  const map: Record<string, string> = {
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    txt: 'text/plain',
+    csv: 'text/csv',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+  };
+  return map[ext] || (fallbackType && fallbackType !== 'application/octet-stream' ? fallbackType : 'application/pdf');
+}
+
+function uriToBlob(uri: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = function () {
+      resolve(xhr.response);
+    };
+    xhr.onerror = function () {
+      reject(new Error('Failed to read file from storage'));
+    };
+    xhr.responseType = 'blob';
+    xhr.open('GET', uri, true);
+    xhr.send(null);
+  });
+}
+
+function uploadBlobDirectToStorage(uploadUrl: string, blob: Blob, contentType: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', uploadUrl);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Storage direct upload failed (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => {
+      reject(new Error('Network error uploading file directly to storage'));
+    };
+    xhr.send(blob);
+  });
+}
+
+function fallbackServerUpload(clerkId: string, file: { uri: string; name: string; type?: string }, resolvedMime: string): Promise<{ pdf_key: string; pdf_filename: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_URL}/assignments/upload-pdf`);
     xhr.setRequestHeader('x-clerk-user-id', clerkId);
-    
+
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           resolve(JSON.parse(xhr.responseText));
-        } catch (e) {
+        } catch {
           reject(new Error('Invalid JSON response from server'));
         }
       } else {
         try {
           const err = JSON.parse(xhr.responseText);
           reject(new Error(err.error || 'Upload failed'));
-        } catch (e) {
+        } catch {
           reject(new Error('Upload failed with status ' + xhr.status));
         }
       }
     };
-    
+
     xhr.onerror = () => {
       reject(new Error('Network request failed for file upload'));
     };
 
     const formData = new FormData();
-    // React Native FormData requires exactly these properties
     formData.append('file', {
       uri: Platform.OS === 'android' ? file.uri : file.uri.replace('file://', ''),
-      name: file.name,
-      type: file.type || 'application/pdf'
+      name: file.name || 'document.pdf',
+      type: resolvedMime
     } as any);
 
     xhr.send(formData);
   });
+}
+
+export async function uploadPdf(clerkId: string, file: { uri: string; name: string; type?: string }): Promise<{ pdf_key: string; pdf_filename: string }> {
+  const resolvedMime = inferClientMimeType(file.name, file.type);
+
+  // Strategy 1: Direct Presigned S3/B2 Upload (Completely bypasses Vercel 4.5MB serverless limit)
+  try {
+    const presignedRes = await fetch(`${API_URL}/assignments/get-upload-url`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-clerk-user-id': clerkId,
+      },
+      body: JSON.stringify({
+        filename: file.name || 'document.pdf',
+        contentType: resolvedMime,
+      }),
+    });
+
+    if (presignedRes.ok) {
+      const data = await presignedRes.json();
+      if (data.uploadUrl && data.key) {
+        const blob = await uriToBlob(file.uri);
+        await uploadBlobDirectToStorage(data.uploadUrl, blob, data.contentType || resolvedMime);
+        return { pdf_key: data.key, pdf_filename: data.filename || file.name };
+      }
+    }
+  } catch (directErr) {
+    console.warn('Direct presigned upload failed, attempting fallback server upload:', directErr);
+  }
+
+  // Strategy 2: Fallback server proxy upload (if presigned upload fails)
+  return fallbackServerUpload(clerkId, file, resolvedMime);
 }
 
 export async function createAssignment(clerkId: string, payload: {
@@ -417,7 +541,11 @@ export async function getRewardStatus(clerkId: string, token?: string | null): P
       return DEFAULT_REWARD_STATUS;
     }
 
-    return await res.json();
+    const data = await res.json();
+    if (data?.trial_started_at) {
+      AsyncStorage.setItem(`@pathwise_trial_start_${clerkId}`, data.trial_started_at).catch(() => {});
+    }
+    return data;
   } catch (err) {
     console.warn('[getRewardStatus] Network or server error, returning default fallback status:', err);
     return DEFAULT_REWARD_STATUS;

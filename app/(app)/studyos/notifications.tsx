@@ -7,9 +7,11 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@clerk/clerk-expo';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Linking from 'expo-linking';
 import { useThemeStore } from '../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
-import { fetchNotifications, createNotification, deleteNotification, useDBProfile, NotificationData } from '../../../lib/db';
+import { fetchNotifications, createNotification, deleteNotification, useDBProfile, uploadPdf, NotificationData } from '../../../lib/db';
 import { useStudyOSStore } from '../../../store/studyosStore';
 
 export default function NotificationsScreen() {
@@ -31,6 +33,8 @@ export default function NotificationsScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newMessage, setNewMessage] = useState('');
   const [expiryDaysStr, setExpiryDaysStr] = useState('3'); // Default 3 days
+  const [docFile, setDocFile] = useState<{ uri: string; name: string; type?: string; size?: number } | null>(null);
+  const [docError, setDocError] = useState('');
   const [creating, setCreating] = useState(false);
   const [titleError, setTitleError] = useState('');
   const [messageError, setMessageError] = useState('');
@@ -58,6 +62,30 @@ export default function NotificationsScreen() {
 
   useEffect(() => { loadNotifications(); }, [loadNotifications]);
 
+  const pickDoc = async () => {
+    try {
+      setDocError('');
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (asset.size && asset.size > 15 * 1024 * 1024) {
+        setDocError('File size exceeds 15MB limit.');
+        return;
+      }
+      setDocFile({
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType || 'application/pdf',
+        size: asset.size
+      });
+    } catch {
+      setDocError('Failed to select file');
+    }
+  };
+
   const handleCreate = async () => {
     let hasError = false;
     if (!newTitle.trim()) {
@@ -82,12 +110,30 @@ export default function NotificationsScreen() {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + finalDays);
 
-      const newNotif = await createNotification(userId, newTitle.trim(), newMessage.trim(), expiresAt.toISOString(), activeSection);
+      let pdf_key: string | undefined;
+      let pdf_filename: string | undefined;
+      if (docFile) {
+        const uploaded = await uploadPdf(userId, docFile);
+        pdf_key = uploaded.pdf_key;
+        pdf_filename = uploaded.pdf_filename;
+      }
+
+      const newNotif = await createNotification(
+        userId, 
+        newTitle.trim(), 
+        newMessage.trim(), 
+        expiresAt.toISOString(), 
+        activeSection,
+        pdf_key,
+        pdf_filename
+      );
       
       setNotifications(prev => [newNotif, ...prev]);
       setCreateModalVisible(false);
       setNewTitle('');
       setNewMessage('');
+      setDocFile(null);
+      setDocError('');
       setExpiryDaysStr('3');
       setTitleError('');
       setMessageError('');
@@ -212,6 +258,38 @@ export default function NotificationsScreen() {
                   <Text style={styles.title}>{item.title}</Text>
                   <Text style={styles.description}>{item.message}</Text>
 
+                  {item.pdf_download_url ? (
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (item.pdf_download_url) {
+                          Linking.openURL(item.pdf_download_url).catch(() => {
+                            Alert.alert('Error', 'Could not open document link');
+                          });
+                        }
+                      }}
+                      activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                        backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : '#eff6ff',
+                        borderWidth: 1,
+                        borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : '#bfdbfe',
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 10,
+                        marginTop: 10,
+                        alignSelf: 'flex-start'
+                      }}
+                    >
+                      <Ionicons name="document-text" size={16} color={colors.primary} />
+                      <Text style={{ color: colors.primary, fontSize: 12.5, fontFamily: 'Inter_600SemiBold' }} numberOfLines={1}>
+                        {item.pdf_filename || 'View Attached Document'}
+                      </Text>
+                      <Ionicons name="download-outline" size={14} color={colors.primary} />
+                    </TouchableOpacity>
+                  ) : null}
+
                   <View style={styles.cardFooter}>
                     <Text style={styles.expiryText}>Expires: {expiry.toLocaleDateString()}</Text>
                     {isCR && item.created_by === userId && (
@@ -291,6 +369,55 @@ export default function NotificationsScreen() {
               value={expiryDaysStr}
               onChangeText={(t) => setExpiryDaysStr(t.replace(/[^0-9]/g, ''))}
             />
+
+            <Text style={[styles.inputLabel, { marginTop: 14 }]}>Attach Document (Optional)</Text>
+            {docFile ? (
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                borderRadius: 12,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                borderWidth: 1,
+                borderColor: colors.border,
+                marginBottom: 8
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 }}>
+                  <Ionicons name="document-attach" size={18} color={colors.primary} />
+                  <Text style={{ color: colors.text, fontSize: 13, fontFamily: 'Inter_500Medium' }} numberOfLines={1}>
+                    {docFile.name}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setDocFile(null)} style={{ padding: 4 }}>
+                  <Ionicons name="close-circle" size={18} color={colors.error} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={pickDoc}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderStyle: 'dashed',
+                  borderColor: colors.border,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                  marginBottom: 8
+                }}
+              >
+                <Ionicons name="attach" size={18} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Inter_600SemiBold' }}>
+                  Choose PDF, Doc, or Image
+                </Text>
+              </TouchableOpacity>
+            )}
+            {!!docError && <Text style={{ color: '#ef4444', fontSize: 12, fontFamily: 'Inter_500Medium', marginBottom: 8 }}>{docError}</Text>}
 
             <TouchableOpacity 
               style={[styles.postBtn, creating && { opacity: 0.7 }]} 

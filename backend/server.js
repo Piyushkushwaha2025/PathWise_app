@@ -178,15 +178,33 @@ async function getDownloadUrl(key) {
 }
 
 
-// ─── Multer (in-memory, max 5MB, PDF/doc only) ──────────────────────────────
+const path = require('path');
+
+function getMimeType(filename, defaultMime = 'application/pdf') {
+  const ext = path.extname(filename || '').toLowerCase();
+  const map = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+  };
+  return map[ext] || (defaultMime === 'application/octet-stream' ? 'application/pdf' : defaultMime);
+}
+
+// ─── Multer (in-memory, up to 15MB, all college documents & images allowed) ────
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['application/pdf', 'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Only PDF and Word documents are allowed'));
+    // Accept all college study documents and images
+    cb(null, true);
   }
 });
 
@@ -250,57 +268,128 @@ const razorpay = new Razorpay({
 // 1. Get or Create User Profile (returns role info too)
 app.post('/api/user/sync', getClerkId, async (req, res) => {
   try {
-    const incomingUid = req.body.uid || null;
-
-    // ── One UID = One Account enforcement ───────────────────────────────────
-    // If a UIMS UID is provided, make sure it isn't already linked to a DIFFERENT account.
-    if (incomingUid && incomingUid !== 'Unknown' && incomingUid !== '') {
-      const existingWithUID = await User.findOne({ uid: incomingUid });
-      if (existingWithUID && existingWithUID.clerkUserId !== req.clerkUserId) {
-        return res.status(409).json({
-          error: 'UID_ALREADY_LINKED',
-          message: 'This UIMS account is already linked to another PathWise account. Please log in with your original account.'
-        });
-      }
-    }
+    const rawUid = req.body.uid;
+    const incomingUid = (rawUid && String(rawUid).trim() !== '' && String(rawUid).trim().toUpperCase() !== 'UNKNOWN')
+      ? String(rawUid).trim().toUpperCase()
+      : null;
 
     let user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user) {
+
+    if (user) {
+      const currentBoundUid = (user.uid && user.uid.trim() !== '' && user.uid.trim().toUpperCase() !== 'UNKNOWN')
+        ? user.uid.trim().toUpperCase()
+        : null;
+
+      // ── Rule 1: Account already has a bound UID ─────────────────────────────
+      // Never allow switching to a different college UID on this account!
+      if (currentBoundUid) {
+        if (incomingUid && incomingUid !== currentBoundUid) {
+          return res.status(409).json({
+            error: 'ACCOUNT_ALREADY_BOUND',
+            message: `This PathWise account is permanently linked to college ID ${user.uid}. You cannot use another college ID on this account.`,
+            boundUid: user.uid
+          });
+        }
+      } else if (incomingUid) {
+        // ── Rule 2: First-time binding for existing account ───────────────────
+        // Check if this incoming UID is already claimed by another user
+        const existingWithUID = await User.findOne({
+          uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
+        });
+        if (existingWithUID && existingWithUID.clerkUserId !== req.clerkUserId) {
+          return res.status(409).json({
+            error: 'UID_ALREADY_LINKED',
+            message: 'This college ID is already linked to another PathWise account.'
+          });
+        }
+        user.uid = incomingUid;
+      }
+    } else {
+      // ── Rule 3: Brand new user account ────────────────────────────────────
+      if (incomingUid) {
+        const existingWithUID = await User.findOne({
+          uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
+        });
+        if (existingWithUID) {
+          return res.status(409).json({
+            error: 'UID_ALREADY_LINKED',
+            message: 'This college ID is already linked to another PathWise account.'
+          });
+        }
+      }
+
       user = new User({
         clerkUserId: req.clerkUserId,
         uid: incomingUid,
         section_code: req.body.section_code || null,
         expoPushToken: req.body.expoPushToken || null,
         app_first_opened_date: new Date(),
-        trial_started_at: new Date(), // ← Start 30-day trial on first login
+        trial_started_at: new Date(), // Start 30-day trial on first login
       });
       await user.save();
-    } else {
-      let changed = false;
-      if (incomingUid && user.uid !== incomingUid) {
-        user.uid = incomingUid;
-        changed = true;
-      }
-      if (req.body.section_code && user.section_code !== req.body.section_code) {
-        user.section_code = req.body.section_code;
-        changed = true;
-      }
-      if (req.body.expoPushToken && user.expoPushToken !== req.body.expoPushToken) {
-        user.expoPushToken = req.body.expoPushToken;
-        changed = true;
-      }
-      // Backfill trial_started_at for existing users who don't have it yet
-      if (!user.trial_started_at) {
-        user.trial_started_at = user.app_first_opened_date || user.createdAt || new Date();
-        changed = true;
-      }
-      if (changed) {
-        await user.save();
-      }
+      return res.json(user);
+    }
+
+    let changed = false;
+    if (req.body.section_code && user.section_code !== req.body.section_code) {
+      user.section_code = req.body.section_code;
+      changed = true;
+    }
+    if (req.body.expoPushToken && user.expoPushToken !== req.body.expoPushToken) {
+      user.expoPushToken = req.body.expoPushToken;
+      changed = true;
+    }
+    if (!user.trial_started_at) {
+      user.trial_started_at = user.app_first_opened_date || user.createdAt || new Date();
+      changed = true;
+    }
+    if (changed || user.isModified()) {
+      await user.save();
     }
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Pre-verification route for StudyOS login
+app.post('/api/user/verify-uid', getClerkId, async (req, res) => {
+  try {
+    const rawUid = req.body.uid;
+    if (!rawUid || !String(rawUid).trim()) {
+      return res.status(400).json({ error: 'UID is required' });
+    }
+    const incomingUid = String(rawUid).trim().toUpperCase();
+
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    if (user && user.uid && user.uid.trim() !== '' && user.uid.trim().toUpperCase() !== 'UNKNOWN') {
+      const boundUid = user.uid.trim().toUpperCase();
+      if (incomingUid !== boundUid) {
+        return res.status(409).json({
+          allowed: false,
+          error: 'ACCOUNT_ALREADY_BOUND',
+          message: `This PathWise account is permanently linked to college ID ${user.uid}. You cannot use another college ID on this account.`,
+          boundUid: user.uid
+        });
+      }
+      return res.json({ allowed: true, boundUid: user.uid });
+    }
+
+    // Account has no bound UID yet; verify if this UID is used by another account
+    const existingWithUID = await User.findOne({
+      uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
+    });
+    if (existingWithUID && existingWithUID.clerkUserId !== req.clerkUserId) {
+      return res.status(409).json({
+        allowed: false,
+        error: 'UID_ALREADY_LINKED',
+        message: 'This college ID is already linked to another PathWise account.'
+      });
+    }
+
+    return res.json({ allowed: true, boundUid: null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -383,26 +472,68 @@ app.get('/api/sections', getClerkId, async (req, res) => {
   }
 });
 
-// 7. Upload PDF to Cloudflare R2 (CR only)
-app.post('/api/assignments/upload-pdf', getClerkId, requireCR, upload.single('file'), async (req, res) => {
+// 7a. Get Presigned Upload URL for Backblaze B2 (CR only - bypasses serverless payload limits)
+app.post(['/api/assignments/get-upload-url', '/api/get-upload-url'], getClerkId, requireCR, async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+    const { filename, contentType } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename is required' });
 
-    const filename = `${Date.now()}-${req.file.originalname.replace(/\s/g, '_')}`;
-    const key = `assignments/${req.crUser.section_code}/${filename}`;
+    const safeOriginalName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const uniqueFilename = `${Date.now()}-${safeOriginalName}`;
+    const sectionFolder = (req.crUser && req.crUser.section_code) ? req.crUser.section_code : 'general';
+    const key = `assignments/${sectionFolder}/${uniqueFilename}`;
+    const determinedContentType = getMimeType(filename, contentType);
 
-    await b2.send(new PutObjectCommand({
+    const command = new PutObjectCommand({
       Bucket: B2_BUCKET,
       Key: key,
-      Body: req.file.buffer,
-      ContentType: req.file.mimetype,
-    }));
+      ContentType: determinedContentType,
+    });
 
-    // Store the key (path), not a public URL — signed URLs generated on download
-    res.json({ success: true, pdf_key: key, pdf_filename: req.file.originalname });
+    const uploadUrl = await getSignedUrl(b2, command, { expiresIn: 900 });
+
+    res.json({
+      uploadUrl,
+      key,
+      filename: safeOriginalName,
+      contentType: determinedContentType,
+    });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('Error generating presigned upload URL:', e);
+    res.status(500).json({ error: e.message || 'Failed to generate upload URL' });
   }
+});
+
+// 7. Upload PDF / Document to Backblaze B2 (CR only)
+app.post(['/api/assignments/upload-pdf', '/api/upload-document'], getClerkId, requireCR, (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      console.error('Multer upload error:', err);
+      return res.status(400).json({ error: err.message || 'File upload failed' });
+    }
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+      const safeOriginalName = (req.file.originalname || 'document.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filename = `${Date.now()}-${safeOriginalName}`;
+      const sectionFolder = (req.crUser && req.crUser.section_code) ? req.crUser.section_code : 'general';
+      const key = `assignments/${sectionFolder}/${filename}`;
+      const determinedContentType = getMimeType(req.file.originalname, req.file.mimetype);
+
+      await b2.send(new PutObjectCommand({
+        Bucket: B2_BUCKET,
+        Key: key,
+        Body: req.file.buffer,
+        ContentType: determinedContentType,
+      }));
+
+      // Store the key (path), not a public URL — signed URLs generated on download
+      res.json({ success: true, pdf_key: key, pdf_filename: req.file.originalname || safeOriginalName });
+    } catch (e) {
+      console.error('B2 upload error:', e);
+      res.status(500).json({ error: e.message || 'Failed to upload document to storage' });
+    }
+  });
 });
 
 // 8. Create Assignment (CR only)
@@ -570,7 +701,14 @@ app.get('/api/notifications', getClerkId, async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    res.json(notifications);
+    const withSignedUrls = await Promise.all(
+      notifications.map(async (n) => ({
+        ...n,
+        pdf_download_url: n.pdf_key ? await getDownloadUrl(n.pdf_key) : null,
+      }))
+    );
+
+    res.json(withSignedUrls);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -579,7 +717,7 @@ app.get('/api/notifications', getClerkId, async (req, res) => {
 // Create a new notification (CR only)
 app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
   try {
-    const { title, message, expiresAt, section_code } = req.body;
+    const { title, message, expiresAt, section_code, pdf_key, pdf_filename } = req.body;
     if (!title || !message || !expiresAt) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -594,7 +732,9 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
       message,
       created_by: req.clerkUserId,
       section_code: finalSection,
-      expiresAt: new Date(expiresAt)
+      expiresAt: new Date(expiresAt),
+      pdf_key: pdf_key || null,
+      pdf_filename: pdf_filename || null,
     });
 
     await notification.save();
@@ -633,7 +773,12 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
       console.error('Error dispatching CR announcement pushes:', pushErr);
     }
 
-    res.json(notification);
+    const responseNotif = notification.toObject();
+    if (responseNotif.pdf_key) {
+      responseNotif.pdf_download_url = await getDownloadUrl(responseNotif.pdf_key);
+    }
+
+    res.json(responseNotif);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -650,6 +795,11 @@ app.delete('/api/notifications/:id', getClerkId, async (req, res) => {
 
     if (notification.created_by !== req.clerkUserId && user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only delete your own notifications' });
+    }
+
+    // Delete PDF from B2 if attached
+    if (notification.pdf_key) {
+      try { await b2.send(new DeleteObjectCommand({ Bucket: B2_BUCKET, Key: notification.pdf_key })); } catch (_) {}
     }
 
     await notification.deleteOne();

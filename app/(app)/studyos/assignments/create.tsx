@@ -113,9 +113,9 @@ export default function CreateAssignmentScreen() {
       if (result.canceled) return;
       const asset = result.assets[0];
       
-      // Validate file size (5MB)
-      if (asset.size && asset.size > 5 * 1024 * 1024) {
-        setFileError('File size exceeds 5MB limit. Please choose a smaller file.');
+      // Validate file size (15MB)
+      if (asset.size && asset.size > 15 * 1024 * 1024) {
+        setFileError('File size exceeds 15MB limit. Please choose a smaller file.');
         return;
       }
 
@@ -394,7 +394,7 @@ export default function CreateAssignmentScreen() {
                     <Ionicons name="cloud-upload-outline" size={26} color={colors.primary} />
                   </View>
                   <Text style={styles.dropzoneTitle}>Attach File (PDF, Docs, PPT, Images)</Text>
-                  <Text style={styles.dropzoneSubtext}>Maximum file size 5MB</Text>
+                  <Text style={styles.dropzoneSubtext}>Maximum file size 15MB</Text>
                 </View>
               )}
             </TouchableOpacity>

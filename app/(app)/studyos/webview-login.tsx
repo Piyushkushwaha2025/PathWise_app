@@ -9,8 +9,12 @@ import { useStudySessionStore } from '../../../store/studySessionStore';
 import { UNIVERSITIES } from '../../../constants/universities';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
+import { useAuth } from '@clerk/clerk-expo';
+import { verifyUidWithDB, useDBProfile } from '../../../lib/db';
 
 export default function WebViewLoginScreen() {
+  const { userId } = useAuth();
+  const { dbUser } = useDBProfile();
   const { uniId, isReconnect } = useLocalSearchParams<{ uniId: string, isReconnect?: string }>();
   const activeUni = UNIVERSITIES[uniId || 'cu'];
   const colors = useThemeStore((s) => s.colors);
@@ -204,7 +208,7 @@ export default function WebViewLoginScreen() {
         }
   };
 
-  const handleNextStep1 = () => {
+  const handleNextStep1 = async () => {
     let hasError = false;
     if (!uid.trim()) { setUidError('Username is required'); hasError = true; }
     if (!pwd.trim()) { setPwdError('Password is required'); hasError = true; }
@@ -213,7 +217,23 @@ export default function WebViewLoginScreen() {
     if (hasError) return;
     
     setInlineError('');
+    setUidError('');
     setIsProcessing(true);
+    setLoadingMsg('Verifying Account...');
+
+    if (userId) {
+      try {
+        await verifyUidWithDB(userId, uid.trim());
+      } catch (err: any) {
+        setIsProcessing(false);
+        setLoadingMsg('');
+        const msg = err.message || 'College ID not permitted on this account.';
+        setUidError(msg);
+        setInlineError(msg);
+        return;
+      }
+    }
+
     setLoadingMsg('Connecting...');
     
     const script = `
@@ -380,6 +400,7 @@ export default function WebViewLoginScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
               />
+
               {uidError ? <Text style={styles.fieldError}>{uidError}</Text> : null}
               
               <Text style={[styles.label, { marginTop: 24 }]}>Password <Text style={{color: colors.primary, fontSize: 11}}>(Auto-filled next time)</Text></Text>

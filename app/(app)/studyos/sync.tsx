@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
@@ -455,7 +455,7 @@ export default function SyncScreen() {
   const router = useRouter();
   const { userId } = useAuth();
   const { setScrapedData } = useStudyOSStore();
-  const { setSession } = useStudySessionStore();
+  const { setSession, clearSession } = useStudySessionStore();
   const webViewRef = useRef<WebView>(null);
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -583,21 +583,25 @@ export default function SyncScreen() {
           isScrapedDataLoaded: true
         });
 
-      if (userId && section) {
-        syncUserWithDB(userId, section, newData.profile?.uid)
-          .catch(async (e: any) => {
-            if (e?.code === 'UID_ALREADY_LINKED') {
-              // This UIMS account belongs to a different PathWise account.
-              // Sign out and show a clear error to the user.
-              await SecureStore.deleteItemAsync('culko_cookies').catch(() => {});
-              useStudySessionStore.getState().setSessionExpired(true);
-              useStudySessionStore.getState().setCustomError?.(
-                'This UIMS account is already linked to another PathWise account. Please log in with your original account.'
-              );
-            } else {
-              console.error('Failed to sync section to DB', e);
-            }
-          });
+      if (userId && newData.profile?.uid) {
+        try {
+          await syncUserWithDB(userId, section || undefined, newData.profile.uid);
+        } catch (e: any) {
+          if (e?.code === 'UID_ALREADY_LINKED' || e?.code === 'ACCOUNT_ALREADY_BOUND') {
+            await SecureStore.deleteItemAsync('culko_cookies').catch(() => {});
+            await SecureStore.deleteItemAsync('culko_u').catch(() => {});
+            await SecureStore.deleteItemAsync('culko_p').catch(() => {});
+            await clearSession();
+            Alert.alert(
+              'Account Locked',
+              e.message || 'This College ID is not permitted on this account.',
+              [{ text: 'OK', onPress: () => router.replace('/(app)/studyos/connect' as any) }]
+            );
+            return;
+          } else {
+            console.error('Failed to sync user with DB:', e);
+          }
+        }
       }
 
       await setSession('cu', 'culko-scraped', 0);

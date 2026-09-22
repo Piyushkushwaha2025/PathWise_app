@@ -20,6 +20,14 @@ const NotificationSchema = new mongoose.Schema({
   expiresAt: {
     type: Date,
     required: true
+  },
+  pdf_key: {
+    type: String,
+    default: null
+  },
+  pdf_filename: {
+    type: String,
+    default: null
   }
 }, { timestamps: true });
 

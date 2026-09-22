@@ -641,12 +641,36 @@ export function DetailedAttendanceModal({
   };
 
 
+  const findCachedData = () => {
+    if (!detailedCache) return null;
+    if (detailedCache[subjectCode] && Array.isArray(detailedCache[subjectCode]) && detailedCache[subjectCode].length > 0) {
+      return detailedCache[subjectCode];
+    }
+    if (subjectName && detailedCache[subjectName] && Array.isArray(detailedCache[subjectName]) && detailedCache[subjectName].length > 0) {
+      return detailedCache[subjectName];
+    }
+    const cleanCode = (subjectCode || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    for (const key of Object.keys(detailedCache)) {
+      const cleanKey = key.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      if (cleanKey && cleanCode && cleanKey === cleanCode) {
+        if (Array.isArray(detailedCache[key]) && detailedCache[key].length > 0) return detailedCache[key];
+      }
+      if (subjectName) {
+        const cleanSubj = subjectName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        if (cleanKey && cleanSubj && (cleanKey.includes(cleanSubj) || cleanSubj.includes(cleanKey))) {
+          if (Array.isArray(detailedCache[key]) && detailedCache[key].length > 0) return detailedCache[key];
+        }
+      }
+    }
+    return null;
+  };
+
   useEffect(() => {
     if (!visible) return;
 
-    // Only use cache if it has actual records
-    const cachedData = detailedCache?.[subjectCode];
-    if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+    // Fast check: use cached detailed attendance if available
+    const cachedData = findCachedData();
+    if (cachedData) {
       cacheHit.current = true;
       setAttendanceData(cachedData);
       setLoading(false);
@@ -684,35 +708,55 @@ export function DetailedAttendanceModal({
     return () => {
       task.cancel();
     };
-  }, [visible, subjectCode]);
+  }, [visible, subjectCode, subjectName]);
 
-  const buildInjectScript = (subjectCode: string) => `
+  const buildInjectScript = (code: string, name?: string, target?: string) => `
     try {
       var isDetailedPage = document.body.innerText.includes('Marked By') || document.body.innerText.includes('Time') || (document.querySelectorAll('table tr')[0] && document.querySelectorAll('table tr')[0].innerText.includes('Time'));
-      
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'isDetailedPage: ' + isDetailedPage }));
 
       if (!isDetailedPage) {
-        var cleanCode = (${JSON.stringify(subjectCode)}).replace(/^[A-Z]+_/, '').trim().toUpperCase();
-        var buttons = document.querySelectorAll('input[type="button"], input[type="submit"], button, a');
+        var cleanCode = (${JSON.stringify(code || '')}).replace(/^[A-Z]+_/, '').trim().toUpperCase();
+        var cleanName = (${JSON.stringify(name || '')}).trim().toUpperCase();
+        var targetName = (${JSON.stringify(target || '')}).trim();
         var clicked = false;
-        
-        // 1. Try to find button by 'obj' attribute matching code exactly
-        for (var i=0; i<buttons.length; i++) {
-           var obj = buttons[i].getAttribute('obj');
-           if (obj && obj.toUpperCase().includes(cleanCode)) {
-              buttons[i].click();
+
+        // 0. Try by exact viewActionTarget if provided
+        if (targetName) {
+           var targetBtn = document.querySelector('[name="' + targetName + '"]') || document.getElementById(targetName) || document.getElementById(targetName.replace(/\\$/g, '_'));
+           if (targetBtn) {
+              targetBtn.click();
               clicked = true;
-              break;
+           } else if (typeof window.__doPostBack === 'function') {
+              window.__doPostBack(targetName, '');
+              clicked = true;
            }
         }
-        
-        // 2. Try by row text
+
+        // 1. Try to find button by 'obj' attribute matching code or name
+        if (!clicked) {
+          var buttons = document.querySelectorAll('input[type="button"], input[type="submit"], button, a');
+          for (var i=0; i<buttons.length; i++) {
+             var obj = buttons[i].getAttribute('obj');
+             if (obj) {
+                var upperObj = obj.toUpperCase();
+                if ((cleanCode && upperObj.includes(cleanCode)) || (cleanName && upperObj.includes(cleanName))) {
+                   buttons[i].click();
+                   clicked = true;
+                   break;
+                }
+             }
+          }
+        }
+
+        // 2. Try by row text matching code or subject name
         if (!clicked) {
            var rows = document.querySelectorAll('tr');
            for (var r=0; r<rows.length; r++) {
-              if (rows[r].innerText.toUpperCase().includes(cleanCode)) {
-                 var viewBtn = rows[r].querySelector('input[value="View"], input[value="VIEW"], input[type="button"], a');
+              var rowText = rows[r].innerText.toUpperCase();
+              var matchesCode = cleanCode && rowText.includes(cleanCode);
+              var matchesName = cleanName && rowText.includes(cleanName);
+              if (matchesCode || matchesName) {
+                 var viewBtn = rows[r].querySelector('input[value="View"], input[value="VIEW"], input[type="button"], input[type="submit"], a, button');
                  if (viewBtn) {
                     viewBtn.click();
                     clicked = true;
@@ -721,9 +765,8 @@ export function DetailedAttendanceModal({
               }
            }
         }
-        
+
         if (clicked) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Button clicked for ' + cleanCode }));
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'POSTBACK_SENT' }));
           
           var checkCount = 0;
@@ -734,13 +777,13 @@ export function DetailedAttendanceModal({
                 extractData();
              }
              checkCount++;
-             if (checkCount > 20) {
+             if (checkCount > 60) {
                 clearInterval(interval);
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'Timeout waiting for detailed attendance to load' }));
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'Unable to load detailed attendance records for this subject right now. Please try again.' }));
              }
           }, 300);
         } else {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'Button not found for: ' + cleanCode }));
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'Attendance records for ' + (cleanName || cleanCode) + ' could not be found on portal.' }));
         }
       } else {
         extractData();
@@ -758,16 +801,15 @@ export function DetailedAttendanceModal({
         if (!detailTable) detailTable = tables[tables.length - 1]; // fallback to last table
         
         if (!detailTable) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'No table found on page' }));
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'No attendance records table found.' }));
           return;
         }
         
         var rows = detailTable.querySelectorAll('tr');
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Total rows found: ' + rows.length }));
         var results = [];
         for (var i = 1; i < rows.length; i++) {
           var cells = rows[i].querySelectorAll('td');
-          if (cells.length >= 4) { // relaxed from 6 to 4
+          if (cells.length >= 4) {
             var date = cells[1] ? cells[1].innerText.trim() : (cells[0] ? cells[0].innerText.trim() : '');
             if (!date || date.toUpperCase() === 'TITLE' || date.toUpperCase() === 'COURSE CODE' || date.toUpperCase() === 'DATE') continue;
             
@@ -780,9 +822,8 @@ export function DetailedAttendanceModal({
             });
           }
         }
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'Extracted records: ' + results.length }));
         if (results.length === 0) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'Table found but no valid rows. Rows total: ' + rows.length }));
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', message: 'No detailed records found for this course.' }));
         } else {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SUCCESS', data: results }));
         }
@@ -1199,10 +1240,17 @@ export function DetailedAttendanceModal({
                       if (!cacheHit.current) {
                         webViewRef.current?.injectJavaScript(cookieInjectScript);
                         setTimeout(() => {
-                          webViewRef.current?.injectJavaScript(buildInjectScript(subjectCode));
+                          webViewRef.current?.injectJavaScript(buildInjectScript(subjectCode, subjectName, viewActionTarget));
                         }, 600);
                       }
                     }, 800);
+                  } else if (hasInjectedPostback.current) {
+                    // Subsequent page load after postback / form submission
+                    setTimeout(() => {
+                      if (!cacheHit.current) {
+                        webViewRef.current?.injectJavaScript(buildInjectScript(subjectCode, subjectName, viewActionTarget));
+                      }
+                    }, 500);
                   }
                 }
               }}
@@ -1229,17 +1277,28 @@ export function DetailedAttendanceModal({
             </Text>
           </View>
         ) : errorMsg ? (
-          <ScrollView contentContainerStyle={{ padding: 20 }}>
+          <ScrollView contentContainerStyle={{ padding: 24, alignItems: 'center' }}>
             <Ionicons name="alert-circle-outline" size={48} color="#ef4444" style={{ alignSelf: 'center' }} />
-            <Text style={[styles.errorText, { color: colors.text, marginTop: 10, textAlign: 'left', fontSize: 12 }]}>{errorMsg}</Text>
-            {debugLogs.length > 0 && (
-              <View style={{ marginTop: 12, backgroundColor: colors.surfaceHigh, borderRadius: 8, padding: 10 }}>
-                <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium' }}>Debug Info:</Text>
-                {debugLogs.map((log, i) => (
-                  <Text key={i} style={{ color: colors.textDim, fontSize: 10, fontFamily: 'Inter_400Regular', marginTop: 2 }}>• {log}</Text>
-                ))}
-              </View>
-            )}
+            <Text style={[styles.errorText, { color: colors.text, marginTop: 12, textAlign: 'center', fontSize: 13, lineHeight: 18 }]}>
+              {errorMsg}
+            </Text>
+            <TouchableOpacity
+              onPress={handleRefresh}
+              activeOpacity={0.8}
+              style={{
+                marginTop: 20,
+                backgroundColor: colors.primary,
+                paddingHorizontal: 22,
+                paddingVertical: 10,
+                borderRadius: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6
+              }}
+            >
+              <Ionicons name="refresh" size={16} color="#fff" />
+              <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Try Again</Text>
+            </TouchableOpacity>
           </ScrollView>
         ) : (!safeAttendanceData || safeAttendanceData.length === 0) ? (
           <View style={styles.centerContent}>

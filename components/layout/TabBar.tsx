@@ -90,11 +90,6 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           const isStudyOSTab = baseName === "studyos";
 
           const onPress = () => {
-            Haptics.impactAsync(
-              isStudyOSTab && !isStudyOSMode
-                ? Haptics.ImpactFeedbackStyle.Medium
-                : Haptics.ImpactFeedbackStyle.Light
-            );
             const event = navigation.emit({
               type: "tabPress",
               target: route.key,
@@ -103,6 +98,13 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             if (!isFocused && !event.defaultPrevented) {
               navigation.navigate(route.name);
             }
+            try {
+              Haptics.impactAsync(
+                isStudyOSTab && !isStudyOSMode
+                  ? Haptics.ImpactFeedbackStyle.Medium
+                  : Haptics.ImpactFeedbackStyle.Light
+              ).catch(() => {});
+            } catch {}
           };
 
           // Center tab: ALWAYS rendered as CenterTabButton wrapper (flex:1)
