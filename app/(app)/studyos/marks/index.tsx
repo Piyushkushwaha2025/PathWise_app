@@ -190,8 +190,6 @@ export default function MarksScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setIsLoading(true);
-    setResultData(null);
     webViewRef.current?.reload();
     marksWebViewRef.current?.reload();
   }, []);
@@ -940,7 +938,7 @@ export default function MarksScreen() {
           </LinearGradient>
         </View>
 
-        {isLoading && (
+        {!isCurrentSemester && isLoading && !refreshing && (
           <View style={{ padding: 40, alignItems: 'center' }}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={{ color: colors.textMuted, marginTop: 12, fontFamily: 'Inter_500Medium', fontSize: 13 }}>
@@ -1330,19 +1328,6 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
                         {ex.obtained}/{ex.max}
                       </Text>
                     </View>
-                    {exPct !== null ? (
-                      <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-                        <View 
-                          style={[
-                            stylesInternal.progressFill, 
-                            { 
-                              width: `${exPct}%`, 
-                              backgroundColor: exPct >= 75 ? '#22c55e' : (exPct >= 60 ? '#f59e0b' : '#ef4444') 
-                            }
-                          ]} 
-                        />
-                      </View>
-                    ) : null}
                   </View>
                 );
               })
@@ -1357,9 +1342,6 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
                       </View>
                       <Text style={[stylesInternal.metricValue, { color: colors.text }]}>{mst.text}</Text>
                     </View>
-                    <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-                      <View style={[stylesInternal.progressFill, { width: `${mst.pct}%`, backgroundColor: mst.pct >= 75 ? '#22c55e' : (mst.pct >= 60 ? '#f59e0b' : '#ef4444') }]} />
-                    </View>
                   </View>
                 )}
                 {practical.isValid && (
@@ -1370,9 +1352,6 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
                         <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Practical / Lab Marks</Text>
                       </View>
                       <Text style={[stylesInternal.metricValue, { color: colors.text }]}>{practical.text}</Text>
-                    </View>
-                    <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-                      <View style={[stylesInternal.progressFill, { width: `${practical.pct}%`, backgroundColor: practical.pct >= 75 ? '#22c55e' : (practical.pct >= 60 ? '#f59e0b' : '#ef4444') }]} />
                     </View>
                   </View>
                 )}
