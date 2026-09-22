@@ -513,25 +513,31 @@ const PredictorSubjectCardItem = React.memo(({
   );
 });
 
-// Modern Day-by-Day Timetable Card Item
-const DayTimelineCardItem = React.memo(({
-  item,
+// Interactive Selected Day Schedule View (with Horizontal Date Strip & Inline Class Attendance Impact)
+const SelectedDayScheduleView = ({
+  dayItem,
+  overallForecast,
   colors,
   isDark,
-  onSelectSubject,
+  selectedSlotIndex,
+  onToggleSlot,
 }: {
-  item: DayTimelineItem;
+  dayItem: DayTimelineItem;
+  overallForecast: any;
   colors: any;
   isDark: boolean;
-  onSelectSubject?: (subject: { code: string; name: string; viewActionTarget?: string }) => void;
+  selectedSlotIndex: number | null;
+  onToggleSlot: (index: number) => void;
 }) => {
   const cardGradColors = isDark
     ? (['rgba(255, 255, 255, 0.07)', 'rgba(255, 255, 255, 0.02)'] as const)
     : (['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.75)'] as const);
 
-  if (item.isOff) {
+  if (!dayItem) return null;
+
+  if (dayItem.isOff) {
     return (
-      <View style={styles.timelineDayCard}>
+      <View style={styles.selectedDayCardWrapper}>
         <LinearGradient
           colors={cardGradColors}
           style={[
@@ -543,37 +549,59 @@ const DayTimelineCardItem = React.memo(({
           ]}
         >
           <View style={styles.dayCardHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={[styles.dayCircle, { backgroundColor: item.isExam ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View
+                style={[
+                  styles.dayCircle,
+                  { backgroundColor: dayItem.isExam ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)' },
+                ]}
+              >
                 <Ionicons
-                  name={item.isExam ? 'document-text' : 'leaf'}
-                  size={15}
-                  color={item.isExam ? '#ef4444' : '#10b981'}
+                  name={dayItem.isExam ? 'document-text' : 'leaf'}
+                  size={18}
+                  color={dayItem.isExam ? '#ef4444' : '#10b981'}
                 />
               </View>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={[styles.dayTitleText, { color: colors.text }]}>
-                  {item.dayLabel} • {item.formattedDate}
+                  {dayItem.dayLabel} • {dayItem.formattedDate}
                 </Text>
-                <Text style={[styles.dayOffReason, { color: item.isExam ? '#ef4444' : '#10b981' }]}>
-                  {item.offReason}
+                <Text style={[styles.dayOffReason, { color: dayItem.isExam ? '#ef4444' : '#10b981' }]}>
+                  {dayItem.offReason}
                 </Text>
               </View>
             </View>
 
             <View style={[styles.dayStatusPill, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }]}>
               <Text style={[styles.dayStatusPillText, { color: colors.textMuted }]}>
-                {item.isExam ? 'Exam Period' : 'No Classes'}
+                {dayItem.isExam ? 'Exam Period' : 'No Classes'}
               </Text>
             </View>
+          </View>
+
+          <View style={styles.dayOffNoticeBox}>
+            <Ionicons name="information-circle-outline" size={16} color={colors.textMuted} />
+            <Text style={[styles.dayOffNoticeText, { color: colors.textMuted }]}>
+              No scheduled classes on this day. Your attendance remains completely unchanged.
+            </Text>
           </View>
         </LinearGradient>
       </View>
     );
   }
 
+  const slotsCount = dayItem.slots.length;
+  const currTotAttended = overallForecast.currTotAttended;
+  const currTotClasses = overallForecast.currTotClasses;
+  const currOverallPct = overallForecast.currOverallPct;
+  const potentialNewOverallPct =
+    currTotClasses + slotsCount > 0
+      ? Math.round(((currTotAttended + slotsCount) / (currTotClasses + slotsCount)) * 1000) / 10
+      : currOverallPct;
+  const dayGain = Math.round((potentialNewOverallPct - currOverallPct) * 10) / 10;
+
   return (
-    <View style={styles.timelineDayCard}>
+    <View style={styles.selectedDayCardWrapper}>
       <LinearGradient
         colors={cardGradColors}
         style={[
@@ -584,141 +612,382 @@ const DayTimelineCardItem = React.memo(({
           },
         ]}
       >
-        {/* Day Card Header */}
+        {/* Selected Day Header */}
         <View style={styles.dayCardHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
             <View style={[styles.dayCircle, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
-              <Ionicons name="calendar-outline" size={15} color={colors.primary} />
+              <Ionicons name="calendar" size={17} color={colors.primary} />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={[styles.dayTitleText, { color: colors.text }]}>
-                  {item.dayLabel} • {item.formattedDate}
+                  {dayItem.dayLabel} • {dayItem.formattedDate}
                 </Text>
-                {item.isTomorrow && (
+                {dayItem.isTomorrow && (
                   <View style={[styles.tomorrowBadge, { backgroundColor: colors.primary }]}>
                     <Text style={styles.tomorrowBadgeText}>Tomorrow</Text>
                   </View>
                 )}
               </View>
               <Text style={[styles.daySubCount, { color: colors.textMuted }]}>
-                {item.slots.length} class{item.slots.length !== 1 ? 'es' : ''} scheduled
+                {slotsCount} class{slotsCount !== 1 ? 'es' : ''} scheduled on this day
               </Text>
             </View>
           </View>
 
           <View style={[styles.dayClassCountBadge, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)' }]}>
             <Text style={[styles.dayClassCountText, { color: colors.primary }]}>
-              +{item.slots.length} Classes
+              {slotsCount} Classes
             </Text>
           </View>
         </View>
 
-        {/* List of class slots for this day */}
+        {/* Day Attendance Impact Banner */}
+        <View style={[styles.dayImpactBanner, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.25)' }]}>
+          <Ionicons name="trending-up-outline" size={16} color="#10b981" />
+          <Text style={[styles.dayImpactBannerText, { color: colors.text }]}>
+            Attending all {slotsCount} classes today yields{' '}
+            <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: '#10b981' }}>
+              +{dayGain}% overall semester boost
+            </Text>{' '}
+            ({currOverallPct}% → {potentialNewOverallPct}%)
+          </Text>
+        </View>
+
+        <Text style={[styles.tapHintText, { color: colors.textMuted }]}>
+          Tap any subject below to see its attendance impact & overall effect:
+        </Text>
+
+        {/* Class Slots */}
         <View style={styles.daySlotsList}>
-          {item.slots.map((sItem, idx) => {
+          {dayItem.slots.map((sItem, idx) => {
             const isPractical = sItem.classType === 'Practical';
             const matched = sItem.matchedSubject;
+            const isExpanded = selectedSlotIndex === idx;
+
+            // Calculations for this single class
+            const subAttended = matched ? Number(matched.attendedClasses || 0) : 0;
+            const subTotal = matched ? Number(matched.totalClasses || 0) : 0;
+            const subCurrPct =
+              matched && subTotal > 0
+                ? Math.round((subAttended / subTotal) * 1000) / 10
+                : matched
+                ? Number(matched.attendancePercentage || 0)
+                : 0;
+
+            // Sub level after 1 class
+            const subAttendedIfPresent = subAttended + 1;
+            const subTotalIfPresent = subTotal + 1;
+            const subPctIfPresent =
+              subTotalIfPresent > 0 ? Math.round((subAttendedIfPresent / subTotalIfPresent) * 1000) / 10 : subCurrPct;
+            const subGain = Math.round((subPctIfPresent - subCurrPct) * 10) / 10;
+
+            const subAttendedIfAbsent = subAttended;
+            const subTotalIfAbsent = subTotal + 1;
+            const subPctIfAbsent =
+              subTotalIfAbsent > 0 ? Math.round((subAttendedIfAbsent / subTotalIfAbsent) * 1000) / 10 : subCurrPct;
+            const subLoss = Math.round((subCurrPct - subPctIfAbsent) * 10) / 10;
+
+            // Overall level after 1 class
+            const overallIfPresent =
+              currTotClasses + 1 > 0
+                ? Math.round(((currTotAttended + 1) / (currTotClasses + 1)) * 1000) / 10
+                : currOverallPct;
+            const overallGain = Math.round((overallIfPresent - currOverallPct) * 10) / 10;
+
+            const overallIfAbsent =
+              currTotClasses + 1 > 0
+                ? Math.round((currTotAttended / (currTotClasses + 1)) * 1000) / 10
+                : currOverallPct;
+            const overallLoss = Math.round((currOverallPct - overallIfAbsent) * 10) / 10;
+
+            const isSubSafe = subCurrPct >= 75;
+            const willBeSafeIfAbsent = subPctIfAbsent >= 75;
+
             return (
-              <TouchableOpacity
-                key={idx}
-                activeOpacity={matched ? 0.75 : 1}
-                disabled={!matched}
-                onPress={() => {
-                  if (matched && onSelectSubject) {
-                    try { Haptics.selectionAsync(); } catch {}
-                    onSelectSubject({
-                      code: matched.code,
-                      name: matched.name,
-                      viewActionTarget: matched.viewActionTarget,
-                    });
-                  }
-                }}
-                style={[
-                  styles.slotRow,
-                  {
-                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
-                  },
-                ]}
-              >
-                {/* Time Strip */}
-                <View style={styles.slotTimeCol}>
-                  <Text style={[styles.slotTimeText, { color: colors.text }]}>
-                    {sItem.slot.time || '—'}
-                  </Text>
-                  <View
-                    style={[
-                      styles.slotTypeBadge,
-                      {
-                        backgroundColor: isPractical ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                        borderColor: isPractical ? 'rgba(168, 85, 247, 0.3)' : 'rgba(59, 130, 246, 0.3)',
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.slotTypeText,
-                        { color: isPractical ? '#a855f7' : '#3b82f6' },
-                      ]}
-                    >
-                      {isPractical ? 'LAB' : 'LEC'}
+              <View key={idx} style={styles.slotItemContainer}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => onToggleSlot(idx)}
+                  style={[
+                    styles.slotRow,
+                    isExpanded && {
+                      borderColor: colors.primary,
+                      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.05)',
+                    },
+                    !isExpanded && {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
+                    },
+                  ]}
+                >
+                  {/* Time Strip */}
+                  <View style={styles.slotTimeCol}>
+                    <Text style={[styles.slotTimeText, { color: colors.text }]}>
+                      {sItem.slot.time || '—'}
                     </Text>
-                  </View>
-                </View>
-
-                {/* Slot Details */}
-                <View style={{ flex: 1, paddingLeft: 10 }}>
-                  <Text style={[styles.slotSubjectName, { color: colors.text }]} numberOfLines={2}>
-                    {matched ? matched.name : sItem.slot.subjectName || 'Scheduled Class'}
-                  </Text>
-                  <View style={styles.slotMetaRow}>
-                    {sItem.slot.room ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                        <Ionicons name="location-outline" size={11} color={colors.textMuted} />
-                        <Text style={[styles.slotMetaText, { color: colors.textMuted }]}>{sItem.slot.room}</Text>
-                      </View>
-                    ) : null}
-                    {sItem.slot.teacher ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                        <Ionicons name="person-outline" size={11} color={colors.textMuted} />
-                        <Text style={[styles.slotMetaText, { color: colors.textMuted }]} numberOfLines={1}>
-                          {sItem.slot.teacher}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                </View>
-
-                {/* Right Attendance Status */}
-                {matched && (
-                  <View style={styles.slotRightCol}>
-                    <Text
+                    <View
                       style={[
-                        styles.slotCurrPct,
+                        styles.slotTypeBadge,
                         {
-                          color:
-                            Number(matched.attendancePercentage || 0) >= 75
-                              ? '#10b981'
-                              : Number(matched.attendancePercentage || 0) >= 65
-                              ? '#f59e0b'
-                              : '#ef4444',
+                          backgroundColor: isPractical ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                          borderColor: isPractical ? 'rgba(168, 85, 247, 0.3)' : 'rgba(59, 130, 246, 0.3)',
                         },
                       ]}
                     >
-                      {matched.attendancePercentage}%
+                      <Text
+                        style={[
+                          styles.slotTypeText,
+                          { color: isPractical ? '#a855f7' : '#3b82f6' },
+                        ]}
+                      >
+                        {isPractical ? 'LAB' : 'LEC'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Slot Details */}
+                  <View style={{ flex: 1, paddingLeft: 10 }}>
+                    <Text style={[styles.slotSubjectName, { color: colors.text }]} numberOfLines={2}>
+                      {matched ? matched.name : sItem.slot.subjectName || 'Scheduled Class'}
                     </Text>
-                    <Ionicons name="chevron-forward" size={12} color={colors.textMuted} />
+                    <View style={styles.slotMetaRow}>
+                      {sItem.slot.room ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <Ionicons name="location-outline" size={11} color={colors.textMuted} />
+                          <Text style={[styles.slotMetaText, { color: colors.textMuted }]}>{sItem.slot.room}</Text>
+                        </View>
+                      ) : null}
+                      {sItem.slot.teacher ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <Ionicons name="person-outline" size={11} color={colors.textMuted} />
+                          <Text style={[styles.slotMetaText, { color: colors.textMuted }]} numberOfLines={1}>
+                            {sItem.slot.teacher}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+
+                  {/* Attendance badge & Chevron */}
+                  <View style={styles.slotRightCol}>
+                    {matched && (
+                      <Text
+                        style={[
+                          styles.slotCurrPct,
+                          {
+                            color:
+                              subCurrPct >= 75
+                                ? '#10b981'
+                                : subCurrPct >= 65
+                                ? '#f59e0b'
+                                : '#ef4444',
+                          },
+                        ]}
+                      >
+                        {subCurrPct}%
+                      </Text>
+                    )}
+                    <Ionicons
+                      name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={14}
+                      color={isExpanded ? colors.primary : colors.textMuted}
+                    />
+                  </View>
+                </TouchableOpacity>
+
+                {/* Inline Attendance Impact Panel (Shown when clicked) */}
+                {isExpanded && (
+                  <View
+                    style={[
+                      styles.expandedImpactPanel,
+                      {
+                        backgroundColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.02)',
+                        borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
+                      },
+                    ]}
+                  >
+                    {/* Header */}
+                    <View style={styles.impactSectionHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="analytics" size={15} color={colors.primary} />
+                        <Text style={[styles.impactTitle, { color: colors.text }]}>
+                          Single-Class Impact Analysis
+                        </Text>
+                      </View>
+                      {matched && (
+                        <View
+                          style={[
+                            styles.impactSubBadge,
+                            {
+                              backgroundColor: isSubSafe ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.impactSubBadgeText,
+                              { color: isSubSafe ? '#10b981' : '#ef4444' },
+                            ]}
+                          >
+                            {isSubSafe ? 'SAFE' : 'CRITICAL'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Subject Level Comparison Box */}
+                    <Text style={[styles.impactCategoryLabel, { color: colors.textMuted }]}>
+                      📚 {matched ? matched.name : 'This Subject'}
+                    </Text>
+                    <View style={styles.impactGridRow}>
+                      {/* If Attended */}
+                      <View
+                        style={[
+                          styles.impactBox,
+                          {
+                            backgroundColor: 'rgba(16, 185, 129, 0.09)',
+                            borderColor: 'rgba(16, 185, 129, 0.25)',
+                          },
+                        ]}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons name="checkmark-circle" size={13} color="#10b981" />
+                          <Text style={[styles.impactBoxTitle, { color: '#10b981' }]}>If Attended</Text>
+                        </View>
+                        <Text style={[styles.impactBoxPct, { color: '#10b981' }]}>
+                          {subPctIfPresent}%
+                        </Text>
+                        <Text style={[styles.impactBoxSubText, { color: '#10b981' }]}>
+                          +{subGain}% ({subAttendedIfPresent}/{subTotalIfPresent})
+                        </Text>
+                      </View>
+
+                      {/* If Missed */}
+                      <View
+                        style={[
+                          styles.impactBox,
+                          {
+                            backgroundColor: willBeSafeIfAbsent ? 'rgba(245, 158, 11, 0.09)' : 'rgba(239, 68, 68, 0.09)',
+                            borderColor: willBeSafeIfAbsent ? 'rgba(245, 158, 11, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                          },
+                        ]}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons
+                            name={willBeSafeIfAbsent ? 'alert-circle' : 'close-circle'}
+                            size={13}
+                            color={willBeSafeIfAbsent ? '#f59e0b' : '#ef4444'}
+                          />
+                          <Text style={[styles.impactBoxTitle, { color: willBeSafeIfAbsent ? '#f59e0b' : '#ef4444' }]}>
+                            If Bunked
+                          </Text>
+                        </View>
+                        <Text style={[styles.impactBoxPct, { color: willBeSafeIfAbsent ? '#f59e0b' : '#ef4444' }]}>
+                          {subPctIfAbsent}%
+                        </Text>
+                        <Text style={[styles.impactBoxSubText, { color: willBeSafeIfAbsent ? '#f59e0b' : '#ef4444' }]}>
+                          -{subLoss}% ({subAttendedIfAbsent}/{subTotalIfAbsent})
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Overall Semester Combined Level Box */}
+                    <Text style={[styles.impactCategoryLabel, { color: colors.textMuted, marginTop: 10 }]}>
+                      🌐 Overall Semester Score (All Courses)
+                    </Text>
+                    <View style={styles.impactGridRow}>
+                      {/* Overall If Attended */}
+                      <View
+                        style={[
+                          styles.impactBox,
+                          {
+                            backgroundColor: 'rgba(59, 130, 246, 0.09)',
+                            borderColor: 'rgba(59, 130, 246, 0.25)',
+                          },
+                        ]}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons name="trending-up" size={13} color={colors.primary} />
+                          <Text style={[styles.impactBoxTitle, { color: colors.primary }]}>Overall Attend</Text>
+                        </View>
+                        <Text style={[styles.impactBoxPct, { color: colors.primary }]}>
+                          {overallIfPresent}%
+                        </Text>
+                        <Text style={[styles.impactBoxSubText, { color: colors.primary }]}>
+                          +{overallGain}% ({currTotAttended + 1}/{currTotClasses + 1})
+                        </Text>
+                      </View>
+
+                      {/* Overall If Missed */}
+                      <View
+                        style={[
+                          styles.impactBox,
+                          {
+                            backgroundColor: overallIfAbsent >= 75 ? 'rgba(245, 158, 11, 0.09)' : 'rgba(239, 68, 68, 0.09)',
+                            borderColor: overallIfAbsent >= 75 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(239, 68, 68, 0.25)',
+                          },
+                        ]}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Ionicons
+                            name="trending-down"
+                            size={13}
+                            color={overallIfAbsent >= 75 ? '#f59e0b' : '#ef4444'}
+                          />
+                          <Text style={[styles.impactBoxTitle, { color: overallIfAbsent >= 75 ? '#f59e0b' : '#ef4444' }]}>
+                            Overall Miss
+                          </Text>
+                        </View>
+                        <Text style={[styles.impactBoxPct, { color: overallIfAbsent >= 75 ? '#f59e0b' : '#ef4444' }]}>
+                          {overallIfAbsent}%
+                        </Text>
+                        <Text style={[styles.impactBoxSubText, { color: overallIfAbsent >= 75 ? '#f59e0b' : '#ef4444' }]}>
+                          -{overallLoss}% ({currTotAttended}/{currTotClasses + 1})
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Bunk Cushion Advice Banner */}
+                    <View
+                      style={[
+                        styles.impactAdviceBanner,
+                        {
+                          backgroundColor: willBeSafeIfAbsent
+                            ? 'rgba(16, 185, 129, 0.12)'
+                            : 'rgba(239, 68, 68, 0.12)',
+                          borderColor: willBeSafeIfAbsent
+                            ? 'rgba(16, 185, 129, 0.3)'
+                            : 'rgba(239, 68, 68, 0.3)',
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={willBeSafeIfAbsent ? 'shield-checkmark' : 'alert-circle'}
+                        size={15}
+                        color={willBeSafeIfAbsent ? '#10b981' : '#ef4444'}
+                      />
+                      <Text
+                        style={[
+                          styles.impactAdviceText,
+                          { color: willBeSafeIfAbsent ? '#10b981' : '#ef4444' },
+                        ]}
+                      >
+                        {willBeSafeIfAbsent
+                          ? `Safe to miss: Attendance will stay above 75% (${subPctIfAbsent}%).`
+                          : `⚠️ Alert: Bunking this class will drop attendance to ${subPctIfAbsent}% (Below 75%). Must attend!`}
+                      </Text>
+                    </View>
                   </View>
                 )}
-              </TouchableOpacity>
+              </View>
             );
           })}
         </View>
       </LinearGradient>
     </View>
   );
-});
+};
 
 export function AttendanceOverviewModal({
   visible,
@@ -743,6 +1012,10 @@ export function AttendanceOverviewModal({
   const [predictDays, setPredictDays] = useState<number>(14);
   const [simulatedMissed, setSimulatedMissed] = useState<number>(0);
   const [predictorSubTab, setPredictorSubTab] = useState<'subjects' | 'schedule'>('subjects');
+
+  // Day-by-Day schedule active date & active class expansion
+  const [selectedDateIndex, setSelectedDateIndex] = useState<number>(0);
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
 
   const [selectedSubject, setSelectedSubject] = useState<{
     code: string;
@@ -791,6 +1064,8 @@ export function AttendanceOverviewModal({
       slideAnim.setValue(SCREEN_WIDTH);
       setActiveTab('overview');
       setSimulatedMissed(0);
+      setSelectedDateIndex(0);
+      setSelectedSlotIndex(null);
     }
   }, [visible, SCREEN_WIDTH, slideAnim]);
 
@@ -1112,6 +1387,8 @@ export function AttendanceOverviewModal({
     };
   }, [safeSubjects, timetable, predictDays, simulatedMissed]);
 
+  const safeSelectedDateIndex = Math.min(selectedDateIndex, Math.max(0, dayTimeline.length - 1));
+
   const renderSubject = useCallback(
     ({ item }: { item: ProcessedSubject }) => (
       <SubjectCardItem
@@ -1142,25 +1419,6 @@ export function AttendanceOverviewModal({
             code: item.subject.code,
             name: item.subject.name,
             viewActionTarget: item.subject.viewActionTarget,
-            initialPredicting: true,
-          });
-        }}
-      />
-    ),
-    [colors, isDark, handleOpenDetail]
-  );
-
-  const renderDayTimeline = useCallback(
-    ({ item }: { item: DayTimelineItem }) => (
-      <DayTimelineCardItem
-        item={item}
-        colors={colors}
-        isDark={isDark}
-        onSelectSubject={(sub) => {
-          handleOpenDetail({
-            code: sub.code,
-            name: sub.name,
-            viewActionTarget: sub.viewActionTarget,
             initialPredicting: true,
           });
         }}
@@ -1503,6 +1761,8 @@ export function AttendanceOverviewModal({
                   try { Haptics.selectionAsync(); } catch {}
                   setPredictDays(opt.days);
                   setSimulatedMissed(0);
+                  setSelectedDateIndex(0);
+                  setSelectedSlotIndex(null);
                 }}
                 style={[
                   styles.horizonChip,
@@ -1880,6 +2140,116 @@ export function AttendanceOverviewModal({
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Horizontal Date Selector Strip (shown only when in 'schedule' sub-tab) */}
+        {predictorSubTab === 'schedule' && dayTimeline.length > 0 && (
+          <View style={styles.horizontalDateStripWrapper}>
+            <View style={styles.horizontalStripHeader}>
+              <Text style={[styles.horizontalStripTitle, { color: colors.text }]}>
+                Select Day
+              </Text>
+              <Text style={[styles.horizontalStripSubtitle, { color: colors.textMuted }]}>
+                {dayTimeline.length} days in window
+              </Text>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.horizontalDateStrip}
+            >
+              {dayTimeline.map((dItem, idx) => {
+                const isSelected = safeSelectedDateIndex === idx;
+                const isOff = dItem.isOff;
+                const isExam = dItem.isExam;
+                const isSun = dItem.date.getDay() === 0;
+                const dayShort = DAYS_ARRAY[dItem.date.getDay()].substring(0, 3).toUpperCase();
+                const dateNum = dItem.date.getDate();
+                const monthShort = MONTH_NAMES[dItem.date.getMonth()];
+
+                return (
+                  <TouchableOpacity
+                    key={dItem.dateStr || idx}
+                    activeOpacity={0.75}
+                    onPress={() => {
+                      try { Haptics.selectionAsync(); } catch {}
+                      setSelectedDateIndex(idx);
+                      setSelectedSlotIndex(null);
+                    }}
+                    style={[
+                      styles.dateStripItem,
+                      {
+                        backgroundColor: isSelected
+                          ? colors.primary
+                          : isDark
+                          ? 'rgba(255, 255, 255, 0.06)'
+                          : 'rgba(0, 0, 0, 0.04)',
+                        borderColor: isSelected
+                          ? colors.primary
+                          : isDark
+                          ? 'rgba(255, 255, 255, 0.1)'
+                          : 'rgba(0, 0, 0, 0.07)',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dateStripDayText,
+                        { color: isSelected ? 'rgba(255,255,255,0.85)' : colors.textMuted },
+                      ]}
+                    >
+                      {dItem.isTomorrow ? 'TMR' : dayShort}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.dateStripNumText,
+                        { color: isSelected ? '#fff' : colors.text },
+                      ]}
+                    >
+                      {dateNum}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.dateStripMonthText,
+                        { color: isSelected ? 'rgba(255,255,255,0.85)' : colors.textMuted },
+                      ]}
+                    >
+                      {monthShort}
+                    </Text>
+
+                    <View style={styles.dateStripDotRow}>
+                      {isOff ? (
+                        <View
+                          style={[
+                            styles.dateStripDot,
+                            { backgroundColor: isExam ? '#ef4444' : isSun ? '#94a3b8' : '#10b981' },
+                          ]}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.dateStripDot,
+                            { backgroundColor: isSelected ? '#fff' : colors.primary },
+                          ]}
+                        />
+                      )}
+                      {!isOff && (
+                        <Text
+                          style={[
+                            styles.dateStripClassCount,
+                            { color: isSelected ? '#fff' : colors.primary },
+                          ]}
+                        >
+                          {dItem.slots.length}
+                        </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
       </View>
     );
   }, [
@@ -1891,7 +2261,8 @@ export function AttendanceOverviewModal({
     overallForecast,
     totalScheduledInWindow,
     subjectForecasts.length,
-    dayTimeline.length,
+    dayTimeline,
+    safeSelectedDateIndex,
   ]);
 
   return (
@@ -2077,13 +2448,11 @@ export function AttendanceOverviewModal({
                 </View>
               }
             />
-          ) : (
+          ) : predictorSubTab === 'subjects' ? (
             <FlatList
-              data={(predictorSubTab === 'subjects' ? subjectForecasts : dayTimeline) as any[]}
-              keyExtractor={(item: any, idx) =>
-                predictorSubTab === 'subjects' ? item.subject.code : item.dateStr || String(idx)
-              }
-              renderItem={(predictorSubTab === 'subjects' ? renderPredictorSubject : renderDayTimeline) as any}
+              data={subjectForecasts}
+              keyExtractor={(item) => item.subject.code}
+              renderItem={renderPredictorSubject}
               ListHeaderComponent={PredictorListHeader}
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
@@ -2091,6 +2460,39 @@ export function AttendanceOverviewModal({
               maxToRenderPerBatch={8}
               windowSize={5}
               removeClippedSubviews={true}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Ionicons name="calendar-outline" size={44} color={colors.textMuted} />
+                  <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
+                    No Scheduled Classes Found
+                  </Text>
+                  <Text style={[styles.emptyStateText, { color: colors.textMuted }]}>
+                    Ensure your timetable is synced from the university portal to enable full predictive intelligence.
+                  </Text>
+                </View>
+              }
+            />
+          ) : (
+            /* Day-by-Day Mode: Renders single selected day below the horizontal strip without long scrolling */
+            <FlatList
+              data={dayTimeline.length > 0 ? [dayTimeline[safeSelectedDateIndex]] : []}
+              keyExtractor={(item, idx) => item?.dateStr || String(idx)}
+              renderItem={({ item }) => (
+                <SelectedDayScheduleView
+                  dayItem={item}
+                  overallForecast={overallForecast}
+                  colors={colors}
+                  isDark={isDark}
+                  selectedSlotIndex={selectedSlotIndex}
+                  onToggleSlot={(idx) => {
+                    try { Haptics.selectionAsync(); } catch {}
+                    setSelectedSlotIndex((prev) => (prev === idx ? null : idx));
+                  }}
+                />
+              )}
+              ListHeaderComponent={PredictorListHeader}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
               ListEmptyComponent={
                 <View style={styles.emptyState}>
                   <Ionicons name="calendar-outline" size={44} color={colors.textMuted} />
@@ -2757,9 +3159,74 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  // Day-by-Day Timeline Styles
-  timelineDayCard: {
-    marginBottom: 12,
+  // Horizontal Date Strip Styles
+  horizontalDateStripWrapper: {
+    marginBottom: 14,
+  },
+  horizontalStripHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  horizontalStripTitle: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 13.5,
+  },
+  horizontalStripSubtitle: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+  },
+  horizontalDateStrip: {
+    gap: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
+  },
+  dateStripItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1.2,
+    minWidth: 60,
+  },
+  dateStripDayText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9.5,
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  dateStripNumText: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  dateStripMonthText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 9.5,
+    marginTop: 1,
+  },
+  dateStripDotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 5,
+  },
+  dateStripDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  dateStripClassCount: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 9.5,
+  },
+
+  // Selected Day Schedule Styles
+  selectedDayCardWrapper: {
+    marginBottom: 14,
   },
   dayCardInner: {
     borderRadius: 20,
@@ -2823,8 +3290,48 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     fontSize: 10.5,
   },
+  dayOffNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    marginTop: 8,
+  },
+  dayOffNoticeText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11.5,
+    flex: 1,
+    lineHeight: 16,
+  },
+  dayImpactBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  dayImpactBannerText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11.5,
+    flex: 1,
+    lineHeight: 16,
+  },
+  tapHintText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
   daySlotsList: {
     gap: 7,
+  },
+  slotItemContainer: {
+    marginBottom: 4,
   },
   slotRow: {
     flexDirection: 'row',
@@ -2881,6 +3388,77 @@ const styles = StyleSheet.create({
   slotCurrPct: {
     fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 12,
+  },
+  expandedImpactPanel: {
+    marginTop: 6,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  impactSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  impactTitle: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 12.5,
+  },
+  impactSubBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  impactSubBadgeText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9,
+    letterSpacing: 0.5,
+  },
+  impactCategoryLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    marginBottom: 6,
+  },
+  impactGridRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  impactBox: {
+    flex: 1,
+    padding: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 2,
+  },
+  impactBoxTitle: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10,
+  },
+  impactBoxPct: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 16,
+    letterSpacing: -0.3,
+  },
+  impactBoxSubText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 9.5,
+  },
+  impactAdviceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  impactAdviceText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    flex: 1,
+    lineHeight: 15,
   },
 
   // Empty state

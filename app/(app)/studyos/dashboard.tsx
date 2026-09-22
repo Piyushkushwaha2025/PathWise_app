@@ -764,9 +764,9 @@ export default function StudyOSDashboard() {
     },
     {
       id: 'datesheet',
-      name: 'Exams',
-      icon: 'document-text' as const,
-      color: '#fb923c',
+      name: 'Datesheet',
+      icon: 'calendar-number' as const,
+      color: '#f97316',
       onPress: () => setSelectedFacility('datesheet'),
     },
     {
