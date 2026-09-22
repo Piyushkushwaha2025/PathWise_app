@@ -839,12 +839,7 @@ export default function LmsCoursesScreen() {
               usePaywallStore.getState().showPaywall("Photo-Based Doubt Solving is a Pro feature. Upgrade to snap and solve any question instantly.");
               return;
             }
-            if (erpSubjects.length > 0) {
-              const targetSub = erpSubjects[0];
-              router.push(`/studyos/subjects/chat/${encodeURIComponent(targetSub.code)}?name=${encodeURIComponent(targetSub.name)}` as any);
-            } else {
-              router.push(`/studyos/subjects/chat/GENERAL?name=General Doubt Solving` as any);
-            }
+            router.push(`/studyos/subjects/chat/SNAP_SOLVE_DOUBTS?name=${encodeURIComponent('Snap & Solve (AI Vision)')}&mode=doubt_solver` as any);
           }}
           style={{
             marginHorizontal: 16,

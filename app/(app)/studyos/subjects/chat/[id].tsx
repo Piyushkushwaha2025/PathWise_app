@@ -96,7 +96,7 @@ const renderUserMessage = (text: string) => {
     return { displayText, hiddenFiles };
 };
 
-const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef }: any) => {
+const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef, isDoubtSolver }: any) => {
   const [visible, setVisible] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState(-1);
 
@@ -118,7 +118,7 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef }:
        
        <View style={{ position: 'absolute', top: 70, right: 54, width: 240, backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, shadowColor: '#000', shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.3, shadowRadius: 20 }}>
           <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surfaceHigh || '#f1f5f9' }}>
-             <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, fontSize: 14 }}>Switch Chat</Text>
+             <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, fontSize: 14 }}>{isDoubtSolver ? "Switch Doubt" : "Switch Chat"}</Text>
              <Text style={{ fontFamily: 'Inter_400Regular', color: colors.textDim, fontSize: 11, marginTop: 2 }}>Slide down to select & release</Text>
           </View>
           {sessions.map((s: any, idx: number) => (
@@ -127,7 +127,7 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef }:
                    {s.title}
                 </Text>
                 <Text style={{ fontFamily: 'Inter_400Regular', color: colors.textDim, fontSize: 12, marginTop: 2 }}>
-                   {s.id === currentSessionId ? 'Current Chat' : new Date(s.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                   {s.id === currentSessionId ? (isDoubtSolver ? 'Current Doubt' : 'Current Chat') : new Date(s.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                 </Text>
              </View>
           ))}
@@ -138,7 +138,8 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef }:
 
 export default function AITutorChatScreen() {
   const blurTargetRef = useRef<View>(null);
-  const { id, name } = useLocalSearchParams();
+  const { id, name, mode } = useLocalSearchParams();
+  const isDoubtSolver = id === 'SNAP_SOLVE_DOUBTS' || mode === 'doubt_solver' || name?.toString().toLowerCase().includes('snap & solve');
   const router = useRouter();
   const colors = useThemeStore((state) => state.colors);
   const theme = useThemeStore((state) => state.theme);
@@ -283,9 +284,11 @@ export default function AITutorChatScreen() {
   
   const [fetchError, setFetchError] = useState<string | null>(null);
   
-  // Create a strictly unique storage key using both ID and Subject Name 
-  // to ensure chats never mix even if course ID fails to parse.
-  const STORAGE_KEY = `@chat_history_${id}_${name?.toString().replace(/[^a-zA-Z0-9]/g, '_')}`;
+  // Create a strictly unique storage key using both ID and Subject Name.
+  // Dedicated isolated storage key for Snap & Solve AI vision doubts so they never mix with course chats.
+  const STORAGE_KEY = isDoubtSolver 
+    ? '@chat_history_SNAP_SOLVE_DOUBTS_ai_vision'
+    : `@chat_history_${id}_${name?.toString().replace(/[^a-zA-Z0-9]/g, '_')}`;
   
   useEffect(() => {
     setSessions([]);
@@ -295,7 +298,22 @@ export default function AITutorChatScreen() {
     fetchAvailableFiles();
   }, [id, name]);
 
+  useEffect(() => {
+    if (isDoubtSolver) {
+      const timer = setTimeout(() => {
+        if (!attachedPhoto) {
+          setShowPhotoPickerModal(true);
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isDoubtSolver]);
+
   const fetchAvailableFiles = async () => {
+    if (isDoubtSolver) {
+      setIsLoadingFiles(false);
+      return;
+    }
     setIsLoadingFiles(true);
     setFetchError(null);
     try {
@@ -394,13 +412,17 @@ export default function AITutorChatScreen() {
       const currentSessions = clearExisting ? [] : prev;
       if (currentSessions.length >= 5) return currentSessions;
       
+      const welcomeText = isDoubtSolver
+        ? `👋 **Snap & Solve (AI Vision)**\n\nTake a photo or upload an image of any math problem, physics numerical, circuit diagram, or programming question to get an instant step-by-step solution with full explanations!`
+        : `Hello! I am your AI Tutor for **${name}**. I've read your entire syllabus and course materials. What would you like to learn today?`;
+
       const newSession: ChatSession = {
         id: Date.now().toString(),
-        title: `Chat ${currentSessions.length + 1}`,
+        title: isDoubtSolver ? `Doubt ${currentSessions.length + 1}` : `Chat ${currentSessions.length + 1}`,
         messages: [{
           id: 'welcome',
           role: 'model',
-          text: `Hello! I am your AI Tutor for **${name}**. I've read your entire syllabus and course materials. What would you like to learn today?`
+          text: welcomeText
         }],
         updatedAt: Date.now()
       };
@@ -684,9 +706,9 @@ export default function AITutorChatScreen() {
 
       const aiText = await generateAiResponse(
          history, 
-         syllabusText, 
-         name as string, 
-         id as string, 
+         isDoubtSolver ? '' : syllabusText, 
+         isDoubtSolver ? 'Snap & Solve (AI Vision)' : (name as string), 
+         isDoubtSolver ? 'DOUBT_SOLVER' : (id as string), 
          learningProfile, 
          activeProvider,
          imagePayload
@@ -715,23 +737,30 @@ export default function AITutorChatScreen() {
       });
 
     } catch (error: any) {
-      console.error("Gemini API Error:", error);
-      let errMsg = "Failed to get a response. Please check your internet connection.";
+      console.error("AI Generation Error:", error);
+      let errMsg = "Failed to get a response. Please try again.";
       
       if (error.message?.includes('DAILY_LIMIT_REACHED') || error.message?.includes('NO_PERSONAL_KEY')) {
-         errMsg = "To chat with your AI Tutor without limits, please save your free personal API Key!";
+         errMsg = "To chat without limits, please save your free personal API Key in Settings!";
          setShowSettings(true);
       } else if (error.message?.includes('OVERLOADED')) {
          errMsg = "Google Gemini is currently facing very high global demand and is overloaded. Please try again in 15 seconds, or switch to Groq in Settings for a faster experience.";
       } else if (error.message?.includes('Rate Limit Exceeded') || error.message?.includes('429') || error.message?.includes('Quota exceeded')) {
-         errMsg = "Rate Limit Exceeded. You are sending messages too fast or the document is too large for this free API key.";
+         errMsg = "Rate Limit Exceeded. You are sending queries too fast or the document/photo is too large for this free API key.";
          setShowContextLimitModal(true);
       } else if (error.message?.includes('Payload Too Large') || error.message?.includes('413')) {
-         errMsg = "The document you attached is too large for this API key. Try asking a shorter question or use a more capable API Key.";
+         errMsg = "The image or document you attached is too large for this API key. Try asking a shorter question or use a more capable API Key.";
          setShowContextLimitModal(true);
       } else if (error.message?.includes('NO_POOL_KEYS') || error.message?.includes('PROXY_ERROR') || error.message?.includes('NO_PROXY_URL')) {
          errMsg = "Please tap the Settings gear icon at the top right to enter your own free API Key.";
          setShowSettings(true);
+      } else if (error.message?.includes('AI Provider Error')) {
+         errMsg = error.message;
+         if (error.message?.includes('must be a string')) {
+            errMsg = "The selected provider model does not support image inputs. Please switch to Gemini or Groq in Settings.";
+         }
+      } else if (error.message) {
+         errMsg = error.message;
       }
       
       setSessions(prevSessions => {
@@ -1117,8 +1146,14 @@ export default function AITutorChatScreen() {
         <CenterPopModal isVisible={showClearConfirm} onClose={() => setShowClearConfirm(false)}>
            <View style={{ backgroundColor: colors.surface, padding: 24, borderRadius: 16, alignItems: 'center' }}>
               <Ionicons name="warning" size={48} color={colors.error} style={{ marginBottom: 16 }} />
-              <Text style={{ fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, marginBottom: 8, textAlign: 'center' }}>Delete Chat History?</Text>
-              <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: colors.textDim, marginBottom: 24, textAlign: 'center' }}>Are you sure you want to permanently delete all chat history for this subject? This cannot be undone.</Text>
+              <Text style={{ fontSize: 20, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, color: colors.text, marginBottom: 8, textAlign: 'center' }}>
+                {isDoubtSolver ? "Delete Doubt History?" : "Delete Chat History?"}
+              </Text>
+              <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: colors.textDim, marginBottom: 24, textAlign: 'center' }}>
+                {isDoubtSolver 
+                  ? "Are you sure you want to permanently delete all doubt solver chats? This cannot be undone."
+                  : "Are you sure you want to permanently delete all chat history for this subject? This cannot be undone."}
+              </Text>
               <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
                  <TouchableOpacity style={{ flex: 1, padding: 12, borderRadius: 8, backgroundColor: colors.background, alignItems: 'center' }} onPress={() => setShowClearConfirm(false)}>
                     <Text style={{ color: colors.text, fontFamily: 'Inter_600SemiBold' }}>Cancel</Text>
@@ -1166,13 +1201,24 @@ export default function AITutorChatScreen() {
           backgroundColor: colors.background,
           zIndex: 10
         }}>
-          {/* Left: Back to LMS */}
-          <TouchableOpacity
-            style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface + '80', justifyContent: 'center', alignItems: 'center' }}
-            onPress={() => router.navigate('/(app)/studyos' as any)}
-          >
-            <Ionicons name="arrow-back" size={22} color={colors.text} />
-          </TouchableOpacity>
+          {/* Left: Back to LMS & Subject/Doubt Title */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+            <TouchableOpacity
+              style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface + '80', justifyContent: 'center', alignItems: 'center' }}
+              onPress={() => router.navigate('/(app)/studyos' as any)}
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.text} />
+            </TouchableOpacity>
+
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }} numberOfLines={1}>
+                {isDoubtSolver ? 'Snap & Solve' : (name || 'AI Tutor')}
+              </Text>
+              <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.textDim }} numberOfLines={1}>
+                {isDoubtSolver ? 'Universal AI Vision Solver' : (id || 'Course Tutor')}
+              </Text>
+            </View>
+          </View>
 
           {/* Right: Active Model Selector, Quick Chat & Settings */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -1373,36 +1419,62 @@ export default function AITutorChatScreen() {
         )}
 
         <View style={styles.inputArea}>
-           <TouchableOpacity 
-             style={[styles.historyButton, { marginRight: 6 }]} 
-             onPress={() => {
-                setShowFileModal(true);
-                const totalFiles = Object.values(availableFiles).flat().length;
-                if (totalFiles === 0 && !isLoadingFiles) {
-                   fetchAvailableFiles();
-                }
-             }}
-           >
-              <View>
-                 <Ionicons name="document-attach-outline" size={20} color={colors.primary} />
-                 {selectedFiles.length > 0 && (
-                    <View style={{ position: 'absolute', top: -6, right: -6, backgroundColor: colors.error || 'red', borderRadius: 10, width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}>
-                       <Text style={{ color: 'white', fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{selectedFiles.length}</Text>
-                    </View>
-                 )}
-              </View>
-           </TouchableOpacity>
+           {!isDoubtSolver && (
+             <TouchableOpacity 
+               style={[styles.historyButton, { marginRight: 6 }]} 
+               onPress={() => {
+                  setShowFileModal(true);
+                  const totalFiles = Object.values(availableFiles).flat().length;
+                  if (totalFiles === 0 && !isLoadingFiles) {
+                     fetchAvailableFiles();
+                  }
+               }}
+             >
+                <View>
+                   <Ionicons name="document-attach-outline" size={20} color={colors.primary} />
+                   {selectedFiles.length > 0 && (
+                      <View style={{ position: 'absolute', top: -6, right: -6, backgroundColor: colors.error || 'red', borderRadius: 10, width: 16, height: 16, justifyContent: 'center', alignItems: 'center' }}>
+                         <Text style={{ color: 'white', fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>{selectedFiles.length}</Text>
+                      </View>
+                   )}
+                </View>
+             </TouchableOpacity>
+           )}
 
            <TouchableOpacity 
-             style={[styles.historyButton, { marginRight: 8, backgroundColor: attachedPhoto ? colors.primary + '25' : colors.surface }]} 
+             style={[
+               styles.historyButton, 
+               { 
+                 marginRight: 8, 
+                 backgroundColor: isDoubtSolver ? (attachedPhoto ? colors.primary + '30' : colors.primary) : (attachedPhoto ? colors.primary + '25' : colors.surface),
+                 paddingHorizontal: isDoubtSolver ? 12 : undefined,
+                 width: isDoubtSolver ? 'auto' : 42,
+                 flexDirection: 'row',
+                 alignItems: 'center',
+                 gap: 5
+               }
+             ]} 
              onPress={() => setShowPhotoPickerModal(true)}
            >
-              <Ionicons name={attachedPhoto ? "camera" : "camera-outline"} size={20} color={colors.primary} />
+              <Ionicons 
+                name={attachedPhoto ? "camera" : "camera-outline"} 
+                size={20} 
+                color={isDoubtSolver && !attachedPhoto ? '#ffffff' : colors.primary} 
+              />
+              {isDoubtSolver && (
+                <Text style={{ 
+                  color: !attachedPhoto ? '#ffffff' : colors.primary, 
+                  fontSize: 12, 
+                  fontFamily: 'SpaceGrotesk_700Bold' 
+                }}>
+                  {attachedPhoto ? "Change" : "Snap"}
+                </Text>
+              )}
            </TouchableOpacity>
 
             <AnimatedTextInput 
                style={[styles.chatInput, { height: animatedHeight }]}
-               placeholder={attachedPhoto ? "Ask about this photo (optional)..." : "Ask about a topic..."}
+               placeholder={attachedPhoto ? "Ask about this photo (optional)..." : (isDoubtSolver ? "Snap photo or type your doubt..." : "Ask about a topic...")}
                placeholderTextColor={colors.textMuted}
                value={inputText}
                onChangeText={setInputText}
@@ -1499,7 +1571,7 @@ export default function AITutorChatScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Chat History</Text>
+              <Text style={styles.modalTitle}>{isDoubtSolver ? "Doubt History" : "Chat History"}</Text>
               <TouchableOpacity onPress={() => setShowHistoryModal(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
@@ -1531,7 +1603,9 @@ export default function AITutorChatScreen() {
                   style={[styles.modalOption, { borderBottomWidth: 0, marginTop: 12, paddingVertical: 14, backgroundColor: colors.primary + '15', borderRadius: 12, alignItems: 'center' }]} 
                   onPress={() => createNewSession()}
                 >
-                   <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>+ Create New Chat</Text>
+                   <Text style={{ color: colors.primary, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>
+                     {isDoubtSolver ? "+ New Doubt Query" : "+ Create New Chat"}
+                   </Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
@@ -1711,7 +1785,7 @@ export default function AITutorChatScreen() {
       </BlurTargetView>
 
       {/* Quick Chat Switcher Overlay (Gesture based - isolated to prevent re-renders) */}
-      <QuickChatOverlay colors={colors} sessions={sessions} currentSessionId={currentSessionId} blurTargetRef={blurTargetRef} />
+      <QuickChatOverlay colors={colors} sessions={sessions} currentSessionId={currentSessionId} blurTargetRef={blurTargetRef} isDoubtSolver={isDoubtSolver} />
 
     </View>
   );
