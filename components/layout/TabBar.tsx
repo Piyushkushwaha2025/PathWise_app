@@ -183,20 +183,25 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                     clearTimeout(profileLongPressTimer.current);
                     if (isProfileMenuVisible.current) {
                         isProfileMenuVisible.current = false;
-                        DeviceEventEmitter.emit('profileSwitchVisible', { visible: false });
                         const hovered = profileHoveredRef.current;
                         profileHoveredRef.current = null;
                         DeviceEventEmitter.emit('profileSwitchHover', null);
                         
                         if (hovered) {
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                            if (hovered === 'studyos' && !isStudyOSMode) {
-                                setStudyOSMode(true);
+                            const targetMode = hovered === 'studyos';
+                            if (targetMode !== isStudyOSMode) {
+                                // Immediately hide Arc Switcher without delay
+                                DeviceEventEmitter.emit('profileSwitchVisible', { visible: false, immediate: true });
+                                // Immediately show global loading screen
+                                useStudySessionStore.getState().setSwitchingMode(true);
+                                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                setStudyOSMode(targetMode);
                                 router.replace('/(app)/dashboard');
-                            } else if (hovered === 'pathwise' && isStudyOSMode) {
-                                setStudyOSMode(false);
-                                router.replace('/(app)/dashboard');
+                            } else {
+                                DeviceEventEmitter.emit('profileSwitchVisible', { visible: false });
                             }
+                        } else {
+                            DeviceEventEmitter.emit('profileSwitchVisible', { visible: false });
                         }
                     } else {
                         onPress(); // Normal tap

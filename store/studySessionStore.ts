@@ -83,13 +83,11 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   },
   
   setStudyOSMode: (mode: boolean) => {
-    set({ isSwitchingMode: true });
-    // Switch the actual mode immediately
-    set({ isStudyOSMode: mode });
-    // Turn off the loading screen after a short delay (350ms) for a snappy transition
+    set({ isSwitchingMode: true, isStudyOSMode: mode });
+    // Keep loading screen active long enough for the new dashboard to mount and render cleanly
     setTimeout(() => {
       set({ isSwitchingMode: false });
-    }, 350);
+    }, 900);
   },
   
   setSwitchingMode: (switching: boolean) => set({ isSwitchingMode: switching }),

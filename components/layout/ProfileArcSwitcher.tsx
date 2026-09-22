@@ -35,16 +35,24 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                     tension: 260 
                 }).start();
             } else {
-                Animated.timing(anim, { 
-                    toValue: 0, 
-                    duration: 90, 
-                    useNativeDriver: true 
-                }).start(() => {
+                if (data?.immediate) {
+                    anim.setValue(0);
                     setVisible(false);
                     setHovered(null);
                     studyOsScale.setValue(1);
                     pathWiseScale.setValue(1);
-                });
+                } else {
+                    Animated.timing(anim, { 
+                        toValue: 0, 
+                        duration: 90, 
+                        useNativeDriver: true 
+                    }).start(() => {
+                        setVisible(false);
+                        setHovered(null);
+                        studyOsScale.setValue(1);
+                        pathWiseScale.setValue(1);
+                    });
+                }
             }
         });
 

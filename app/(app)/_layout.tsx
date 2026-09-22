@@ -156,7 +156,7 @@ export default function AppLayout() {
         </KeyboardAvoidingView>
       </BlurTargetView>
       {isSwitchingMode && (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 99999 }]}>
           <AppLoading />
         </View>
       )}

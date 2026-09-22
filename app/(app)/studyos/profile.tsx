@@ -21,8 +21,8 @@ export default function CollegeProfileScreen() {
   const [isDisconnectModalVisible, setDisconnectModalVisible] = useState(false);
 
   const handleSwitch = () => {
-    // Navigate FIRST, then change mode after small delay.
-    // This prevents tabs from visually shifting while user is still on this screen.
+    // Show loading immediately, navigate, then change mode
+    useStudySessionStore.getState().setSwitchingMode(true);
     router.replace('/(app)/dashboard');
     setTimeout(() => {
       setStudyOSMode(false);
