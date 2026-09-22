@@ -22,7 +22,8 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
 
     useEffect(() => {
         const sub1 = DeviceEventEmitter.addListener('profileSwitchVisible', (data) => {
-            if (data.visible) {
+            if (data?.visible) {
+                anim.stopAnimation();
                 setOrigin({ x: data.x, y: data.y });
                 setVisible(true);
                 anim.setValue(0);
@@ -35,6 +36,7 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                     tension: 260 
                 }).start();
             } else {
+                anim.stopAnimation();
                 if (data?.immediate) {
                     anim.setValue(0);
                     setVisible(false);
@@ -47,6 +49,8 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                         duration: 90, 
                         useNativeDriver: true 
                     }).start(() => {
+                        anim.stopAnimation();
+                        anim.setValue(0);
                         setVisible(false);
                         setHovered(null);
                         studyOsScale.setValue(1);
@@ -75,8 +79,16 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
         return () => {
             sub1.remove();
             sub2.remove();
+            anim.stopAnimation();
+            studyOsScale.stopAnimation();
+            pathWiseScale.stopAnimation();
         };
     }, []);
+
+    // Do NOT render anything when not visible so no backdrop/dimming remains on screen
+    if (!visible) {
+        return null;
+    }
 
     const isDark = colors.text === '#f0f0f0' || colors.text === '#FFFFFF';
     
@@ -104,15 +116,13 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
         >
             {/* Full Screen High-Performance Blur Backdrop */}
             <View style={StyleSheet.absoluteFill}>
-                {visible && (
-                    <BlurView 
-                        blurTarget={blurTargetRef} 
-                        blurMethod="dimezisBlurView" 
-                        intensity={28} 
-                        style={StyleSheet.absoluteFill} 
-                        tint={isDark ? 'dark' : 'light'} 
-                    />
-                )}
+                <BlurView 
+                    blurTarget={blurTargetRef} 
+                    blurMethod="dimezisBlurView" 
+                    intensity={28} 
+                    style={StyleSheet.absoluteFill} 
+                    tint={isDark ? 'dark' : 'light'} 
+                />
                 <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.40)' }]} />
             </View>
             

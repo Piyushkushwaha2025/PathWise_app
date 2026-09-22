@@ -211,7 +211,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                     clearTimeout(profileLongPressTimer.current);
                     if (isProfileMenuVisible.current) {
                         isProfileMenuVisible.current = false;
-                        DeviceEventEmitter.emit('profileSwitchVisible', { visible: false });
+                        DeviceEventEmitter.emit('profileSwitchVisible', { visible: false, immediate: true });
                         profileHoveredRef.current = null;
                         DeviceEventEmitter.emit('profileSwitchHover', null);
                     }
