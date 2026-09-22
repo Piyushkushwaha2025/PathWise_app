@@ -37,10 +37,21 @@ interface CulkoClassSlot {
   group: string;
 }
 
-interface CulkoMarks {
+export interface CulkoMarksExam {
+  name: string;
+  max: string;
+  obtained: string;
+}
+
+export interface CulkoMarks {
   subjectName: string;
+  code?: string;
+  fullName?: string;
   practicalMarks: string;
   mstMarks: string;
+  exams?: CulkoMarksExam[];
+  totalObtained?: number;
+  totalMax?: number;
 }
 
 interface LmsCourse {

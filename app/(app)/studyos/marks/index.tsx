@@ -204,13 +204,58 @@ export default function MarksScreen() {
 
   // Radar data for current semester (internal marks)
   const internalChartData = subjects?.length > 0 ? subjects.map(s => {
-    const m = marks?.find(mark =>
-      mark.subjectName.toLowerCase() === s.name.toLowerCase() ||
-      mark.subjectName.toLowerCase().includes(s.name.toLowerCase()) ||
-      s.name.toLowerCase().includes(mark.subjectName.toLowerCase())
-    );
+    const cleanSubjCode = (s.code || '').trim().toUpperCase();
+    const cleanSubjName = (s.name || '').replace(/\s*\(?(theory|practical)\)?/gi, '').trim().toLowerCase();
+
+    const m = marks?.find((mark: any) => {
+      const mCode = (mark.code || '').trim().toUpperCase();
+      const mName = (mark.subjectName || '').replace(/\s*\(?(theory|practical)\)?/gi, '').trim().toLowerCase();
+      const mFullName = (mark.fullName || '').toLowerCase();
+      if (cleanSubjCode && mCode && (cleanSubjCode === mCode || cleanSubjCode.includes(mCode) || mCode.includes(cleanSubjCode))) return true;
+      if (cleanSubjName && mName && (cleanSubjName.includes(mName) || mName.includes(cleanSubjName))) return true;
+      if (cleanSubjCode && mFullName.includes(cleanSubjCode.toLowerCase())) return true;
+      return false;
+    });
+
     let totalObtained = 0, totalMax = 0, hasValidMarks = false;
     if (m) {
+      if (m.exams && m.exams.length > 0) {
+        m.exams.forEach((ex: any) => {
+          const mx = parseFloat(ex.max);
+          const ob = parseFloat(ex.obtained);
+          if (!isNaN(mx) && !isNaN(ob) && mx > 0) {
+            totalObtained += ob; totalMax += mx; hasValidMarks = true;
+          }
+        });
+      } else {
+        if (m.mstMarks?.includes('/')) {
+          const p = m.mstMarks.split('/');
+          if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+            totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
+          }
+        }
+        if (m.practicalMarks?.includes('/')) {
+          const p = m.practicalMarks.split('/');
+          if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+            totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
+          }
+        }
+      }
+    }
+    const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
+    const cleanedName = s.name.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
+    return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
+  }) : marks?.length > 0 ? marks.filter((m: any) => m.subjectName !== '20').map((m: any) => {
+    let totalObtained = 0, totalMax = 0, hasValidMarks = false;
+    if (m.exams && m.exams.length > 0) {
+      m.exams.forEach((ex: any) => {
+        const mx = parseFloat(ex.max);
+        const ob = parseFloat(ex.obtained);
+        if (!isNaN(mx) && !isNaN(ob) && mx > 0) {
+          totalObtained += ob; totalMax += mx; hasValidMarks = true;
+        }
+      });
+    } else {
       if (m.mstMarks?.includes('/')) {
         const p = m.mstMarks.split('/');
         if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
@@ -225,24 +270,7 @@ export default function MarksScreen() {
       }
     }
     const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
-    const cleanedName = s.name.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
-    return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
-  }) : marks?.length > 0 ? marks.map(m => {
-    let totalObtained = 0, totalMax = 0, hasValidMarks = false;
-    if (m.mstMarks?.includes('/')) {
-      const p = m.mstMarks.split('/');
-      if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-        totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
-      }
-    }
-    if (m.practicalMarks?.includes('/')) {
-      const p = m.practicalMarks.split('/');
-      if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-        totalObtained += parseFloat(p[0]); totalMax += parseFloat(p[1]); hasValidMarks = true;
-      }
-    }
-    const score = hasValidMarks && totalMax > 0 ? (totalObtained / totalMax) * 100 : 0;
-    const cleanedName = m.subjectName.replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
+    const cleanedName = (m.subjectName || '').replace(/\s*\(?(theory|practical)\)?/gi, '').trim();
     return { subject: cleanedName, score: isNaN(score) ? 0 : score, hasMarks: hasValidMarks };
   }) : [{ subject: 'No Data', score: 0, hasMarks: false }];
 
@@ -408,41 +436,108 @@ export default function MarksScreen() {
          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INTERNAL_MARKS', error: 'SESSION_EXPIRED' }));
       } else {
          var marksData = [];
-         var rows = document.querySelectorAll('table tr');
          
-         var mstIndex = -1;
-         var pracIndex = -1;
-         var subIndex = -1;
-         
-         if (rows.length > 0) {
-            var headers = Array.from(rows[0].querySelectorAll('th, td')).map(h => h.innerText.trim().toLowerCase());
-            for (var h = 0; h < headers.length; h++) {
-               if (headers[h].includes('subject') || headers[h].includes('course')) subIndex = h;
-               if (headers[h].includes('mst') || headers[h].includes('mid')) mstIndex = h;
-               if (headers[h].includes('prac') || headers[h].includes('lab')) pracIndex = h;
-            }
-            
-            if (subIndex === -1) subIndex = 1;
-            if (mstIndex === -1) mstIndex = 3; 
-            if (pracIndex === -1) pracIndex = 4;
-            
-            for(var i=1; i<rows.length; i++) {
-               var cells = rows[i].querySelectorAll('td');
-               if (cells.length > subIndex) {
-                  var subjectName = cells[subIndex].innerText.trim();
-                  var mstMarks = cells.length > mstIndex ? cells[mstIndex].innerText.trim() : 'N/A';
-                  var practicalMarks = cells.length > pracIndex ? cells[pracIndex].innerText.trim() : 'N/A';
-                  
-                  if (subjectName && subjectName !== '') {
-                     marksData.push({
-                        subjectName: subjectName,
-                        mstMarks: mstMarks,
-                        practicalMarks: practicalMarks
-                     });
-                  }
+         // 1. First, check for accordion style (#accordion or h3/h2/h4 elements)
+         var headers = document.querySelectorAll('#accordion h3, #accordion h2, #accordion h4, .ui-accordion-header, h3, h4');
+         for (var i = 0; i < headers.length; i++) {
+           var hText = headers[i].innerText ? headers[i].innerText.trim() : '';
+           if (!hText || hText.length < 3) continue;
+
+           // Find the table that belongs to this header
+           var next = headers[i].nextElementSibling;
+           var tbl = null;
+           while (next && next.tagName !== 'H3' && next.tagName !== 'H2' && next.tagName !== 'H4') {
+             if (next.tagName === 'TABLE') { tbl = next; break; }
+             var foundTbl = next.querySelector('table');
+             if (foundTbl) { tbl = foundTbl; break; }
+             next = next.nextElementSibling;
+           }
+
+           if (tbl) {
+             var codeMatch = hText.match(/\\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\\)/i);
+             var code = codeMatch ? codeMatch[1] : '';
+             var sName = hText.replace(/\\s*\\([0-9A-Z]{2,8}[-_]?[0-9]{3}\\)/i, '').trim() || hText;
+
+             var tRows = tbl.querySelectorAll('tr');
+             var exams = [];
+             var mstMarks = 'N/A';
+             var practicalMarks = 'N/A';
+             var totalObtained = 0;
+             var totalMax = 0;
+
+             for (var r = 0; r < tRows.length; r++) {
+               if (tRows[r].querySelector('th')) continue;
+               var cells = tRows[r].querySelectorAll('td');
+               if (cells.length >= 3) {
+                 var examDesc = cells[0].innerText.trim();
+                 var maxS = cells[1].innerText.trim();
+                 var obtS = cells[2].innerText.trim();
+                 if (examDesc && maxS && obtS) {
+                   exams.push({ name: examDesc, max: maxS, obtained: obtS });
+                   var mVal = parseFloat(maxS);
+                   var oVal = parseFloat(obtS);
+                   if (!isNaN(mVal) && !isNaN(oVal)) {
+                     totalObtained += oVal;
+                     totalMax += mVal;
+                     var lowD = examDesc.toLowerCase();
+                     if (lowD.includes('mid') || lowD.includes('mst')) {
+                       mstMarks = obtS + '/' + maxS;
+                     } else if (lowD.includes('prac') || lowD.includes('lab')) {
+                       practicalMarks = obtS + '/' + maxS;
+                     }
+                   }
+                 }
                }
-            }
+             }
+
+             if (exams.length > 0) {
+               if (mstMarks === 'N/A' && exams.length > 0) {
+                 mstMarks = exams[0].obtained + '/' + exams[0].max;
+               }
+               marksData.push({
+                 code: code,
+                 subjectName: sName,
+                 fullName: hText,
+                 exams: exams,
+                 mstMarks: mstMarks,
+                 practicalMarks: practicalMarks,
+                 totalObtained: totalObtained,
+                 totalMax: totalMax
+               });
+             }
+           }
          }
+
+         // 2. Fallback if no accordion headers were matched
+         if (marksData.length === 0) {
+           var tables = document.querySelectorAll('table');
+           for (var t = 0; t < tables.length; t++) {
+             var rows = tables[t].querySelectorAll('tr');
+             if (rows.length < 2) continue;
+             var headCells = Array.from(rows[0].querySelectorAll('th, td')).map(function(c){ return c.innerText.trim().toLowerCase(); });
+             var subIdx = headCells.findIndex(function(h){ return h.includes('subject') || h.includes('course'); });
+             var mstIdx = headCells.findIndex(function(h){ return h.includes('mst') || h.includes('mid'); });
+             var pracIdx = headCells.findIndex(function(h){ return h.includes('prac') || h.includes('lab'); });
+
+             if (subIdx !== -1 && (mstIdx !== -1 || pracIdx !== -1)) {
+               for (var r = 1; r < rows.length; r++) {
+                 var tds = rows[r].querySelectorAll('td');
+                 if (tds.length > subIdx) {
+                   var subN = tds[subIdx].innerText.trim();
+                   if (subN && subN !== '' && subN !== '20') {
+                     marksData.push({
+                       subjectName: subN,
+                       mstMarks: mstIdx !== -1 && tds.length > mstIdx ? tds[mstIdx].innerText.trim() : 'N/A',
+                       practicalMarks: pracIdx !== -1 && tds.length > pracIdx ? tds[pracIdx].innerText.trim() : 'N/A',
+                       exams: []
+                     });
+                   }
+                 }
+               }
+             }
+           }
+         }
+
          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'INTERNAL_MARKS', data: marksData }));
       }
     } catch(e) {
@@ -623,27 +718,105 @@ export default function MarksScreen() {
     }
   };
 
+  // Merge enrolled subjects with scraped marks so ALL current semester subjects appear!
+  const displayMarksList = useMemo(() => {
+    const validMarks = (marks || []).filter((m: any) => m.subjectName !== '20');
+
+    if (!subjects || subjects.length === 0) {
+      return validMarks;
+    }
+
+    const matchedSubjectNames = new Set<string>();
+
+    const merged = subjects.map((subj) => {
+      const cleanSubjCode = (subj.code || '').trim().toUpperCase();
+      const cleanSubjName = (subj.name || '').replace(/\s*\(?(theory|practical)\)?/gi, '').trim().toLowerCase();
+
+      // Find mark by code or by name
+      const m = validMarks.find((mark: any) => {
+        const mCode = (mark.code || '').trim().toUpperCase();
+        const mName = (mark.subjectName || '').replace(/\s*\(?(theory|practical)\)?/gi, '').trim().toLowerCase();
+        const mFullName = (mark.fullName || '').toLowerCase();
+
+        if (cleanSubjCode && mCode && (cleanSubjCode === mCode || cleanSubjCode.includes(mCode) || mCode.includes(cleanSubjCode))) {
+          return true;
+        }
+        if (cleanSubjName && mName && (cleanSubjName.includes(mName) || mName.includes(cleanSubjName))) {
+          return true;
+        }
+        if (cleanSubjCode && mFullName.includes(cleanSubjCode.toLowerCase())) {
+          return true;
+        }
+        return false;
+      });
+
+      if (m) {
+        matchedSubjectNames.add(m.subjectName);
+        return {
+          ...m,
+          subjectName: subj.name,
+          code: subj.code || m.code,
+        };
+      }
+
+      // No marks yet on portal
+      return {
+        subjectName: subj.name,
+        code: subj.code,
+        mstMarks: 'N/A',
+        practicalMarks: 'N/A',
+        exams: [],
+        isPending: true,
+      };
+    });
+
+    // Also append any valid scraped marks that weren't matched to an enrolled subject
+    validMarks.forEach((m: any) => {
+      if (!matchedSubjectNames.has(m.subjectName)) {
+        merged.push(m);
+      }
+    });
+
+    return merged;
+  }, [subjects, marks]);
+
   let grandTotalObtained = 0;
   let grandTotalMax = 0;
-  
-  if (marks && marks.length > 0) {
-     marks.forEach(item => {
-        if (item.mstMarks && item.mstMarks.includes('/')) {
-           const p = item.mstMarks.split('/');
-           if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-              grandTotalObtained += parseFloat(p[0]);
-              grandTotalMax += parseFloat(p[1]);
-           }
+  let evaluatedSubjectsCount = 0;
+
+  displayMarksList.forEach((item: any) => {
+    let hasValid = false;
+    if (item.exams && item.exams.length > 0) {
+      item.exams.forEach((ex: any) => {
+        const mx = parseFloat(ex.max);
+        const ob = parseFloat(ex.obtained);
+        if (!isNaN(mx) && !isNaN(ob) && mx > 0) {
+          grandTotalObtained += ob;
+          grandTotalMax += mx;
+          hasValid = true;
         }
-        if (item.practicalMarks && item.practicalMarks.includes('/')) {
-           const p = item.practicalMarks.split('/');
-           if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
-              grandTotalObtained += parseFloat(p[0]);
-              grandTotalMax += parseFloat(p[1]);
-           }
+      });
+    } else {
+      if (item.mstMarks && item.mstMarks.includes('/')) {
+        const p = item.mstMarks.split('/');
+        if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+          grandTotalObtained += parseFloat(p[0]);
+          grandTotalMax += parseFloat(p[1]);
+          hasValid = true;
         }
-     });
-  }
+      }
+      if (item.practicalMarks && item.practicalMarks.includes('/')) {
+        const p = item.practicalMarks.split('/');
+        if (p.length === 2 && !isNaN(parseFloat(p[0])) && !isNaN(parseFloat(p[1]))) {
+          grandTotalObtained += parseFloat(p[0]);
+          grandTotalMax += parseFloat(p[1]);
+          hasValid = true;
+        }
+      }
+    }
+    if (hasValid) evaluatedSubjectsCount++;
+  });
+
   const overallPercentage = grandTotalMax > 0 ? ((grandTotalObtained / grandTotalMax) * 100).toFixed(1) + '%' : '';
 
   return (
@@ -743,7 +916,9 @@ export default function MarksScreen() {
                   <View style={styles.radarStatItem}>
                     <Ionicons name="layers-outline" size={13} color={colors.textMuted} />
                     <Text style={styles.radarStatLabel}>Evaluated:</Text>
-                    <Text style={styles.radarStatValue}>{marks?.length || 0} Subjects</Text>
+                    <Text style={styles.radarStatValue}>
+                      {evaluatedSubjectsCount > 0 ? `${evaluatedSubjectsCount} of ${displayMarksList.length}` : `${displayMarksList.length} Subjects`}
+                    </Text>
                   </View>
                 </>
               ) : (
@@ -827,7 +1002,7 @@ export default function MarksScreen() {
             <View style={styles.sectionHeaderRow}>
               <View>
                 <Text style={styles.listTitle}>Internal Marks</Text>
-                <Text style={styles.sectionSubTitle}>MST & practical assessment components</Text>
+                <Text style={styles.sectionSubTitle}>MST & continuous evaluation components</Text>
               </View>
               {overallPercentage ? (
                 <View style={styles.overallBadge}>
@@ -836,8 +1011,8 @@ export default function MarksScreen() {
               ) : null}
             </View>
 
-            {marks && marks.length > 0 ? (
-              marks.map((item, index) => {
+            {displayMarksList && displayMarksList.length > 0 ? (
+              displayMarksList.map((item: any, index: number) => {
                 const isExpanded = expandedIndex === index;
                 return (
                   <InternalMarkAccordion
@@ -1018,6 +1193,9 @@ function getGradeColor(grade?: string) {
 }
 
 function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: any) {
+  const exams = item.exams || [];
+  const hasExams = exams.length > 0;
+
   const mst = parseMarksString(item.mstMarks);
   const practical = parseMarksString(item.practicalMarks);
 
@@ -1025,19 +1203,37 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
   let totalMax = 0;
   let hasValid = false;
 
-  if (mst.isValid) {
-    totalObtained += mst.obtained;
-    totalMax += mst.max;
-    hasValid = true;
-  }
-  if (practical.isValid) {
-    totalObtained += practical.obtained;
-    totalMax += practical.max;
-    hasValid = true;
+  if (hasExams) {
+    exams.forEach((ex: any) => {
+      const maxN = parseFloat(ex.max);
+      const obtN = parseFloat(ex.obtained);
+      if (!isNaN(maxN) && !isNaN(obtN) && maxN > 0) {
+        totalObtained += obtN;
+        totalMax += maxN;
+        hasValid = true;
+      }
+    });
+  } else {
+    if (mst.isValid) {
+      totalObtained += mst.obtained;
+      totalMax += mst.max;
+      hasValid = true;
+    }
+    if (practical.isValid) {
+      totalObtained += practical.obtained;
+      totalMax += practical.max;
+      hasValid = true;
+    }
   }
 
   const scorePct = hasValid && totalMax > 0 ? (totalObtained / totalMax) * 100 : null;
   const scoreBadgeColor = scorePct === null ? colors.textMuted : (scorePct >= 75 ? '#22c55e' : (scorePct >= 60 ? '#f59e0b' : '#ef4444'));
+
+  // Clean subject display name
+  const cleanTitle = (item.subjectName || item.fullName || 'Subject')
+    .replace(/\s*\(?(theory|practical)\)?/gi, '')
+    .trim();
+  const subjectCode = item.code || (cleanTitle.match(/\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\)/i)?.[1]);
 
   return (
     <View style={stylesInternal.wrapper}>
@@ -1077,13 +1273,22 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
           style={stylesInternal.headerTouch}
         >
           <View style={{ flex: 1, paddingRight: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
+              {subjectCode ? (
+                <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ color: colors.primary, fontSize: 10, fontFamily: 'Inter_600SemiBold' }}>{subjectCode}</Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={[stylesInternal.title, { color: colors.text }]} numberOfLines={2}>
-              {item.subjectName}
+              {cleanTitle}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
               <View style={[stylesInternal.miniDot, { backgroundColor: scoreBadgeColor }]} />
               <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium' }}>
-                {hasValid ? `${totalObtained}/${totalMax} Total Marks` : 'Pending Evaluation'}
+                {hasValid 
+                  ? `${totalObtained}/${totalMax} Total Marks${hasExams ? ` • ${exams.length} Component${exams.length > 1 ? 's' : ''}` : ''}`
+                  : 'Pending Evaluation'}
               </Text>
             </View>
           </View>
@@ -1097,7 +1302,7 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
               </View>
             ) : (
               <View style={[stylesInternal.pctBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderColor: colors.border }]}>
-                <Text style={[stylesInternal.pctText, { color: colors.textMuted }]}>N/A</Text>
+                <Text style={[stylesInternal.pctText, { color: colors.textMuted }]}>Pending</Text>
               </View>
             )}
 
@@ -1113,57 +1318,83 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
 
         {isExpanded && (
           <View style={[stylesInternal.expandedBody, { borderTopColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)' }]}>
-            {/* MST Row */}
-            <View style={stylesInternal.metricBox}>
-              <View style={stylesInternal.metricLabelRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="document-text-outline" size={14} color={colors.primary} />
-                  <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Mid-Semester Test (MST)</Text>
-                </View>
-                <Text style={[stylesInternal.metricValue, { color: mst.isValid ? colors.text : colors.textMuted }]}>
-                  {mst.text}
-                </Text>
-              </View>
-              {mst.isValid ? (
-                <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-                  <View 
-                    style={[
-                      stylesInternal.progressFill, 
-                      { 
-                        width: `${mst.pct}%`, 
-                        backgroundColor: mst.pct >= 75 ? '#22c55e' : (mst.pct >= 60 ? '#f59e0b' : '#ef4444') 
-                      }
-                    ]} 
-                  />
-                </View>
-              ) : null}
-            </View>
+            {hasExams ? (
+              exams.map((ex: any, exIdx: number) => {
+                const exMax = parseFloat(ex.max);
+                const exObt = parseFloat(ex.obtained);
+                const exPct = (!isNaN(exMax) && !isNaN(exObt) && exMax > 0) ? Math.min(100, Math.max(0, (exObt / exMax) * 100)) : null;
+                const isMid = ex.name.toLowerCase().includes('mid') || ex.name.toLowerCase().includes('mst');
+                const isPrac = ex.name.toLowerCase().includes('prac') || ex.name.toLowerCase().includes('lab');
+                const iconName = isMid ? 'document-text-outline' : isPrac ? 'flask-outline' : 'clipboard-outline';
+                const iconColor = isMid ? colors.primary : isPrac ? '#10b981' : '#f59e0b';
 
-            {/* Practical Row */}
-            <View style={stylesInternal.metricBox}>
-              <View style={stylesInternal.metricLabelRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="flask-outline" size={14} color={colors.success} />
-                  <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Practical / Lab Marks</Text>
-                </View>
-                <Text style={[stylesInternal.metricValue, { color: practical.isValid ? colors.text : colors.textMuted }]}>
-                  {practical.text}
+                return (
+                  <View key={exIdx.toString()} style={stylesInternal.metricBox}>
+                    <View style={stylesInternal.metricLabelRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 }}>
+                        <Ionicons name={iconName as any} size={14} color={iconColor} />
+                        <Text style={[stylesInternal.metricLabel, { color: colors.text }]} numberOfLines={1}>
+                          {ex.name}
+                        </Text>
+                      </View>
+                      <Text style={[stylesInternal.metricValue, { color: exPct !== null ? colors.text : colors.textMuted }]}>
+                        {ex.obtained}/{ex.max}
+                      </Text>
+                    </View>
+                    {exPct !== null ? (
+                      <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                        <View 
+                          style={[
+                            stylesInternal.progressFill, 
+                            { 
+                              width: `${exPct}%`, 
+                              backgroundColor: exPct >= 75 ? '#22c55e' : (exPct >= 60 ? '#f59e0b' : '#ef4444') 
+                            }
+                          ]} 
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            ) : hasValid ? (
+              <>
+                {mst.isValid && (
+                  <View style={stylesInternal.metricBox}>
+                    <View style={stylesInternal.metricLabelRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+                        <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Mid-Semester Test (MST)</Text>
+                      </View>
+                      <Text style={[stylesInternal.metricValue, { color: colors.text }]}>{mst.text}</Text>
+                    </View>
+                    <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                      <View style={[stylesInternal.progressFill, { width: `${mst.pct}%`, backgroundColor: mst.pct >= 75 ? '#22c55e' : (mst.pct >= 60 ? '#f59e0b' : '#ef4444') }]} />
+                    </View>
+                  </View>
+                )}
+                {practical.isValid && (
+                  <View style={stylesInternal.metricBox}>
+                    <View style={stylesInternal.metricLabelRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="flask-outline" size={14} color="#10b981" />
+                        <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Practical / Lab Marks</Text>
+                      </View>
+                      <Text style={[stylesInternal.metricValue, { color: colors.text }]}>{practical.text}</Text>
+                    </View>
+                    <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                      <View style={[stylesInternal.progressFill, { width: `${practical.pct}%`, backgroundColor: practical.pct >= 75 ? '#22c55e' : (practical.pct >= 60 ? '#f59e0b' : '#ef4444') }]} />
+                    </View>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_400Regular' }}>
+                  No internal marks uploaded by faculty on CUIMS yet
                 </Text>
               </View>
-              {practical.isValid ? (
-                <View style={[stylesInternal.progressTrack, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-                  <View 
-                    style={[
-                      stylesInternal.progressFill, 
-                      { 
-                        width: `${practical.pct}%`, 
-                        backgroundColor: practical.pct >= 75 ? '#22c55e' : (practical.pct >= 60 ? '#f59e0b' : '#ef4444') 
-                      }
-                    ]} 
-                  />
-                </View>
-              ) : null}
-            </View>
+            )}
           </View>
         )}
       </LinearGradient>

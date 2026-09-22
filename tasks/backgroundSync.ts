@@ -171,76 +171,102 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
       });
       const marksHtml = await marksRes.text();
       
-      if (marksHtml && !marksHtml.includes('login') && oldData.marks) {
-         let updatedMarks = [...oldData.marks];
-         let hasMarksChanges = false;
-         
-         const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
-         let rowMatch;
-         let headerCells = [];
-         
-         while ((rowMatch = rowRegex.exec(marksHtml)) !== null) {
-            const rowHtml = rowMatch[1];
-            
-            // If it's header, get indexes
-            if (rowHtml.includes('<th')) {
-               const thRegex = /<th[^>]*>([\s\S]*?)<\/th>/g;
-               let thMatch;
-               while ((thMatch = thRegex.exec(rowHtml)) !== null) {
-                  headerCells.push(thMatch[1].replace(/<[^>]*>/g, '').trim());
+      if (marksHtml && !marksHtml.includes('login')) {
+         const oldMarks = oldData.marks || [];
+         const newMarks: any[] = [];
+
+         // Parse accordion sections
+         const sectionRegex = /<h3[^>]*>([\s\S]*?)<\/h3>[\s\S]*?<table[^>]*>([\s\S]*?)<\/table>/gi;
+         let match;
+
+         while ((match = sectionRegex.exec(marksHtml)) !== null) {
+           const rawHeading = match[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+           const tableHtml = match[2];
+
+           const codeMatch = rawHeading.match(/\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\)/i);
+           const code = codeMatch ? codeMatch[1] : '';
+           const subjectName = rawHeading.replace(/\s*\([0-9A-Z]{2,8}[-_]?[0-9]{3}\)/i, '').trim() || rawHeading;
+
+           const exams: any[] = [];
+           let mstMarks = 'N/A';
+           let practicalMarks = 'N/A';
+           let totalObtained = 0;
+           let totalMax = 0;
+
+           const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+           let rowMatch;
+
+           while ((rowMatch = rowRegex.exec(tableHtml)) !== null) {
+             const rowContent = rowMatch[1];
+             if (/<th/i.test(rowContent)) continue;
+
+             const cellMatches = [...rowContent.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)];
+             if (cellMatches.length >= 3) {
+               const desc = cellMatches[0][1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+               const maxStr = cellMatches[1][1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+               const obtStr = cellMatches[2][1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+
+               if (desc && maxStr && obtStr) {
+                 exams.push({ name: desc, max: maxStr, obtained: obtStr });
+                 const maxNum = parseFloat(maxStr);
+                 const obtNum = parseFloat(obtStr);
+
+                 if (!isNaN(maxNum) && !isNaN(obtNum)) {
+                   totalObtained += obtNum;
+                   totalMax += maxNum;
+
+                   const descLow = desc.toLowerCase();
+                   if (descLow.includes('mid') || descLow.includes('mst')) {
+                     mstMarks = `${obtStr}/${maxStr}`;
+                   } else if (descLow.includes('prac') || descLow.includes('lab')) {
+                     practicalMarks = `${obtStr}/${maxStr}`;
+                   }
+                 }
                }
-               continue;
-            }
-            
-            const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/g;
-            let cells = [];
-            let cellMatch;
-            while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
-               cells.push(cellMatch[1].replace(/<[^>]*>/g, '').trim());
-            }
-            
-            if (cells.length > 2 && headerCells.length > 0) {
-               const subjectName = cells[1];
-               const code = cells[0];
-               
-               const matchIndex = updatedMarks.findIndex(m => m.subjectName === subjectName);
-               if (matchIndex !== -1) {
-                  const oldM = updatedMarks[matchIndex];
-                  
-                  // For each column, check if marks changed (e.g., from N/A to a value)
-                  for (let i = 2; i < cells.length; i++) {
-                     const colName = headerCells[i] || 'Exam';
-                     const val = cells[i];
-                     if (val && val !== 'N/A' && val !== '0/0' && val !== '' && val !== '0' && val !== '-') {
-                        // Check if this specific mark type is new
-                        if ((colName.toUpperCase().includes('MST') && oldM.mstMarks !== val) || 
-                            (colName.toUpperCase().includes('PRACTICAL') && oldM.practicalMarks !== val) ||
-                            (colName.toUpperCase().includes('QUIZ') && !oldM.mstMarks.includes(val) && !oldM.practicalMarks.includes(val))) {
-                           
-                           await Notifications.scheduleNotificationAsync({
-                              content: {
-                                 title: '📝 Marks Uploaded',
-                                 body: `New marks for ${subjectName.substring(0,25)}: ${colName} - ${val}`,
-                                 sound: true,
-                              },
-                              trigger: {
-                                 channelId: 'pathwise-default-v2',
-                              },
-                           });
-                           notificationsSent++;
-                           hasMarksChanges = true;
-                           
-                           if (colName.toUpperCase().includes('MST')) oldM.mstMarks = val;
-                           if (colName.toUpperCase().includes('PRACTICAL')) oldM.practicalMarks = val;
-                        }
-                     }
-                  }
-               }
-            }
+             }
+           }
+
+           if (exams.length > 0) {
+             if (mstMarks === 'N/A') mstMarks = `${exams[0].obtained}/${exams[0].max}`;
+             newMarks.push({
+               code,
+               subjectName,
+               fullName: rawHeading,
+               exams,
+               mstMarks,
+               practicalMarks,
+               totalObtained,
+               totalMax
+             });
+           }
          }
-         
-         if (hasMarksChanges) {
-            oldData.marks = updatedMarks;
+
+         if (newMarks.length > 0) {
+           for (const nm of newMarks) {
+             const oldM = oldMarks.find((om: any) => 
+               (om.code && nm.code && om.code === nm.code) || 
+               (om.subjectName && nm.subjectName && om.subjectName.toLowerCase() === nm.subjectName.toLowerCase())
+             );
+
+             for (const ex of nm.exams) {
+               const hadExam = oldM?.exams?.some((oe: any) => oe.name === ex.name && oe.obtained === ex.obtained);
+               if (!hadExam && (!oldM || oldM.subjectName === '20' || oldM.mstMarks !== `${ex.obtained}/${ex.max}`)) {
+                 await Notifications.scheduleNotificationAsync({
+                   content: {
+                     title: '📝 Marks Uploaded!',
+                     body: `New marks for ${nm.subjectName.substring(0, 25)}: ${ex.name} - ${ex.obtained}/${ex.max}`,
+                     sound: true,
+                   },
+                   trigger: {
+                     channelId: 'pathwise-default-v2',
+                   } as any,
+                 });
+                 notificationsSent++;
+               }
+             }
+           }
+
+           oldData.marks = newMarks;
          }
       }
     } catch(e) { console.error('BG Sync Marks Err:', e); }

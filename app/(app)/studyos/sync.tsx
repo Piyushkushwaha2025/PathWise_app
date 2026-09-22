@@ -339,45 +339,108 @@ const SCRAPE_STEPS = [
     script: `
       try {
         var marksData = [];
-        var rows = document.querySelectorAll('table tr');
         
-        
-        var mstIndex = -1;
-        var pracIndex = -1;
-        var subIndex = -1;
-        
-        if (rows.length > 0) {
-           var headers = Array.from(rows[0].querySelectorAll('th, td')).map(h => h.innerText.trim().toLowerCase());
-           for (var h = 0; h < headers.length; h++) {
-              if (headers[h].includes('subject') || headers[h].includes('course')) subIndex = h;
-              if (headers[h].includes('mst') || headers[h].includes('mid')) mstIndex = h;
-              if (headers[h].includes('prac') || headers[h].includes('lab')) pracIndex = h;
-           }
-           
-           
-           if (subIndex === -1) subIndex = 1;
-           if (mstIndex === -1) mstIndex = 3; 
-           if (pracIndex === -1) pracIndex = 4;
+        // 1. First, check for accordion style (#accordion or h3/h2/h4 elements)
+        var headers = document.querySelectorAll('#accordion h3, #accordion h2, #accordion h4, .ui-accordion-header, h3, h4');
+        for (var i = 0; i < headers.length; i++) {
+          var hText = headers[i].innerText ? headers[i].innerText.trim() : '';
+          if (!hText || hText.length < 3) continue;
 
-           for(var i=1; i<rows.length; i++) {
-              var cells = rows[i].querySelectorAll('td');
-              if (cells.length > subIndex) {
-                 var subjectName = cells[subIndex].innerText.trim();
-                 var mstMarks = cells.length > mstIndex ? cells[mstIndex].innerText.trim() : 'N/A';
-                 var practicalMarks = cells.length > pracIndex ? cells[pracIndex].innerText.trim() : 'N/A';
-                 
-                 if (subjectName && subjectName !== '') {
-                    marksData.push({
-                       subjectName: subjectName,
-                       mstMarks: mstMarks,
-                       practicalMarks: practicalMarks
-                    });
-                 }
+          var next = headers[i].nextElementSibling;
+          var tbl = null;
+          while (next && next.tagName !== 'H3' && next.tagName !== 'H2' && next.tagName !== 'H4') {
+            if (next.tagName === 'TABLE') { tbl = next; break; }
+            var foundTbl = next.querySelector('table');
+            if (foundTbl) { tbl = foundTbl; break; }
+            next = next.nextElementSibling;
+          }
+
+          if (tbl) {
+            var codeMatch = hText.match(/\\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\\)/i);
+            var code = codeMatch ? codeMatch[1] : '';
+            var sName = hText.replace(/\\s*\\([0-9A-Z]{2,8}[-_]?[0-9]{3}\\)/i, '').trim() || hText;
+
+            var tRows = tbl.querySelectorAll('tr');
+            var exams = [];
+            var mstMarks = 'N/A';
+            var practicalMarks = 'N/A';
+            var totalObtained = 0;
+            var totalMax = 0;
+
+            for (var r = 0; r < tRows.length; r++) {
+              if (tRows[r].querySelector('th')) continue;
+              var cells = tRows[r].querySelectorAll('td');
+              if (cells.length >= 3) {
+                var examDesc = cells[0].innerText.trim();
+                var maxS = cells[1].innerText.trim();
+                var obtS = cells[2].innerText.trim();
+                if (examDesc && maxS && obtS) {
+                  exams.push({ name: examDesc, max: maxS, obtained: obtS });
+                  var mVal = parseFloat(maxS);
+                  var oVal = parseFloat(obtS);
+                  if (!isNaN(mVal) && !isNaN(oVal)) {
+                    totalObtained += oVal;
+                    totalMax += mVal;
+                    var lowD = examDesc.toLowerCase();
+                    if (lowD.includes('mid') || lowD.includes('mst')) {
+                      mstMarks = obtS + '/' + maxS;
+                    } else if (lowD.includes('prac') || lowD.includes('lab')) {
+                      practicalMarks = obtS + '/' + maxS;
+                    }
+                  }
+                }
               }
-           }
+            }
+
+            if (exams.length > 0) {
+              if (mstMarks === 'N/A' && exams.length > 0) {
+                mstMarks = exams[0].obtained + '/' + exams[0].max;
+              }
+              marksData.push({
+                code: code,
+                subjectName: sName,
+                fullName: hText,
+                exams: exams,
+                mstMarks: mstMarks,
+                practicalMarks: practicalMarks,
+                totalObtained: totalObtained,
+                totalMax: totalMax
+              });
+            }
+          }
         }
-        
-         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
+
+        // 2. Fallback if no accordion headers were matched
+        if (marksData.length === 0) {
+          var tables = document.querySelectorAll('table');
+          for (var t = 0; t < tables.length; t++) {
+            var rows = tables[t].querySelectorAll('tr');
+            if (rows.length < 2) continue;
+            var headCells = Array.from(rows[0].querySelectorAll('th, td')).map(function(c){ return c.innerText.trim().toLowerCase(); });
+            var subIdx = headCells.findIndex(function(h){ return h.includes('subject') || h.includes('course'); });
+            var mstIdx = headCells.findIndex(function(h){ return h.includes('mst') || h.includes('mid'); });
+            var pracIdx = headCells.findIndex(function(h){ return h.includes('prac') || h.includes('lab'); });
+
+            if (subIdx !== -1 && (mstIdx !== -1 || pracIdx !== -1)) {
+              for (var r = 1; r < rows.length; r++) {
+                var tds = rows[r].querySelectorAll('td');
+                if (tds.length > subIdx) {
+                  var subN = tds[subIdx].innerText.trim();
+                  if (subN && subN !== '' && subN !== '20') {
+                    marksData.push({
+                      subjectName: subN,
+                      mstMarks: mstIdx !== -1 && tds.length > mstIdx ? tds[mstIdx].innerText.trim() : 'N/A',
+                      practicalMarks: pracIdx !== -1 && tds.length > pracIdx ? tds[pracIdx].innerText.trim() : 'N/A',
+                      exams: []
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
       } catch(e) {
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: [] }));
       }
