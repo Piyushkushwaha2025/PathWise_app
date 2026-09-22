@@ -8,7 +8,10 @@ const BACKGROUND_SYNC_TASK = 'BACKGROUND_SYNC_TASK';
 
 TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
   try {
-    const cookies = await AsyncStorage.getItem('culko_cookies');
+    let cookies = await SecureStore.getItemAsync('culko_cookies');
+    if (!cookies) {
+      cookies = await AsyncStorage.getItem('culko_cookies');
+    }
     if (!cookies) return BackgroundFetch.BackgroundFetchResult.NoData;
 
     const rawOldData = await AsyncStorage.getItem('studyos_scraped_data');
@@ -56,26 +59,32 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                     
                     if (attended > oldSubj.attendedClasses) {
                        // Marked Present
-                       await Notifications.scheduleNotificationAsync({
-                          content: {
-                             title: 'Attendance Updated',
-                             body: `Marked Present for ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
-                             sound: true,
-                          },
-                          trigger: null,
-                       });
-                       notificationsSent++;
-                       hasAttChanges = true;
-                    } else if (total > oldSubj.totalClasses && attended === oldSubj.attendedClasses) {
-                       // Marked Absent
-                       await Notifications.scheduleNotificationAsync({
-                          content: {
-                             title: 'Attendance Updated',
-                             body: `Marked Absent for ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
-                             sound: true,
-                          },
-                          trigger: null,
-                       });
+                        await Notifications.scheduleNotificationAsync({
+                           content: {
+                              title: '🎉 Attendance Marked: Present!',
+                              body: `Marked Present in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
+                              sound: true,
+                              color: '#10b981',
+                           },
+                           trigger: {
+                              channelId: 'pathwise-default-v2',
+                           },
+                        });
+                        notificationsSent++;
+                        hasAttChanges = true;
+                     } else if (total > oldSubj.totalClasses && attended === oldSubj.attendedClasses) {
+                        // Marked Absent
+                        await Notifications.scheduleNotificationAsync({
+                           content: {
+                              title: '⚠️ Attendance Alert: Marked Absent!',
+                              body: `Marked Absent in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
+                              sound: true,
+                              color: '#ef4444',
+                           },
+                           trigger: {
+                              channelId: 'pathwise-streak-v2',
+                           },
+                        });
                        notificationsSent++;
                        hasAttChanges = true;
                     }
@@ -152,11 +161,13 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                            
                            await Notifications.scheduleNotificationAsync({
                               content: {
-                                 title: 'Marks Uploaded',
+                                 title: '📝 Marks Uploaded',
                                  body: `New marks for ${subjectName.substring(0,25)}: ${colName} - ${val}`,
                                  sound: true,
                               },
-                              trigger: null,
+                              trigger: {
+                                 channelId: 'pathwise-default-v2',
+                              },
                            });
                            notificationsSent++;
                            hasMarksChanges = true;
@@ -189,11 +200,13 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
             const newAsg = assignments[assignments.length - 1];
             await Notifications.scheduleNotificationAsync({
                content: {
-                  title: 'New Assignment Added!',
+                  title: '📚 New Assignment Added!',
                   body: `${newAsg.title} for ${newAsg.subject}`,
                   sound: true,
                },
-               trigger: null,
+               trigger: {
+                  channelId: 'pathwise-default-v2',
+               },
             });
             notificationsSent++;
          }

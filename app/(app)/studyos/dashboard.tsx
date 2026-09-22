@@ -500,9 +500,18 @@ export default function StudyOSDashboard() {
     }, [user])
   );
 
-  const [toastVisible, setToastVisible] = useState(false);
   const [selectedSubjectDetails, setSelectedSubjectDetails] = useState<{code: string, name: string, viewActionTarget?: string} | null>(null);
-  const [toastMsg, setToastMsg] = useState('');
+  const [toastState, setToastState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'present' | 'absent' | 'info';
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
   // Per-subject "just refreshed / present / absent" badges shown only for the
   // sync that just completed. Cleared at the START of the next pull-to-refresh
   // so the indicator never repeats on a later refresh.
@@ -517,6 +526,7 @@ export default function StudyOSDashboard() {
     }, [])
   );
   const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTranslateY = useRef(new Animated.Value(20)).current;
   const appState = useRef(AppState.currentState);
   const lastSyncTime = useRef(0);
 
@@ -613,14 +623,41 @@ export default function StudyOSDashboard() {
   const currentHour = new Date().getHours();
   const greetingText = currentHour < 12 ? 'Good Morning' : currentHour < 17 ? 'Good Afternoon' : 'Good Evening';
 
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setToastVisible(true);
-    Animated.sequence([
-      Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-      Animated.delay(3500),
-      Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-    ]).start(() => setToastVisible(false));
+  const showToast = (msg: string, options?: { type?: 'present' | 'absent' | 'info', title?: string }) => {
+    const type = options?.type || 'info';
+    const title = options?.title || (
+      type === 'present' ? 'Attendance Marked: Present! 🎉' :
+      type === 'absent' ? 'Attendance Alert: Absent! ⚠️' :
+      'Attendance Up-To-Date'
+    );
+    setToastState({
+      visible: true,
+      title,
+      message: msg,
+      type,
+    });
+
+    if (type === 'present') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } else if (type === 'absent') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    } else {
+      Haptics.selectionAsync().catch(() => {});
+    }
+
+    Animated.parallel([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.spring(toastTranslateY, { toValue: 0, tension: 70, friction: 8, useNativeDriver: true }),
+    ]).start();
+
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(toastTranslateY, { toValue: 16, duration: 300, useNativeDriver: true }),
+      ]).start(() => {
+        setToastState(prev => ({ ...prev, visible: false }));
+      });
+    }, 3800);
   };
 
   const triggerSync = (force = true) => {
@@ -672,7 +709,7 @@ export default function StudyOSDashboard() {
     triggerSync(true);
   }, []);
 
-  const handleSyncFinish = async (updated: boolean, changes?: { code?: string, subjectName: string, status: string }[]) => {
+  const handleSyncFinish = async (updated: boolean, changes?: { code?: string, subjectName: string, status: string, diffAtt?: number, diffTotal?: number, percentage?: number }[]) => {
     setRefreshing(false);
 
     // Per-subject "just updated" badges — only for the sync that just changed
@@ -684,38 +721,98 @@ export default function StudyOSDashboard() {
     setJustUpdated(newJust);
 
     if (changes && changes.length > 0) {
-      const presentChanges = changes.filter(c => c.status === 'Present' || c.status === 'Updated');
+      const presentChanges = changes.filter(c => c.status === 'Present');
       const absentChanges = changes.filter(c => c.status === 'Absent');
       
-      let title = "Attendance Marked! 🎯";
-      let bodyText = "";
-      
       if (presentChanges.length > 0 && absentChanges.length > 0) {
-        bodyText = `Present in: ${presentChanges.map(c => c.subjectName).join(', ')}. Absent in: ${absentChanges.map(c => c.subjectName).join(', ')}`;
+        const pNames = presentChanges.map(c => c.subjectName).join(', ');
+        const aNames = absentChanges.map(c => c.subjectName).join(', ');
+        
+        showToast(`Present: ${pNames} • Absent: ${aNames}`, {
+          type: 'present',
+          title: 'Attendance Updated! 🎯',
+        });
+
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '🎉 Attendance Marked: Present!',
+            body: `Marked Present in: ${pNames}`,
+            sound: true,
+            color: '#10b981',
+          },
+          trigger: {
+            channelId: 'pathwise-default-v2',
+          },
+        });
+
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '⚠️ Attendance Alert: Marked Absent!',
+            body: `Marked Absent in: ${aNames}`,
+            sound: true,
+            color: '#ef4444',
+          },
+          trigger: {
+            channelId: 'pathwise-streak-v2',
+          },
+        });
       } else if (presentChanges.length > 0) {
         const names = presentChanges.map(c => c.subjectName).join(', ');
-        bodyText = `Marked Present in: ${names.length > 30 ? names.substring(0, 30) + '...' : names}`;
+        const bodyText = `Marked Present in: ${names}`;
+        
+        showToast(bodyText, {
+          type: 'present',
+          title: 'Attendance Marked: Present! 🎉',
+        });
+
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '🎉 Attendance Marked: Present!',
+            body: bodyText,
+            sound: true,
+            color: '#10b981',
+          },
+          trigger: {
+            channelId: 'pathwise-default-v2',
+          },
+        });
       } else if (absentChanges.length > 0) {
-        title = "Attendance Marked! ⚠️";
         const names = absentChanges.map(c => c.subjectName).join(', ');
-        bodyText = `Marked Absent in: ${names.length > 30 ? names.substring(0, 30) + '...' : names}`;
+        const bodyText = `Marked Absent in: ${names}`;
+        
+        showToast(bodyText, {
+          type: 'absent',
+          title: 'Attendance Alert: Marked Absent ⚠️',
+        });
+
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '⚠️ Attendance Alert: Marked Absent!',
+            body: bodyText,
+            sound: true,
+            color: '#ef4444',
+          },
+          trigger: {
+            channelId: 'pathwise-streak-v2',
+          },
+        });
+      } else {
+        showToast('All course records verified with portal', {
+          type: 'info',
+          title: 'Attendance Synced',
+        });
       }
-
-      showToast(`✨ ${bodyText.replace('Marked ', '')}`);
-
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title,
-          body: bodyText,
-          sound: true,
-        },
-        trigger: null,
-      });
     } else if (updated) {
-      showToast('✨ Attendance Synced & Marked Up-To-Date!');
+      showToast('All attendance records are up-to-date', {
+        type: 'info',
+        title: 'Attendance Synced',
+      });
     } else {
       // Even if no values changed, give visual feedback that refresh succeeded
-      showToast('✨ Attendance Refreshed & Verified!');
+      showToast('All subject records verified with portal', {
+        type: 'info',
+        title: 'Attendance Up-To-Date',
+      });
     }
   };
 
@@ -1077,10 +1174,42 @@ export default function StudyOSDashboard() {
         viewActionTarget={selectedSubjectDetails?.viewActionTarget}
       />
 
-      {toastVisible && (
-        <Animated.View style={[styles.toast, { opacity: toastOpacity }]}>
-          <Ionicons name="notifications" size={20} color="#ffffff" style={{ marginRight: 6 }} />
-          <Text style={styles.toastText}>{toastMsg}</Text>
+      {toastState.visible && (
+        <Animated.View style={[
+          styles.toast,
+          toastState.type === 'present' && styles.toastPresent,
+          toastState.type === 'absent' && styles.toastAbsent,
+          toastState.type === 'info' && styles.toastInfo,
+          { 
+            opacity: toastOpacity, 
+            transform: [{ translateY: toastTranslateY }] 
+          }
+        ]}>
+          <View style={[
+            styles.toastIconContainer,
+            toastState.type === 'present' && { backgroundColor: '#10b98125' },
+            toastState.type === 'absent' && { backgroundColor: '#ef444425' },
+            toastState.type === 'info' && { backgroundColor: '#3b82f625' },
+          ]}>
+            <Ionicons 
+              name={toastState.type === 'present' ? 'checkmark-circle' : toastState.type === 'absent' ? 'alert-circle' : 'shield-checkmark'} 
+              size={22} 
+              color={toastState.type === 'present' ? '#10b981' : toastState.type === 'absent' ? '#ef4444' : '#38bdf8'} 
+            />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={[
+              styles.toastTitle,
+              toastState.type === 'present' && { color: '#34d399' },
+              toastState.type === 'absent' && { color: '#f87171' },
+              toastState.type === 'info' && { color: '#ffffff' },
+            ]}>
+              {toastState.title}
+            </Text>
+            <Text style={styles.toastSubtitle} numberOfLines={2}>
+              {toastState.message}
+            </Text>
+          </View>
         </Animated.View>
       )}
     </View>
@@ -1282,18 +1411,56 @@ const useStyles = (colors: any) => StyleSheet.create({
     position: 'absolute',
     bottom: 85,
     alignSelf: 'center',
-    backgroundColor: colors.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    width: '92%',
+    maxWidth: 420,
+    backgroundColor: '#18181b',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: Radius.xl,
     flexDirection: 'row',
     alignItems: 'center',
-    maxWidth: '90%',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 5 },
+    borderWidth: 1.2,
+    borderColor: '#27272a',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
-    elevation: 10,
+    elevation: 12,
+    zIndex: 9999,
+  },
+  toastPresent: {
+    backgroundColor: '#06281e',
+    borderColor: '#10b98160',
+    shadowColor: '#10b981',
+  },
+  toastAbsent: {
+    backgroundColor: '#2d0a0a',
+    borderColor: '#ef444460',
+    shadowColor: '#ef4444',
+  },
+  toastInfo: {
+    backgroundColor: '#0f172a',
+    borderColor: '#38bdf850',
+    shadowColor: '#0284c7',
+  },
+  toastIconContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastTitle: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 13.5,
+    letterSpacing: 0.2,
+  },
+  toastSubtitle: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12,
+    color: '#cbd5e1',
+    marginTop: 2,
+    lineHeight: 16,
   },
   toastText: { color: '#ffffff', fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', flexShrink: 1 },
   facilitiesOuterWrapper: {

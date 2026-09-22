@@ -181,29 +181,40 @@ const ATTENDANCE_SCRIPT = `
         }
       }
       
-      // Step 2: Fetch detailed attendance directly via the internal API! (Instantaneous JSON)
+      // Step 1: INSTANT NOTIFICATION TO REACT NATIVE!
+      // Send the summary immediately so pull-to-refresh spinner dismisses in ~1s!
+      var summaryKeys = Object.keys(attendanceData);
+      if (summaryKeys.length > 0 && window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'SILENT_ATTENDANCE_SUMMARY',
+          data: attendanceData,
+          cookie: document.cookie
+        }));
+      } else if (summaryKeys.length === 0 && window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'SILENT_ATTENDANCE_EMPTY',
+          cookie: document.cookie
+        }));
+        return;
+      }
+
+      // Step 2: Fetch detailed attendance in background via internal API
       var keys = Object.keys(attendanceData);
       var queue = [];
       for (var i = 0; i < keys.length; i++) {
          var k = keys[i];
-         var tl = attendanceData[k].targets || []; // We'll put 'uid|chk' inside tl[0] during parsing
+         var tl = attendanceData[k].targets || [];
          var attD = attendanceData[k];
          if (tl.length > 0 && attD.total > 0) {
             queue.push({ code: k, target: tl[0] });
          }
       }
 
-      if (queue.length === 0) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: true }));
-        return;
-      }
+      if (queue.length === 0) return;
 
       var pageUrl = window.location.href.split('?')[0] + '/GetFullReport';
       var Sel_Session = (document.querySelector('#ddlSession') && document.querySelector('#ddlSession').value) || (document.querySelector('#hfdbSelSes') && document.querySelector('#hfdbSelSes').value) || '';
       var typeFilter = (document.querySelector('#drpfilter') && document.querySelector('#drpfilter').value) || '0';
-
-      var completed = 0;
-      var total = queue.length;
 
       function fetchDetailJSON(qItem) {
         // target is "uid_val|chk_val"
@@ -225,60 +236,43 @@ const ATTENDANCE_SCRIPT = `
         xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
 
         xhr.onreadystatechange = function() {
-          if (xhr.readyState === 4) {
-            if (xhr.status === 200) {
-              try {
-                var response = JSON.parse(xhr.responseText);
-                var objData = JSON.parse(response.d.Result);
-                // The JSON returns an array of records. Keys might be: "Date", "Timing", "Status", "Att Type", "Marked By"
-                var records = [];
-                if (objData.length > 0) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'First record raw: ' + JSON.stringify(objData[0]) }));
-                }
-                for(var j=0; j<objData.length; j++) {
-                  var r = objData[j];
-                  records.push({
-                    date: r["AttDate"] || '',
-                    type: r["AttendanceType"] || '',
-                    time: r["Timing"] || '',
-                    status: r["AttendanceCode"] || '',
-                    markedBy: r["Name"] || ''
-                  });
-                }
-                if (attendanceData[qItem.code]) {
-                  attendanceData[qItem.code].records = records;
-                }
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'API JSON: ' + records.length + ' records for ' + qItem.code }));
-              } catch(e) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'JSON parsing failed for ' + qItem.code }));
+          if (xhr.readyState === 4 && xhr.status === 200) {
+            try {
+              var response = JSON.parse(xhr.responseText);
+              var objData = JSON.parse(response.d.Result);
+              var records = [];
+              for(var j=0; j<objData.length; j++) {
+                var r = objData[j];
+                records.push({
+                  date: r["AttDate"] || '',
+                  type: r["AttendanceType"] || '',
+                  time: r["Timing"] || '',
+                  status: r["AttendanceCode"] || '',
+                  markedBy: r["Name"] || ''
+                });
               }
-            } else {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG', message: 'API XHR failed for ' + qItem.code + ' status=' + xhr.status }));
-            }
-            completed++;
-            // Post intermediate update after each subject
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: completed >= total }));
-          }
-        };
-
-        xhr.onerror = function() {
-          completed++;
-          if (completed >= total) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: attendanceData, cookie: document.cookie, done: true }));
+              if (window.ReactNativeWebView && records.length > 0) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'SILENT_ATTENDANCE_DETAILS',
+                  code: qItem.code,
+                  records: records
+                }));
+              }
+            } catch(e) {}
           }
         };
 
         xhr.send(payload);
       }
 
-      // Fire all requests in parallel!
+      // Fire all requests in parallel in background!
       for (var q = 0; q < queue.length; q++) {
         fetchDetailJSON(queue[q]);
       }
 
     } catch(e) {
       if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE', data: {}, error: e.message || 'Unknown error' }));
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SILENT_ATTENDANCE_ERROR', error: e.message || 'Unknown error' }));
       }
     }
   })();
@@ -286,21 +280,19 @@ const ATTENDANCE_SCRIPT = `
 `;
 
 interface Props {
-  onFinish?: (updated: boolean, changes?: { code?: string, subjectName: string, status: string }[]) => void;
+  onFinish?: (updated: boolean, changes?: { code?: string, subjectName: string, status: string, diffAtt?: number, diffTotal?: number, percentage?: number }[]) => void;
   onSessionExpired?: () => void;
 }
 
 export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
   const webViewRef = useRef<WebView>(null);
   const [cookieInjectScript, setCookieInjectScript] = useState<string | null>(null);
-  const hasInjectedPostback = useRef(false);
   const hasFinished = useRef(false);
+  const hasInjectedScript = useRef(false);
   const [rawCookie, setRawCookie] = useState<string | null>(null);
   const setScrapedData = useStudyOSStore((s) => s.setScrapedData);
 
-  // Note: finish() only ends the UI's refresh spinner. Late interim messages
-  // still persist their records, so a slow portal keeps filling the cache.
-  const finish = (updated = false, changes: { subjectName: string, status: string }[] = []) => {
+  const finish = (updated = false, changes: { code?: string, subjectName: string, status: string, diffAtt?: number, diffTotal?: number, percentage?: number }[] = []) => {
     if (!hasFinished.current) {
       hasFinished.current = true;
       if (onFinish) onFinish(updated, changes);
@@ -313,6 +305,17 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
       if (onSessionExpired) onSessionExpired();
       else if (onFinish) onFinish(false);
     }
+  };
+
+  const injectScraper = () => {
+    if (hasInjectedScript.current) return;
+    hasInjectedScript.current = true;
+    if (cookieInjectScript) {
+      webViewRef.current?.injectJavaScript(cookieInjectScript);
+    }
+    setTimeout(() => {
+      webViewRef.current?.injectJavaScript(ATTENDANCE_SCRIPT);
+    }, 150);
   };
 
   useEffect(() => {
@@ -331,10 +334,8 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
       }
     });
 
-    // Safety timeout. Detail history is fetched one subject at a time (ASP.NET
-    // VIEWSTATE forces it), so allow room for a full pass; interim messages have
-    // already persisted whatever landed before this fires.
-    const timer = setTimeout(() => finish(false), 120000);
+    // Safety timeout: 10s is plenty because summary is posted in <1s.
+    const timer = setTimeout(() => finish(false), 10000);
     return () => clearTimeout(timer);
   }, []);
 
@@ -346,27 +347,42 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
         console.log('[AutoSync DEBUG]', parsed.message);
         return;
       }
+
+      if (parsed.type === 'SILENT_ATTENDANCE_EMPTY') {
+        console.log('[AutoSync] Empty attendance table');
+        finish(false, []);
+        return;
+      }
+
+      if (parsed.type === 'SILENT_ATTENDANCE_DETAILS') {
+        const { code, records } = parsed;
+        if (code && records && records.length > 0) {
+          const currentDetailedCache = useStudyOSStore.getState().detailedAttendanceCache || {};
+          const newDetailedCache: Record<string, any[]> = { ...currentDetailedCache, [code]: records };
+          const subjects = useStudyOSStore.getState().subjects || [];
+          const matched = subjects.find((s: any) => s.code === code || s.name === code);
+          if (matched && matched.code !== code) {
+            newDetailedCache[matched.code] = records;
+          }
+          await useStudyOSStore.getState().setScrapedData({ detailedAttendanceCache: newDetailedCache });
+        }
+        return;
+      }
       
-      if (parsed.type === 'SILENT_ATTENDANCE') {
+      if (parsed.type === 'SILENT_ATTENDANCE_SUMMARY' || parsed.type === 'SILENT_ATTENDANCE') {
         const newData = parsed.data || {};
         const freshCookie = parsed.cookie || '';
-        const isDone = parsed.done !== false;
         
         if (freshCookie) {
           await SecureStore.setItemAsync('culko_cookies', freshCookie).catch(() => {});
         }
         
-        console.log('[AutoSync] Scraped attendance keys:', Object.keys(newData));
-        console.log('[AutoSync] Scraped Data Dump:', JSON.stringify(newData, null, 2));
-        console.log('[AutoSync] Current Subjects:', JSON.stringify(useStudyOSStore.getState().subjects.map((s:any) => s.code), null, 2));
+        console.log('[AutoSync] Scraped attendance summary keys:', Object.keys(newData));
 
         if (Object.keys(newData).length > 0) {
           const { subjects, profile, timetable, marks } = useStudyOSStore.getState();
           let dataChanged = false;
-          let changesDetected: { code?: string, subjectName: string, status: string }[] = [];
-          
-          const currentDetailedCache = useStudyOSStore.getState().detailedAttendanceCache || {};
-          const newDetailedCache = { ...currentDetailedCache };
+          let changesDetected: { code?: string, subjectName: string, status: string, diffAtt?: number, diffTotal?: number, percentage?: number }[] = [];
 
           const updatedSubjects = (subjects || []).map((subj: any) => {
             let att = newData[subj.code];
@@ -390,34 +406,37 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
             }
 
             if (att) {
-              // Bad/partial scrape guard: never overwrite good cached data with a
-              // zeroed row (ASP.NET postback sometimes returns an empty table).
+              // Bad/partial scrape guard: never overwrite good cached data with empty row
               if (subj.totalClasses > 0 && att.total === 0 && att.attended === 0) {
                 return subj;
               }
               const prevTotal = subj.totalClasses || 0;
               const prevAtt = subj.attendedClasses || 0;
-              // Only a genuinely new class (total grew) is a real attendance event.
+
+              // Check for attendance event
               if (att.total > prevTotal) {
                 const diffTotal = att.total - prevTotal;
                 const diffAtt = att.attended - prevAtt;
-                const status = diffAtt >= diffTotal ? 'Present' : 'Absent';
-                changesDetected.push({ code: subj.code, subjectName: subj.name || subj.code, status });
+                if (diffAtt >= diffTotal) {
+                  changesDetected.push({ code: subj.code, subjectName: subj.name || subj.code, status: 'Present', diffAtt, diffTotal, percentage: att.percentage });
+                } else if (diffAtt > 0 && diffAtt < diffTotal) {
+                  changesDetected.push({ code: subj.code, subjectName: subj.name || subj.code, status: 'Present', diffAtt, diffTotal, percentage: att.percentage });
+                  changesDetected.push({ code: subj.code, subjectName: subj.name || subj.code, status: 'Absent', diffAtt: diffTotal - diffAtt, diffTotal, percentage: att.percentage });
+                } else {
+                  changesDetected.push({ code: subj.code, subjectName: subj.name || subj.code, status: 'Absent', diffAtt: 0, diffTotal, percentage: att.percentage });
+                }
+              } else if (att.total === prevTotal && att.attended > prevAtt) {
+                changesDetected.push({ code: subj.code, subjectName: subj.name || subj.code, status: 'Present', diffAtt: att.attended - prevAtt, diffTotal: 0, percentage: att.percentage });
+              } else if (att.total === prevTotal && att.attended < prevAtt) {
+                changesDetected.push({ code: subj.code, subjectName: subj.name || subj.code, status: 'Absent', diffAtt: 0, diffTotal: 0, percentage: att.percentage });
               }
+
               if (
                 att.total !== prevTotal ||
                 att.attended !== prevAtt ||
                 att.percentage !== subj.attendancePercentage
               ) {
                 dataChanged = true;
-              }
-              
-              // Update the cache with this subject's detailed records
-              if (att.records) {
-                if (att.records.length > 0 || att.total === 0) {
-                  newDetailedCache[subj.code] = att.records;
-                  dataChanged = true;
-                }
               }
               
               return {
@@ -431,36 +450,27 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
             return subj;
           });
 
-          // Always persist the refreshed data to cache (ponytail: requirement
-          // "save on every refresh"), then decide if a push is warranted.
-          
-          // Note: no synthetic records are ever injected into detailedAttendanceCache —
-          // the UI blocks must reflect only real portal rows.
-
-          await setScrapedData({ profile, subjects: updatedSubjects, timetable, marks, detailedAttendanceCache: newDetailedCache });
+          // Instantly persist the refreshed summary data to cache
+          await setScrapedData({ profile, subjects: updatedSubjects, timetable, marks });
 
           const newSig = updatedSubjects
             .map((s: any) => `${s.code}:${s.attendedClasses}:${s.totalClasses}:${Math.round(s.attendancePercentage)}`)
             .sort()
             .join('|');
-          // Interim message (one subject's history just landed): data is already
-          // persisted above so the blocks light up progressively — but don't end
-          // the sync or fire notifications until the final message arrives.
-          if (!isDone) return;
 
           const prevSig = (await AsyncStorage.getItem(LAST_NOTIF_SIG_KEY)) || '';
 
           if (prevSig === '') {
             // First sync after login/install: seed signature, never notify on echo.
             await AsyncStorage.setItem(LAST_NOTIF_SIG_KEY, newSig).catch(() => {});
-            finish(false);
-          } else if (newSig !== prevSig) {
+            finish(false, []);
+          } else if (newSig !== prevSig || changesDetected.length > 0) {
             await AsyncStorage.setItem(LAST_NOTIF_SIG_KEY, newSig).catch(() => {});
-            finish(dataChanged, changesDetected);
+            finish(true, changesDetected);
           } else {
-            finish(false);
+            finish(dataChanged, []);
           }
-        } else if (isDone) {
+        } else {
           console.log('[AutoSync] No data scraped');
           finish(false, []);
         }
@@ -481,13 +491,13 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
           uri: getAttendanceUrl(),
           ...(rawCookie ? { headers: { Cookie: rawCookie } } : {})
         }}
+        injectedJavaScriptBeforeContentLoaded={cookieInjectScript || undefined}
         cacheEnabled={false}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         sharedCookiesEnabled={true}
         thirdPartyCookiesEnabled={true}
         onNavigationStateChange={(navState) => {
-          console.log('[AutoSync] Nav:', navState.url, 'loading:', navState.loading);
           if (!navState.loading) {
             // Redirected to login = session expired
             if (
@@ -500,14 +510,11 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
               sessionExpired();
               return;
             }
-            // Inject saved cookies, then scrape
-            setTimeout(() => {
-              webViewRef.current?.injectJavaScript(cookieInjectScript);
-              setTimeout(() => {
-                webViewRef.current?.injectJavaScript(ATTENDANCE_SCRIPT);
-              }, 500);
-            }, 2000);
+            injectScraper();
           }
+        }}
+        onLoadEnd={() => {
+          injectScraper();
         }}
         onError={(e) => { console.log('[AutoSync] Error:', e.nativeEvent.description); finish(false); }}
         onHttpError={(e) => { console.log('[AutoSync] HTTP Error:', e.nativeEvent.statusCode); finish(false); }}
