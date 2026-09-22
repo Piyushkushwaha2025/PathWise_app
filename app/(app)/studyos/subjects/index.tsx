@@ -740,7 +740,7 @@ export default function LmsCoursesScreen() {
             <Text style={styles.headerTitle} numberOfLines={1}>Subjects & LMS</Text>
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <TouchableOpacity 
               onPress={() => {
                 try { Haptics.selectionAsync(); } catch {}
@@ -749,8 +749,8 @@ export default function LmsCoursesScreen() {
               style={styles.headerPillBtn}
               activeOpacity={0.75}
             >
-              <Ionicons name="reader" size={15} color={colors.primary} />
-              <Text style={[styles.headerPillText, { color: colors.primary }]}>Tasks</Text>
+              <Ionicons name="reader" size={14} color={colors.primary} />
+              <Text style={[styles.headerPillText, { color: colors.primary }]}>Assignments</Text>
               {pendingCount > 0 && (
                 <View style={[styles.badgeCounter, { backgroundColor: colors.warning || '#f59e0b' }]}>
                   <Text style={styles.badgeCounterText}>{pendingCount}</Text>
@@ -766,7 +766,7 @@ export default function LmsCoursesScreen() {
               style={styles.headerPillBtn}
               activeOpacity={0.75}
             >
-              <Ionicons name="stats-chart" size={15} color={colors.accent || '#8b5cf6'} />
+              <Ionicons name="stats-chart" size={14} color={colors.accent || '#8b5cf6'} />
               <Text style={[styles.headerPillText, { color: colors.accent || '#8b5cf6' }]}>Grades</Text>
             </TouchableOpacity>
           </View>
@@ -1160,14 +1160,14 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   content: {
     padding: Spacing.md,
-    paddingTop: Platform.OS === 'ios' ? 16 : 20,
+    paddingTop: Platform.OS === 'ios' ? 6 : 8,
     paddingBottom: 110,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    alignItems: 'flex-end',
+    marginBottom: 12,
   },
   headerCategory: {
     fontFamily: 'Inter_700Bold',
@@ -1186,8 +1186,8 @@ const useStyles = (colors: any) => StyleSheet.create({
     backgroundColor: colors.surfaceHigh,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 18,
     gap: 5,
   },

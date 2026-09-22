@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { useHardwareBack } from '../../../../hooks/useHardwareBack';
@@ -31,12 +34,36 @@ const stripAllWord = (text: string) => {
     .trim();
 };
 
+const getSubjectIcon = (name: string): keyof typeof Ionicons.glyphMap => {
+  const n = (name || '').toLowerCase();
+  if (n.includes('program') || n.includes('python') || n.includes('java') || n.includes('code') || n.includes('data structure') || n.includes('algorithm')) {
+    return 'code-slash';
+  }
+  if (n.includes('math') || n.includes('discrete') || n.includes('stat') || n.includes('calculus')) {
+    return 'calculator';
+  }
+  if (n.includes('network') || n.includes('cloud') || n.includes('security') || n.includes('web') || n.includes('internet')) {
+    return 'globe-outline';
+  }
+  if (n.includes('database') || n.includes('dbms') || n.includes('sql')) {
+    return 'server';
+  }
+  if (n.includes('hardware') || n.includes('circuit') || n.includes('microprocessor') || n.includes('digital') || n.includes('architecture')) {
+    return 'hardware-chip';
+  }
+  if (n.includes('ai') || n.includes('intelligence') || n.includes('machine learn') || n.includes('neural')) {
+    return 'sparkles';
+  }
+  return 'school';
+};
+
 export default function LmsGradesSubjectListScreen() {
   const colors = useThemeStore((s) => s.colors);
-  const styles = useStyles(colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black';
+  const styles = useStyles(colors, isDark);
   const router = useRouter();
   useHardwareBack('/studyos');
-
 
   const erpSubjects = useStudyOSStore((s) => s.subjects) || [];
   const { data: attendanceData } = useAttendance();
@@ -48,6 +75,7 @@ export default function LmsGradesSubjectListScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scraperStatus, setScraperStatus] = useState<'syncing' | 'error'>('syncing');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fallback: load from AsyncStorage cache if store is empty (first open before Subjects tab)
   const loadFromCache = useCallback(async () => {
@@ -56,7 +84,7 @@ export default function LmsGradesSubjectListScreen() {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setLmsCourses(parsed); // Hydrate global store from cache
+          setLmsCourses(parsed);
         }
       }
     } catch (_) {}
@@ -68,23 +96,21 @@ export default function LmsGradesSubjectListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // If store already has data, no loading needed at all
       if (lmsCoursesFromStore.length > 0) {
         setLoading(false);
         return;
       }
-      // Otherwise load from cache
       setLoading(true);
       loadFromCache();
     }, [lmsCoursesFromStore.length, loadFromCache])
   );
 
   const onRefresh = () => {
+    try { Haptics.selectionAsync(); } catch {}
     setRefreshing(true);
     loadFromCache();
   };
 
-  // Use store data (live + instantly updated by Subjects tab)
   const scrapedCourses = lmsCoursesFromStore;
 
   const handleWebViewMessage = async (event: any) => {
@@ -92,7 +118,7 @@ export default function LmsGradesSubjectListScreen() {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'COURSES' && data.courses && data.courses.length > 0) {
         setLmsCourses(data.courses);
-        setScraperStatus('syncing'); // reset in case of recovery
+        setScraperStatus('syncing');
         await AsyncStorage.setItem(LMS_COURSES_CACHE_KEY, JSON.stringify(data.courses));
       } else if (data.type === 'ERROR') {
         setScraperStatus('error');
@@ -148,39 +174,19 @@ export default function LmsGradesSubjectListScreen() {
         }
         var links = document.querySelectorAll('a[href*="course/view.php"]');
         var courses = [];
-        var added = {};
-        for(var k=0; k<links.length; k++) {
-           var text = links[k].innerText ? links[k].innerText.trim() : '';
-           if (text && text.length > 3 && !text.includes('Dashboard')) {
-                var href = links[k].href || '';
-                var idMatch = href.match(/id=(\\d+)/);
-                if (idMatch) {
-                   var courseId = idMatch[1];
-                   text = text.replace(/\\n/g, ' ').trim();
-                   if (!added[courseId]) {
-                      courses.push({ fullname: text, shortname: text.split('::')[0].trim(), id: courseId });
-                      added[courseId] = true;
-                   }
-                }
-            }
-        }
-        var titles = document.querySelectorAll('.card-title, .coursename, h4, h5, h6, .text-truncate, .multiline');
-        for (var i = 0; i < titles.length; i++) {
-           var text = titles[i].innerText ? titles[i].innerText.trim() : '';
-           if (!text || text.length < 4 || text === 'My Courses') continue;
-           var aTag = titles[i].closest('a');
-           if (!aTag) {
-               var card = titles[i].closest('.card, .coursebox, .course');
-               if (card) aTag = card.querySelector('a[href*="course/view.php"]');
+        for (var i = 0; i < links.length; i++) {
+           var href = links[i].getAttribute('href') || '';
+           var m = href.match(/id=([0-9]+)/);
+           var id = m ? m[1] : '';
+           var text = links[i].innerText ? links[i].innerText.trim() : '';
+           var parentCard = links[i].closest('.dashboard-card, .course-info-container, [data-course-id]');
+           var shortname = '';
+           if (parentCard) {
+              var snEl = parentCard.querySelector('.categoryname, .text-muted, [data-region="shortname"]');
+              if (snEl) shortname = snEl.innerText.trim();
            }
-           var href = aTag ? (aTag.href || '') : '';
-           var idMatch = href.match(/id=(\\d+)/);
-           if (idMatch) {
-               var courseId = idMatch[1];
-               if (!added[courseId]) {
-                  courses.push({ fullname: text, shortname: text.split('::')[0].trim(), id: courseId });
-                  added[courseId] = true;
-               }
+           if (id && text && text.length > 2) {
+              courses.push({ id: id, fullname: text, shortname: shortname });
            }
         }
         if (courses.length > 0) {
@@ -189,14 +195,9 @@ export default function LmsGradesSubjectListScreen() {
       }
       setTimeout(extract, 2000);
       setTimeout(extract, 5000);
-      setTimeout(extract, 8000);
-      setTimeout(extract, 15000);
-      setTimeout(extract, 25000);
     })();
-    true;
   `;
 
-  // ── Helpers ──
   const getCoreCode = (str: string) => {
     const match = str.match(/[0-9]{2}[A-Z]{2,6}[-_]?[0-9]{2,4}/i);
     return match ? match[0].replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : null;
@@ -321,10 +322,20 @@ export default function LmsGradesSubjectListScreen() {
     if (mainCourses.length === 0 && !loading && scraperStatus === 'syncing') {
        const timer = setTimeout(() => {
           setScraperStatus('error');
-       }, 35000); // 35 seconds max wait before showing error
+       }, 35000);
        return () => clearTimeout(timer);
     }
   }, [mainCourses.length, loading, scraperStatus]);
+
+  // Filter courses by search query if any
+  const displayedCourses = useMemo(() => {
+    if (!searchQuery.trim()) return mainCourses;
+    const q = searchQuery.toLowerCase().trim();
+    return mainCourses.filter(c => 
+      c.fullname.toLowerCase().includes(q) || 
+      c.shortname.toLowerCase().includes(q)
+    );
+  }, [mainCourses, searchQuery]);
 
   return (
     <View style={styles.container}>
@@ -337,55 +348,134 @@ export default function LmsGradesSubjectListScreen() {
           headerShadowVisible: false,
           headerLeft: () => (
             <TouchableOpacity
-              onPress={() => router.navigate('/studyos' as any)}
-              style={{ marginLeft: 14 }}
+              onPress={() => {
+                try { Haptics.selectionAsync(); } catch {}
+                router.navigate('/studyos' as any);
+              }}
+              style={styles.headerBackBtn}
+              activeOpacity={0.7}
             >
-              <Ionicons name="arrow-back" size={24} color={colors.text} />
+              <Ionicons name="arrow-back" size={20} color={colors.text} />
             </TouchableOpacity>
           ),
+          headerRight: () => {
+            if (mainCourses.length === 0) return null;
+            return (
+              <View style={styles.headerCountBadge}>
+                <Ionicons name="school" size={13} color={colors.accent || '#8b5cf6'} style={{ marginRight: 5 }} />
+                <Text style={styles.headerCountText}>{mainCourses.length} Subjects</Text>
+              </View>
+            );
+          }
         }}
       />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            colors={[colors.primary]} 
+            tintColor={colors.primary} 
+          />
+        }
       >
-        <View style={styles.headerBanner}>
-          <View style={styles.bannerIconCircle}>
-            <Ionicons name="school" size={24} color={colors.primary} />
-          </View>
-          <View style={styles.bannerTextContainer}>
-            <Text style={styles.bannerTitle}>Moodle Grade Center</Text>
-            <Text style={styles.bannerSubtitle}>
-              Select a subject to inspect quiz, surprise test, and assignment scores.
-            </Text>
-          </View>
+        {/* Modern Grade Center Hero Card */}
+        <View style={styles.heroCardContainer}>
+          <LinearGradient
+            colors={
+              isDark
+                ? ['rgba(139, 92, 246, 0.18)', 'rgba(59, 130, 246, 0.08)']
+                : ['rgba(124, 58, 237, 0.10)', 'rgba(37, 99, 235, 0.04)']
+            }
+            style={styles.heroGradient}
+          >
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroIconBox}>
+                <Ionicons name="stats-chart" size={24} color={colors.accent || '#8b5cf6'} />
+              </View>
+              <View style={styles.heroTextBox}>
+                <View style={styles.heroPillBadge}>
+                  <View style={styles.livePulseDot} />
+                  <Text style={styles.heroPillText}>MOODLE EVALUATION CENTER</Text>
+                </View>
+                <Text style={styles.heroTitle}>Academic Marks</Text>
+                <Text style={styles.heroSubtitle}>
+                  View comprehensive score breakdowns for quizzes, surprise tests, and lab assignments.
+                </Text>
+              </View>
+            </View>
+
+            {/* Micro hint footer */}
+            <View style={styles.heroFooterRow}>
+              <View style={styles.syncHintBox}>
+                <Ionicons name="shield-checkmark-outline" size={14} color={colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.syncHintText}>Synced directly with your official CU-LMS Gradebook</Text>
+              </View>
+            </View>
+          </LinearGradient>
         </View>
+
+        {/* Search Bar (When subjects are loaded) */}
+        {mainCourses.length > 4 && (
+          <View style={styles.searchContainer}>
+            <Ionicons name="search-outline" size={17} color={colors.textMuted} style={{ marginRight: 8 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search subjects or course codes..."
+              placeholderTextColor={colors.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
+                <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {loading ? (
           <View style={styles.emptyState}>
-            <ActivityIndicator size="large" color={colors.primary} />
+            <View style={styles.emptyIconCircle}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>Connecting to LMS...</Text>
+            <Text style={styles.emptySubtitle}>
+              Scanning your enrolled Moodle courses in the background
+            </Text>
           </View>
         ) : mainCourses.length === 0 ? (
           <View style={styles.emptyState}>
             {scraperStatus === 'syncing' ? (
                <>
-                 <ActivityIndicator size="large" color={colors.primary} />
-                 <Text style={{ ...styles.emptyTitle, marginTop: 16 }}>Syncing LMS Subjects...</Text>
+                 <View style={styles.emptyIconCircle}>
+                   <ActivityIndicator size="large" color={colors.primary} />
+                 </View>
+                 <Text style={styles.emptyTitle}>Syncing LMS Subjects...</Text>
                  <Text style={styles.emptySubtitle}>
-                   Please wait while we automatically fetch your subjects from Moodle. This happens in the background.
+                   Please wait while we fetch your academic courses from Moodle. This takes just a few moments.
                  </Text>
                </>
             ) : (
                <>
-                 <Ionicons name="alert-circle-outline" size={56} color={colors.primary} />
+                 <View style={[styles.emptyIconCircle, { backgroundColor: '#ef444415', borderColor: '#ef444430' }]}>
+                   <Ionicons name="alert-circle-outline" size={40} color="#ef4444" />
+                 </View>
                  <Text style={styles.emptyTitle}>LMS Session Expired</Text>
                  <Text style={styles.emptySubtitle}>
-                   We couldn't sync your subjects in the background. Please open the LMS Subjects tab to re-authenticate manually.
+                   We couldn't sync your courses in the background. Please open the LMS Subjects tab to refresh your credentials.
                  </Text>
                  <TouchableOpacity
                    style={styles.ctaButton}
-                   onPress={() => router.push('/studyos/subjects' as any)}
+                   onPress={() => {
+                     try { Haptics.selectionAsync(); } catch {}
+                     router.push('/studyos/subjects' as any);
+                   }}
+                   activeOpacity={0.85}
                  >
                    <Ionicons name="sync-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
                    <Text style={styles.ctaButtonText}>Open LMS Subjects</Text>
@@ -395,41 +485,61 @@ export default function LmsGradesSubjectListScreen() {
           </View>
         ) : (
           <View style={styles.listContainer}>
-            {mainCourses.map((course, index) => (
-              <TouchableOpacity
-                key={course.id || index.toString()}
-                style={styles.courseCard}
-                activeOpacity={0.7}
-                onPress={() => {
-                  const numericId = course.id && /^\d+$/.test(String(course.id)) ? String(course.id) : '';
-                  const targetId = numericId || course.originalName || course.shortname || course.fullname;
-                  const nameParam = encodeURIComponent(course.originalName || course.fullname);
-                  router.push(`/studyos/grades/${encodeURIComponent(targetId)}?name=${nameParam}` as any);
-                }}
-              >
-                <View style={styles.cardIconBox}>
-                  <Ionicons name="stats-chart" size={22} color={colors.primary} />
-                </View>
-                <View style={styles.cardContent}>
-                  {!!course.shortname && (
-                    <View style={styles.codeBadge}>
-                      <Text style={styles.codeBadgeText}>{course.shortname}</Text>
+            <Text style={styles.sectionHeaderLabel}>ENROLLED SUBJECTS ({displayedCourses.length})</Text>
+
+            {displayedCourses.map((course, index) => {
+              const iconName = getSubjectIcon(course.fullname);
+              return (
+                <TouchableOpacity
+                  key={course.id || index.toString()}
+                  style={styles.courseCard}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    try { Haptics.selectionAsync(); } catch {}
+                    const numericId = course.id && /^\d+$/.test(String(course.id)) ? String(course.id) : '';
+                    const targetId = numericId || course.originalName || course.shortname || course.fullname;
+                    const nameParam = encodeURIComponent(course.originalName || course.fullname);
+                    router.push(`/studyos/grades/${encodeURIComponent(targetId)}?name=${nameParam}` as any);
+                  }}
+                >
+                  <View style={styles.cardIconBox}>
+                    <LinearGradient
+                      colors={[colors.primary + '25', (colors.accent || colors.primary) + '15']}
+                      style={styles.cardIconGradient}
+                    >
+                      <Ionicons name={iconName} size={22} color={colors.primary} />
+                    </LinearGradient>
+                  </View>
+
+                  <View style={styles.cardContent}>
+                    {!!course.shortname && (
+                      <View style={styles.codeBadge}>
+                        <Text style={styles.codeBadgeText}>{course.shortname}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.subjectTitle} numberOfLines={2}>
+                      {course.fullname}
+                    </Text>
+                    <View style={styles.featuresRow}>
+                      <Text style={styles.viewMarksHint}>Quizzes • Tests • Assignments</Text>
                     </View>
-                  )}
-                  <Text style={styles.subjectTitle} numberOfLines={2}>
-                    {course.fullname}
-                  </Text>
-                  <Text style={styles.viewMarksHint}>Tap to check Quiz & Assignment scores →</Text>
-                </View>
-                <View style={styles.chevronBox}>
-                  <Ionicons name="chevron-forward" size={20} color={colors.primary} />
-                </View>
-              </TouchableOpacity>
-            ))}
+                  </View>
+
+                  <View style={styles.chevronBox}>
+                    <View style={styles.chevronCircle}>
+                      <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
+
+        <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* Background scraping WebView */}
       {mainCourses.length === 0 && !loading && (
         <View style={{ width: 0, height: 0, opacity: 0, position: 'absolute', top: 0, left: 0 }}>
           <WebView
@@ -445,66 +555,244 @@ export default function LmsGradesSubjectListScreen() {
   );
 }
 
-const useStyles = (colors: any) =>
+const useStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    scrollContent: { paddingHorizontal: Spacing.md, paddingTop: 10, paddingBottom: Spacing.xl * 2 },
-    headerBanner: {
-      flexDirection: 'row',
+    headerBackBtn: {
+      width: 36, height: 36, borderRadius: 18,
       backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.lg,
-      padding: Spacing.md,
+      borderWidth: 1, borderColor: colors.border,
+      alignItems: 'center', justifyContent: 'center',
+      marginLeft: 12,
+    },
+    headerCountBadge: {
+      flexDirection: 'row', alignItems: 'center',
+      backgroundColor: (colors.accent || '#8b5cf6') + '15',
+      paddingHorizontal: 12, paddingVertical: 6,
+      borderRadius: Radius.full,
+      borderWidth: 1, borderColor: (colors.accent || '#8b5cf6') + '35',
+      marginRight: 14,
+    },
+    headerCountText: {
+      color: colors.accent || '#8b5cf6',
+      fontFamily: Typography.h3.fontFamily,
+      fontSize: 12,
+    },
+    scrollContent: {
+      paddingHorizontal: Spacing.md,
+      paddingTop: 4,
+      paddingBottom: Spacing.xl * 2,
+    },
+    heroCardContainer: {
+      borderRadius: Radius.xl,
+      overflow: 'hidden',
       marginBottom: Spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
+      backgroundColor: colors.surfaceHigh,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.08,
+      shadowRadius: 10,
+      elevation: 4,
+    },
+    heroGradient: {
+      padding: Spacing.md + 2,
+    },
+    heroTopRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      marginBottom: Spacing.md,
+    },
+    heroIconBox: {
+      width: 48, height: 48, borderRadius: 24,
+      backgroundColor: (colors.accent || '#8b5cf6') + '20',
+      alignItems: 'center', justifyContent: 'center',
+      marginRight: 14,
+      borderWidth: 1, borderColor: (colors.accent || '#8b5cf6') + '40',
+    },
+    heroTextBox: { flex: 1 },
+    heroPillBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    livePulseDot: {
+      width: 7, height: 7, borderRadius: 4,
+      backgroundColor: colors.accent || '#8b5cf6',
+      marginRight: 6,
+    },
+    heroPillText: {
+      fontFamily: Typography.label.fontFamily,
+      fontSize: 10,
+      letterSpacing: 0.8,
+      color: colors.accent || '#8b5cf6',
+    },
+    heroTitle: {
+      fontFamily: Typography.h2.fontFamily,
+      fontSize: 20,
+      color: colors.text,
+      marginBottom: 3,
+    },
+    heroSubtitle: {
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 13,
+      color: colors.textMuted,
+      lineHeight: 18,
+    },
+    heroFooterRow: {
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: Spacing.sm + 2,
+    },
+    syncHintBox: {
+      flexDirection: 'row',
       alignItems: 'center',
     },
-    bannerIconCircle: {
-      width: 48, height: 48, borderRadius: 24,
-      backgroundColor: colors.primary + '20',
-      alignItems: 'center', justifyContent: 'center',
-      marginRight: Spacing.md, borderWidth: 1, borderColor: colors.primary + '40',
+    syncHintText: {
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 11,
+      color: colors.textMuted,
     },
-    bannerTextContainer: { flex: 1 },
-    bannerTitle: { fontFamily: Typography.h3.fontFamily, fontSize: 17, color: colors.text, marginBottom: 4 },
-    bannerSubtitle: { fontFamily: Typography.body.fontFamily, fontSize: 13, color: colors.text, lineHeight: 18 },
-    listContainer: { gap: Spacing.sm },
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: Radius.lg,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginBottom: Spacing.md,
+    },
+    searchInput: {
+      flex: 1,
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 14,
+      color: colors.text,
+      padding: 0,
+    },
+    sectionHeaderLabel: {
+      fontFamily: Typography.label.fontFamily,
+      fontSize: 11,
+      letterSpacing: 1,
+      color: colors.textMuted,
+      marginBottom: 10,
+      marginLeft: 4,
+    },
+    listContainer: {
+      gap: Spacing.sm + 2,
+    },
     courseCard: {
       flexDirection: 'row',
       backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.lg,
+      borderRadius: Radius.xl,
       padding: Spacing.md,
-      borderWidth: 1, borderColor: colors.border,
+      borderWidth: 1,
+      borderColor: colors.border,
       alignItems: 'center',
-      shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 3,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.25 : 0.06,
+      shadowRadius: 6,
+      elevation: 2,
     },
     cardIconBox: {
-      width: 44, height: 44, borderRadius: 12,
-      backgroundColor: colors.primary + '15',
-      alignItems: 'center', justifyContent: 'center',
-      marginRight: Spacing.md, borderWidth: 1, borderColor: colors.primary + '30',
+      width: 48, height: 48, borderRadius: 16,
+      overflow: 'hidden',
+      marginRight: Spacing.md,
+    },
+    cardIconGradient: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.primary + '30',
+      borderRadius: 16,
     },
     cardContent: { flex: 1, justifyContent: 'center' },
     codeBadge: {
       alignSelf: 'flex-start',
-      backgroundColor: colors.primary + '20',
-      paddingHorizontal: 8, paddingVertical: 3,
-      borderRadius: Radius.sm, marginBottom: 6,
-      borderWidth: 1, borderColor: colors.primary + '40',
+      backgroundColor: colors.primary + '15',
+      paddingHorizontal: 8, paddingVertical: 2,
+      borderRadius: Radius.sm, marginBottom: 5,
+      borderWidth: 1, borderColor: colors.primary + '30',
     },
-    codeBadgeText: { fontFamily: Typography.h3.fontFamily, fontSize: 11, color: colors.text, textTransform: 'uppercase' },
-    subjectTitle: { fontFamily: Typography.h3.fontFamily, fontSize: 16, color: colors.text, marginBottom: 4 },
-    viewMarksHint: { fontFamily: Typography.body.fontFamily, fontSize: 13, color: colors.primary },
-    chevronBox: { paddingLeft: Spacing.sm },
-    emptyState: { alignItems: 'center', justifyContent: 'center', marginTop: 40, paddingHorizontal: 20 },
-    emptyTitle: { fontFamily: Typography.h3.fontFamily, fontSize: 18, color: colors.text, marginTop: 16 },
-    emptySubtitle: { fontFamily: Typography.body.fontFamily, fontSize: 14, color: colors.textMuted || colors.text, marginTop: 8, textAlign: 'center', lineHeight: 20 },
+    codeBadgeText: {
+      fontFamily: Typography.h3.fontFamily,
+      fontSize: 11,
+      color: colors.primary,
+      textTransform: 'uppercase',
+    },
+    subjectTitle: {
+      fontFamily: Typography.h3.fontFamily,
+      fontSize: 15,
+      color: colors.text,
+      marginBottom: 4,
+      lineHeight: 20,
+    },
+    featuresRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    viewMarksHint: {
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    chevronBox: {
+      paddingLeft: Spacing.sm,
+    },
+    chevronCircle: {
+      width: 32, height: 32, borderRadius: 16,
+      backgroundColor: colors.surface,
+      borderWidth: 1, borderColor: colors.border,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 48,
+      paddingHorizontal: 24,
+    },
+    emptyIconCircle: {
+      width: 72, height: 72, borderRadius: 36,
+      backgroundColor: colors.primary + '15',
+      borderWidth: 1, borderColor: colors.primary + '30',
+      alignItems: 'center', justifyContent: 'center',
+      marginBottom: 16,
+    },
+    emptyTitle: {
+      fontFamily: Typography.h2.fontFamily,
+      fontSize: 18,
+      color: colors.text,
+      marginBottom: 6,
+      textAlign: 'center',
+    },
+    emptySubtitle: {
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 19,
+    },
     ctaButton: {
-      flexDirection: 'row', alignItems: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
       backgroundColor: colors.primary,
-      paddingHorizontal: 20, paddingVertical: 12,
-      borderRadius: Radius.lg, marginTop: 20,
-      shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5,
+      paddingHorizontal: 22,
+      paddingVertical: 13,
+      borderRadius: Radius.full,
+      marginTop: 20,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 4,
     },
-    ctaButtonText: { color: '#fff', fontFamily: Typography.h3.fontFamily, fontSize: 15 },
+    ctaButtonText: {
+      color: '#fff',
+      fontFamily: Typography.h3.fontFamily,
+      fontSize: 14,
+    },
   });

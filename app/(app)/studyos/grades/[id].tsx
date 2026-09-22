@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { useHardwareBack } from '../../../../hooks/useHardwareBack';
@@ -45,11 +47,11 @@ export default function LmsGradeReportScreen() {
   useHardwareBack('/studyos/grades');
 
   const colors = useThemeStore((s) => s.colors);
-  const styles = useStyles(colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black';
+  const styles = useStyles(colors, isDark);
 
   const webViewRef = useRef<WebView>(null);
-  // `id` may be a numeric Moodle course id (preferred) OR, when missing from cache,
-  // the URL-encoded original Moodle full name. expo-router auto-decodes params.
   const rawId = typeof id === 'string' ? id : '';
   const isNumericId = /^\d+$/.test(rawId);
   const cacheKey = `lms_grades_cache_${rawId}`;
@@ -67,38 +69,27 @@ export default function LmsGradeReportScreen() {
     ? `https://lms.culko.in/grade/report/user/index.php?id=${rawId}`
     : `https://lms.culko.in/my/courses.php`;
 
-  // ── Helper: Robust numerical evaluation of Graded state ──
   const isItemGraded = (grade: string | undefined): boolean => {
     if (!grade) return false;
     const clean = grade.replace(/\s+/g, ' ').trim();
     if (!clean || clean === '-' || clean === '–' || clean === '—' || clean === '&nbsp;' || clean.toLowerCase() === 'n/a') {
       return false;
     }
-    // Must contain actual numeric digits to be counted as graded (e.g. 8.00, 10, 35)
     return /[0-9]/.test(clean);
   };
 
-  // ── Helper: keep real assessment rows, drop only pure header/structure rows ──
-  // Older logic rejected any row whose title matched the subject name — but in
-  // Moodle grade reports the category row IS the course name and the actual quiz/
-  // assignment rows are its children, so that rule deleted every real grade.
-  // Now we keep a row unless it's an obvious structural header with no grade.
   const isValidGradeItem = (item: GradeItem): boolean => {
     if (!item || !item.title) return false;
     const tLow = item.title.toLowerCase().trim();
     const rLow = (item.rawTitle || '').toLowerCase().trim();
 
-    // Drop literal table headers / structural labels.
     if (
       tLow === 'grade item' || tLow === 'category' || tLow === 'course total' ||
       tLow === 'category total' || tLow === 'grade' || tLow === 'item' || tLow === 'range'
     ) return false;
 
-    // Drop the course-header delimiter rows (CODE :: COURSE NAME).
     if (rLow.includes('::') || tLow.includes('::')) return false;
 
-    // Drop ONLY if it has no grade value AND no assessment keyword (i.e. it's a
-    // bare course title row with nothing to show).
     const hasGrade = !!item.grade && item.grade !== '-' && item.grade !== '—' &&
       item.grade.toLowerCase() !== 'n/a' && item.grade.trim() !== '';
     const hasKeyword = /\b(assign|quiz|test|lab|exam|attend|project|viva|tutorial|mid|mst|practical|surprise|ct|class\s*test)\b/i.test(item.title);
@@ -107,7 +98,6 @@ export default function LmsGradeReportScreen() {
     return true;
   };
 
-  // ── Load cached grades immediately on mount ──
   const loadCache = useCallback(async () => {
     try {
       const cached = await AsyncStorage.getItem(cacheKey);
@@ -124,14 +114,10 @@ export default function LmsGradeReportScreen() {
     } catch (e) {
       console.error('Failed to read cached grades:', e);
     }
-  }, [cacheKey, cleanSubjectName]);
+  }, [cacheKey]);
 
   useEffect(() => {
     loadCache();
-    // Moodle session is carried by sharedCookiesEnabled (same as the working
-    // subjects/[id] screen) — no cookie injection needed. We only rely on
-    // onLoadEnd re-injecting the scraper on every navigation so Moodle's own
-    // SSO (login -> ERP -> back to LMS) completes before we extract.
     const timer = setTimeout(() => {
       setLoading(false);
       setRefreshing(false);
@@ -140,17 +126,15 @@ export default function LmsGradeReportScreen() {
   }, [loadCache]);
 
   const onRefresh = () => {
+    try { Haptics.selectionAsync(); } catch {}
     setRefreshing(true);
     webViewRef.current?.reload();
   };
 
-
   const handleWebViewMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'DEBUG_LOG') {
-        console.log('[GRADE_SCRAPER]', data.msg);
-      } else if (data.type === 'GRADES_RESULT' && Array.isArray(data.items)) {
+      if (data.type === 'GRADES_RESULT' && Array.isArray(data.items)) {
         const validItems = data.items.filter((item: GradeItem) => isValidGradeItem(item));
 
         let foundTotal: GradeItem | null = null;
@@ -161,7 +145,6 @@ export default function LmsGradeReportScreen() {
             item.title.toLowerCase().includes('total') ||
             item.category === 'TOTAL'
           ) {
-            // Pick course total or fallback to category total
             if (!foundTotal || item.title.toLowerCase().includes('course')) {
               foundTotal = item;
             }
@@ -192,166 +175,102 @@ export default function LmsGradeReportScreen() {
     }
   };
 
-  // ── JavaScript Scraper Injected into Moodle Grade Report ──
-  // The hidden WebView reaches LMS via the shared cookie jar (same as the
-  // working subjects/[id] screen) — NO SSO dance needed. We only redirect when
-  // genuinely logged out; otherwise we extract grades directly.
   const injectedJs = `
     (function() {
       function extractGrades() {
-        var url = window.location.href;
-
-        // On Moodle's login page the SSO will auto-redirect (via the shared ERP
-        // cookie) back to LMS. Do NOT post or navigate away — just wait. onLoadEnd
-        // re-injects this script after the redirect lands on the grade report.
-        if (url.indexOf('login') !== -1 && url.indexOf('lms.culko.in') !== -1) {
-           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DEBUG_LOG', msg: 'LMS SSO in progress...' }));
-           return;
+        var url = window.location.href.toLowerCase();
+        if (url.includes('student.culko.in') && url.includes('login')) return;
+        if (url.includes('lms.culko.in') && url.includes('login')) {
+          window.location.href = 'https://student.culko.in/StudentHome.aspx';
+          return;
+        }
+        if (url.includes('studenthome.aspx')) {
+          var links = document.querySelectorAll('a');
+          for (var j = 0; j < links.length; j++) {
+            var txt = links[j].innerText ? links[j].innerText.toUpperCase().trim() : '';
+            if (txt === 'CU-LMS' || txt === 'MY LMS' || txt === 'LMS' || txt === 'CU LMS') {
+              if (links[j].href && !links[j].href.toLowerCase().startsWith('javascript:')) {
+                window.location.href = links[j].href;
+              } else {
+                links[j].click();
+              }
+              return;
+            }
+          }
+          return;
         }
 
-        // If we're not yet on a grade report, do nothing and let the direct
-        // grade/report/user/index.php URL (numeric id) load it. (Non-numeric id
-        // falls back to my/courses and is matched by the Grades list screen.)
+        if (url.includes('/my/courses.php') || url.includes('/my/')) {
+          var targetName = decodeURIComponent("${encodeURIComponent(rawId)}").toLowerCase().trim();
+          var courseLinks = document.querySelectorAll('a[href*="course/view.php"]');
+          var matchedCourseId = null;
+
+          for (var i = 0; i < courseLinks.length; i++) {
+            var fullText = courseLinks[i].innerText ? courseLinks[i].innerText.toLowerCase().trim() : '';
+            var href = courseLinks[i].getAttribute('href') || '';
+            var m = href.match(/id=([0-9]+)/);
+            if (m && targetName) {
+              var cleanT = targetName.replace(/[^a-z0-9]/g, ' ');
+              var cleanF = fullText.replace(/[^a-z0-9]/g, ' ');
+              var tWords = cleanT.split(/\\s+/).filter(function(w){ return w.length >= 3; });
+              var matchCount = 0;
+              for (var w = 0; w < tWords.length; w++) {
+                if (cleanF.indexOf(tWords[w]) !== -1) matchCount++;
+              }
+              if (matchCount >= Math.min(2, tWords.length)) {
+                matchedCourseId = m[1];
+                break;
+              }
+            }
+          }
+
+          if (matchedCourseId) {
+            window.location.href = 'https://lms.culko.in/grade/report/user/index.php?id=' + matchedCourseId;
+            return;
+          }
+        }
 
         var results = [];
-        var added = {};
-        
-        // Strategy 1: Table rows in standard Moodle grade reports
-        var rows = document.querySelectorAll('tr.grade_item, table.user-grade tr, table.generaltable tr, tr');
-        for (var i = 0; i < rows.length; i++) {
-          var row = rows[i];
-          if (row.classList && (row.classList.contains('category') || row.classList.contains('heading') || row.classList.contains('level1') || row.classList.contains('header'))) {
-            continue;
-          }
-          var headerCell = row.querySelector('th.item, td.item, th.column-itemname, td.column-itemname, .itemname, th[id*="grade_item_"]');
-          if (!headerCell) continue;
-          if (headerCell.classList && headerCell.classList.contains('category')) continue;
+        var table = document.querySelector('table.user-grade');
+        if (table) {
+          var rows = table.querySelectorAll('tbody tr');
+          for (var r = 0; r < rows.length; r++) {
+            var row = rows[r];
+            var itemEl = row.querySelector('.column-itemname, th[scope="row"]');
+            var rawItem = itemEl ? (itemEl.innerText || '').trim() : '';
+            if (!rawItem) continue;
 
-          var titleText = headerCell.innerText ? headerCell.innerText.replace(/\\s+/g, ' ').trim() : '';
-          if (!titleText || titleText.length < 2 || titleText === 'Grade item' || titleText === 'Category' || titleText === 'Percentage') continue;
+            var cleanItem = rawItem.replace(/Course is starred|Course name|Manual item/gi, '').trim();
+            var gradeEl = row.querySelector('.column-grade');
+            var rangeEl = row.querySelector('.column-range');
+            var pctEl = row.querySelector('.column-percentage');
+            var fbEl = row.querySelector('.column-feedback');
 
-          var gradeCell = row.querySelector('.column-grade, .grade, td[headers*="grade"]');
-          var grade = gradeCell ? gradeCell.innerText.replace(/\\s+/g, ' ').trim() : '-';
-          if (grade === '' || grade === '&nbsp;' || grade.toLowerCase() === 'grade') continue;
+            var gradeVal = gradeEl ? gradeEl.innerText.trim() : '';
+            var rangeVal = rangeEl ? rangeEl.innerText.trim() : '';
+            var pctVal = pctEl ? pctEl.innerText.trim() : '';
+            var fbVal = fbEl ? fbEl.innerText.trim() : '';
 
-          var rangeCell = row.querySelector('.column-range, .range, td[headers*="range"]');
-          var range = rangeCell ? rangeCell.innerText.replace(/\\s+/g, ' ').trim() : '-';
+            var cat = 'ASSIGNMENT';
+            var u = cleanItem.toUpperCase();
+            if (u.includes('QUIZ')) cat = 'QUIZ';
+            else if (u.includes('SURPRISE') || u.includes('TEST')) cat = 'SURPRISE TEST';
+            else if (u.includes('ATTEND') || u.includes('PRESENCE')) cat = 'ATTENDANCE';
+            else if (u.includes('TOTAL') || row.classList.contains('total') || row.classList.contains('coursetotal')) cat = 'TOTAL';
 
-          var percCell = row.querySelector('.column-percentage, .percentage, td[headers*="percentage"]');
-          var perc = percCell ? percCell.innerText.replace(/\\s+/g, ' ').trim() : '';
-
-          var feedbackCell = row.querySelector('.column-feedback, .feedback, td[headers*="feedback"]');
-          var feedback = feedbackCell ? feedbackCell.innerText.replace(/\\s+/g, ' ').trim() : '';
-          if (feedback === '&nbsp;' || feedback === '-') feedback = '';
-
-          var cat = 'ASSIGNMENT';
-          if (titleText.toUpperCase().includes('QUIZ') || titleText.toUpperCase().includes('TEST')) cat = 'QUIZ';
-          else if (titleText.toUpperCase().includes('SURPRISE')) cat = 'SURPRISE TEST';
-          else if (titleText.toUpperCase().includes('ATTENDANCE') || titleText.toUpperCase().includes('PRESENCE')) cat = 'ATTENDANCE';
-          else if (titleText.toUpperCase().includes('TOTAL') || titleText.toUpperCase().includes('COURSE GRADE')) cat = 'TOTAL';
-
-          var cleanTitle = titleText
-            .replace(/^QUIZ\\s*/i, '')
-            .replace(/^ASSIGNMENT\\s*/i, 'Assignment ')
-            .trim();
-          if (!cleanTitle) cleanTitle = titleText;
-
-          var key = titleText + '_' + range;
-          if (!added[key]) {
-            added[key] = true;
             results.push({
-              id: 'g_' + results.length + '_' + Math.random().toString(36).substr(2, 5),
-              title: cleanTitle,
-              rawTitle: titleText,
+              id: 'g_' + r + '_' + Math.random().toString(36).substr(2, 5),
+              title: cleanItem,
+              rawTitle: rawItem,
               category: cat,
-              grade: grade,
-              range: range,
-              percentage: perc,
-              feedback: feedback
+              grade: gradeVal,
+              range: rangeVal,
+              percentage: pctVal,
+              feedback: fbVal
             });
           }
         }
 
-        // Strategy 2 (Fallback for generic tables without standard Moodle class names):
-        if (results.length === 0) {
-          var allRows = document.querySelectorAll('table tr');
-          for (var r = 0; r < allRows.length; r++) {
-             var cells = allRows[r].querySelectorAll('th, td');
-             if (cells.length >= 2) {
-               var t = cells[0].innerText ? cells[0].innerText.replace(/\\s+/g, ' ').trim() : '';
-               if (!t || t.length < 2 || t.toLowerCase().includes('grade item') || t.toLowerCase() === 'category') continue;
-               var g = cells[1].innerText ? cells[1].innerText.replace(/\\s+/g, ' ').trim() : '-';
-               if (g === '' || g === '&nbsp;' || g.toLowerCase() === 'grade') continue;
-               var rng = cells.length >= 3 ? (cells[2].innerText ? cells[2].innerText.replace(/\\s+/g, ' ').trim() : '-') : '-';
-               var k = t + '_' + rng;
-               if (!added[k]) {
-                 added[k] = true;
-                 var cCat = 'ASSIGNMENT';
-                 if (t.toUpperCase().includes('QUIZ') || t.toUpperCase().includes('TEST')) cCat = 'QUIZ';
-                 else if (t.toUpperCase().includes('SURPRISE')) cCat = 'SURPRISE TEST';
-                 else if (t.toUpperCase().includes('ATTENDANCE')) cCat = 'ATTENDANCE';
-                 else if (t.toUpperCase().includes('TOTAL')) cCat = 'TOTAL';
-                 results.push({
-                   id: 'gf_' + results.length + '_' + Math.random().toString(36).substr(2, 5),
-                   title: t,
-                   rawTitle: t,
-                   category: cCat,
-                   grade: g,
-                   range: rng,
-                   percentage: '',
-                   feedback: ''
-                 });
-               }
-             }
-          }
-        }
-
-        // Strategy 3 (last-resort, theme-agnostic): any <tr> whose first cell
-        // looks like an item name and any later cell holds a grade-like number.
-        // Catches custom Moodle themes whose class names Strategies 1/2 miss.
-        if (results.length === 0) {
-          var gradeLike = /^\\s*[-+]?\\d*\\.?\\d+\\s*(\\/?\\s*\\d+(\\.\\d+)?)?\\s*%?\\s*$/;
-          var allTr = document.querySelectorAll('table tr');
-          for (var t3 = 0; t3 < allTr.length; t3++) {
-            var c3 = allTr[t3].querySelectorAll('th, td');
-            if (c3.length < 2) continue;
-            var tTitle = (c3[0].innerText || '').replace(/\\s+/g, ' ').trim();
-            if (!tTitle || tTitle.length < 2) continue;
-            if (/^(grade item|category|item|range|percentage)$/i.test(tTitle)) continue;
-            // Find a grade-like cell anywhere in the row (usually the 2nd cell).
-            var gVal = '-';
-            for (var gc = 1; gc < c3.length; gc++) {
-              var cv = (c3[gc].innerText || '').replace(/\\s+/g, ' ').trim();
-              if (gradeLike.test(cv)) { gVal = cv; break; }
-            }
-            var hasKw = /\\b(assign|quiz|test|lab|exam|attend|project|viva|tutorial|mid|mst|practical|surprise|ct|class\\s*test)\\b/i.test(tTitle);
-            if (gVal === '-' && !hasKw) continue;
-            var rng3 = c3.length >= 3 ? (c3[2].innerText || '').replace(/\\s+/g, ' ').trim() : '-';
-            var ck = tTitle + '_' + gVal;
-            if (!added[ck]) {
-              added[ck] = true;
-              var cc = 'ASSIGNMENT';
-              if (/quiz/i.test(tTitle)) cc = 'QUIZ';
-              else if (/surprise/i.test(tTitle)) cc = 'SURPRISE TEST';
-              else if (/attend|presence/i.test(tTitle)) cc = 'ATTENDANCE';
-              else if (/total/i.test(tTitle)) cc = 'TOTAL';
-              results.push({
-                id: 'g3_' + results.length + '_' + Math.random().toString(36).substr(2, 5),
-                title: tTitle,
-                rawTitle: tTitle,
-                category: cc,
-                grade: gVal,
-                range: rng3 === gVal ? '-' : rng3,
-                percentage: '',
-                feedback: ''
-              });
-            }
-          }
-        }
-
-        // Send back results — but don't post an empty set on early attempts,
-        // because Moodle's grade table can still be rendering. Only flush an
-        // empty result on the final attempt so the loading flag always ends.
         window.__gradeAttempt = (window.__gradeAttempt || 0) + 1;
         var isFinal = window.__gradeAttempt >= 3;
         if (results.length > 0 || isFinal) {
@@ -373,29 +292,43 @@ export default function LmsGradeReportScreen() {
     true;
   `;
 
-  // Filter items using robust digit check
-  const gradedItems = grades.filter((i) => isItemGraded(i.grade));
-  const unscoredItems = grades.filter((i) => !isItemGraded(i.grade));
+  const gradedItems = useMemo(() => grades.filter((i) => isItemGraded(i.grade)), [grades]);
+  const unscoredItems = useMemo(() => grades.filter((i) => !isItemGraded(i.grade)), [grades]);
 
-  const filteredList =
-    activeFilter === 'graded' ? gradedItems : activeFilter === 'unscored' ? unscoredItems : grades;
+  const filteredList = useMemo(() => {
+    return activeFilter === 'graded' ? gradedItems : activeFilter === 'unscored' ? unscoredItems : grades;
+  }, [activeFilter, gradedItems, unscoredItems, grades]);
+
+  // Compute total percentage and performance standing
+  const totalNumericScore = courseTotal && isItemGraded(courseTotal.grade) ? parseFloat(courseTotal.grade) : null;
+  const cleanMaxRange = courseTotal?.range && courseTotal.range !== '-' ? parseFloat(courseTotal.range.replace(/^0[-–—]/, '').trim()) : null;
+  const totalPercentage = totalNumericScore !== null && cleanMaxRange && cleanMaxRange > 0
+    ? Math.round((totalNumericScore / cleanMaxRange) * 100)
+    : null;
 
   const getCategoryColor = (cat: string) => {
     switch (cat.toUpperCase()) {
       case 'QUIZ':
-        return colors.primary; // dynamic accent color
+        return '#8b5cf6'; // Purple
       case 'SURPRISE TEST':
-        return colors.warning || '#f59e0b'; // theme warning color
+        return '#f59e0b'; // Amber
       case 'ATTENDANCE':
-        return colors.success || '#22c55e'; // theme success color
+        return '#10b981'; // Green
+      case 'LAB':
+      case 'PRACTICAL':
+        return '#06b6d4'; // Cyan
+      case 'MID-TERM':
+      case 'MST':
+      case 'EXAM':
+        return '#f43f5e'; // Rose
       case 'TOTAL':
-        return colors.xpGold || colors.warning || '#fbbf24'; // theme gold
+        return colors.xpGold || colors.warning || '#fbbf24';
       default:
-        return colors.accent || colors.primary; // dynamic secondary accent color
+        return colors.primary; // Blue
     }
   };
 
-  const getCategoryIcon = (cat: string) => {
+  const getCategoryIcon = (cat: string): keyof typeof Ionicons.glyphMap => {
     switch (cat.toUpperCase()) {
       case 'QUIZ':
         return 'help-circle';
@@ -403,6 +336,13 @@ export default function LmsGradeReportScreen() {
         return 'flash';
       case 'ATTENDANCE':
         return 'people';
+      case 'LAB':
+      case 'PRACTICAL':
+        return 'flask';
+      case 'MID-TERM':
+      case 'MST':
+      case 'EXAM':
+        return 'school';
       case 'TOTAL':
         return 'ribbon';
       default:
@@ -415,27 +355,41 @@ export default function LmsGradeReportScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-          title: 'Grade Center',
+          title: 'Grade Report',
           headerStyle: { backgroundColor: colors.background },
           headerTintColor: colors.text,
           headerShadowVisible: false,
           headerLeft: () => (
-            <TouchableOpacity onPress={() => router.navigate('/studyos/grades' as any)} style={{ marginLeft: 14 }}>
-              <Ionicons name="arrow-back" size={24} color={colors.text} />
+            <TouchableOpacity 
+              onPress={() => {
+                try { Haptics.selectionAsync(); } catch {}
+                router.navigate('/studyos/grades' as any);
+              }} 
+              style={styles.headerBackBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="arrow-back" size={20} color={colors.text} />
             </TouchableOpacity>
           ),
+          headerRight: () => (
+            <TouchableOpacity 
+              onPress={onRefresh} 
+              style={styles.headerRefreshBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="sync" size={17} color={colors.primary} />
+            </TouchableOpacity>
+          )
         }}
       />
 
+      {/* Hidden WebView scraper */}
       {(!grades || grades.length === 0 || refreshing) && (
         <View style={{ width: 0, height: 0, opacity: 0, position: 'absolute', top: 0, left: 0 }}>
           <WebView
             ref={webViewRef}
             source={{ uri: targetUrl }}
             onMessage={handleWebViewMessage}
-            onNavigationStateChange={(state) => {
-              console.log('[GRADE_SCRAPER_NAV]', state.url);
-            }}
             onLoadEnd={() => {
               webViewRef.current?.injectJavaScript(injectedJs);
             }}
@@ -448,155 +402,244 @@ export default function LmsGradeReportScreen() {
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
       >
-        {/* Subject Header & Total Marks Display */}
-        <View style={styles.subjectHeader}>
-          <View style={styles.headerTitleRow}>
-            <Text style={styles.subjectNameText} numberOfLines={2}>
-              {cleanSubjectName}
-            </Text>
-            {!!courseTotal && (
-              <View style={styles.totalBadgeBox}>
-                <Text style={styles.totalLabelText}>TOTAL MARKS</Text>
-                <View style={styles.totalScoreRow}>
-                  <Text style={styles.totalScoreNumber}>
-                    {isItemGraded(courseTotal.grade) ? courseTotal.grade : '—'}
-                  </Text>
-                  {!!courseTotal.range && courseTotal.range !== '-' && (
-                    <Text style={styles.totalRangeText}>
-                      {' '}/ {courseTotal.range.replace(/^0[-–—]/, '').trim()}
+        {/* Subject Header Console */}
+        <View style={styles.subjectHeroCard}>
+          <LinearGradient
+            colors={
+              isDark
+                ? ['rgba(59, 130, 246, 0.16)', 'rgba(139, 92, 246, 0.08)']
+                : ['rgba(37, 99, 235, 0.10)', 'rgba(124, 58, 237, 0.04)']
+            }
+            style={styles.heroGradient}
+          >
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroTitleColumn}>
+                <View style={styles.subjectBadge}>
+                  <Ionicons name="book" size={12} color={colors.primary} style={{ marginRight: 4 }} />
+                  <Text style={styles.subjectBadgeText}>COURSE EVALUATION</Text>
+                </View>
+                <Text style={styles.subjectTitleText} numberOfLines={2}>
+                  {cleanSubjectName}
+                </Text>
+              </View>
+
+              {/* Total Marks Pill */}
+              {!!courseTotal && (
+                <View style={styles.totalScoreBox}>
+                  <Text style={styles.totalScoreLabel}>COURSE TOTAL</Text>
+                  <View style={styles.totalScoreRow}>
+                    <Text style={styles.totalScoreNum}>
+                      {isItemGraded(courseTotal.grade) ? courseTotal.grade : '—'}
                     </Text>
+                    {!!courseTotal.range && courseTotal.range !== '-' && (
+                      <Text style={styles.totalScoreMax}>
+                        {' '}/ {courseTotal.range.replace(/^0[-–—]/, '').trim()}
+                      </Text>
+                    )}
+                  </View>
+                  {totalPercentage !== null && (
+                    <View style={styles.percentagePill}>
+                      <Text style={styles.percentagePillText}>{totalPercentage}%</Text>
+                    </View>
                   )}
                 </View>
+              )}
+            </View>
+
+            {/* Sync Status Bar */}
+            <View style={styles.heroStatusBar}>
+              <View style={styles.syncStatusLeft}>
+                <Ionicons 
+                  name={lastUpdated ? "checkmark-circle" : "time-outline"} 
+                  size={14} 
+                  color={lastUpdated ? '#10b981' : colors.textMuted} 
+                  style={{ marginRight: 6 }} 
+                />
+                <Text style={styles.syncStatusText}>
+                  {lastUpdated ? `Live synced at ${lastUpdated}` : 'Scanning Moodle LMS...'}
+                </Text>
               </View>
-            )}
-          </View>
 
-          <View style={styles.headerStatusBar}>
-            <Text style={styles.statusHelperText}>
-              {lastUpdated ? `Sync complete (${lastUpdated})` : 'Scanning Moodle...'}
-            </Text>
-            <TouchableOpacity onPress={onRefresh} style={styles.refreshBadge}>
-              <Ionicons name="refresh" size={14} color="#ffffff" />
-              <Text style={styles.refreshText}>Sync Now</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity 
+                onPress={onRefresh} 
+                style={styles.syncNowBtn}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="refresh" size={13} color="#fff" style={{ marginRight: 4 }} />
+                <Text style={styles.syncNowBtnText}>Refresh</Text>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
         </View>
 
-        {/* Analytics Overview Cards */}
+        {/* 3 Metric Analytics Tiles */}
         <View style={styles.analyticsRow}>
-          <View style={[styles.statBox, { borderLeftColor: colors.primary }]}>
-            <Text style={styles.statNumber}>{grades.length}</Text>
-            <Text style={styles.statLabel}>Total Listed</Text>
+          <View style={styles.statTile}>
+            <View style={styles.statTileTop}>
+              <Ionicons name="layers-outline" size={16} color={colors.primary} />
+              <Text style={styles.statTileNumber}>{grades.length}</Text>
+            </View>
+            <Text style={styles.statTileLabel}>Total Items</Text>
           </View>
-          <View style={[styles.statBox, { borderLeftColor: colors.success || '#22c55e' }]}>
-            <Text style={[styles.statNumber, { color: colors.success || '#22c55e' }]}>{gradedItems.length}</Text>
-            <Text style={styles.statLabel}>Graded</Text>
+
+          <View style={[styles.statTile, styles.statTileGraded]}>
+            <View style={styles.statTileTop}>
+              <Ionicons name="checkmark-circle-outline" size={16} color="#10b981" />
+              <Text style={[styles.statTileNumber, { color: '#10b981' }]}>{gradedItems.length}</Text>
+            </View>
+            <Text style={styles.statTileLabel}>Graded</Text>
           </View>
-          <View style={[styles.statBox, { borderLeftColor: colors.accent || colors.primary }]}>
-            <Text style={[styles.statNumber, { color: colors.text }]}>{unscoredItems.length}</Text>
-            <Text style={styles.statLabel}>Not Scored</Text>
+
+          <View style={[styles.statTile, styles.statTileUnscored]}>
+            <View style={styles.statTileTop}>
+              <Ionicons name="hourglass-outline" size={16} color={colors.warning || '#f59e0b'} />
+              <Text style={[styles.statTileNumber, { color: colors.warning || '#f59e0b' }]}>{unscoredItems.length}</Text>
+            </View>
+            <Text style={styles.statTileLabel}>Not Scored</Text>
           </View>
         </View>
 
-        {/* Filter Tabs */}
-        <View style={styles.tabContainer}>
+        {/* Filter Segmented Control */}
+        <View style={styles.segmentedContainer}>
           <TouchableOpacity
-            style={[styles.tab, activeFilter === 'all' && styles.activeTab]}
-            onPress={() => setActiveFilter('all')}
+            style={[styles.segmentBtn, activeFilter === 'all' && styles.segmentBtnActive]}
+            onPress={() => {
+              try { Haptics.selectionAsync(); } catch {}
+              setActiveFilter('all');
+            }}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.tabText, activeFilter === 'all' && styles.activeTabText]}>
+            <Text style={[styles.segmentText, activeFilter === 'all' && styles.segmentTextActive]}>
               All ({grades.length})
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
-            style={[styles.tab, activeFilter === 'graded' && styles.activeTab]}
-            onPress={() => setActiveFilter('graded')}
+            style={[styles.segmentBtn, activeFilter === 'graded' && styles.segmentBtnActive]}
+            onPress={() => {
+              try { Haptics.selectionAsync(); } catch {}
+              setActiveFilter('graded');
+            }}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.tabText, activeFilter === 'graded' && styles.activeTabText]}>
+            <Text style={[styles.segmentText, activeFilter === 'graded' && styles.segmentTextActive]}>
               Graded ({gradedItems.length})
             </Text>
           </TouchableOpacity>
+
           <TouchableOpacity
-            style={[styles.tab, activeFilter === 'unscored' && styles.activeTab]}
-            onPress={() => setActiveFilter('unscored')}
+            style={[styles.segmentBtn, activeFilter === 'unscored' && styles.segmentBtnActive]}
+            onPress={() => {
+              try { Haptics.selectionAsync(); } catch {}
+              setActiveFilter('unscored');
+            }}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.tabText, activeFilter === 'unscored' && styles.activeTabText]}>
-              Not Scored ({unscoredItems.length})
+            <Text style={[styles.segmentText, activeFilter === 'unscored' && styles.segmentTextActive]}>
+              Pending ({unscoredItems.length})
             </Text>
           </TouchableOpacity>
         </View>
 
+        {/* Grade Items List */}
         {loading && grades.length === 0 ? (
-          <View style={styles.loadingState}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.loadingText}>Loading Grade Records...</Text>
-            <Text style={styles.loadingSubtext}>Fetching quiz & assignment scores directly from Moodle Gradebook</Text>
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconCircle}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>Fetching Grade Records...</Text>
+            <Text style={styles.emptySubtitle}>
+              Pulling your quiz, test, and assignment marks directly from Moodle Gradebook
+            </Text>
           </View>
         ) : filteredList.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="documents-outline" size={64} color={colors.primary} />
-            <Text style={styles.emptyText}>No {activeFilter} records found!</Text>
-            <Text style={[styles.emptyText, { fontSize: 13, marginTop: 6, textAlign: 'center', color: colors.text }]}>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons name="folder-open-outline" size={38} color={colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>No {activeFilter} records found</Text>
+            <Text style={styles.emptySubtitle}>
               {activeFilter === 'unscored'
-                ? 'All your listed assessments for this subject have been graded!'
-                : 'Your professor has not uploaded any scores for this section yet.'}
+                ? 'All listed assessments for this subject have been evaluated!'
+                : 'No evaluation records available under this filter.'}
             </Text>
           </View>
         ) : (
-          <View style={styles.listContainer}>
+          <View style={styles.gradesList}>
             {filteredList.map((item) => {
               const isGraded = isItemGraded(item.grade);
               const catColor = getCategoryColor(item.category);
-              const catIcon = getCategoryIcon(item.category) as any;
+              const catIcon = getCategoryIcon(item.category);
               const cleanRange = item.range && item.range !== '-' ? item.range.replace(/^0[-–—]/, '').trim() : '';
-              
-              // Format grade nicely: ensure something/something display for graded items
               const formattedScore = item.grade ? item.grade.replace(/\s+/g, ' ').trim() : '';
+
+              // Mini score bar calculation
+              const numScore = isGraded ? parseFloat(formattedScore) : null;
+              const numRange = cleanRange ? parseFloat(cleanRange) : null;
+              const itemPct = numScore !== null && numRange && numRange > 0 ? Math.min(Math.round((numScore / numRange) * 100), 100) : null;
 
               return (
                 <View key={item.id} style={styles.gradeCard}>
-                  <View style={styles.cardTopRow}>
-                    <View style={styles.leftMeta}>
-                      <View style={[styles.categoryIconCircle, { backgroundColor: catColor + '25', borderColor: catColor + '50', borderWidth: 1 }]}>
-                        <Ionicons name={catIcon} size={20} color={catColor} />
-                      </View>
-                      <View style={styles.titleContainer}>
-                        <View style={[styles.categoryBadge, { backgroundColor: catColor + '20', borderColor: catColor + '40', borderWidth: 1 }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={styles.leftMetaColumn}>
+                      <View style={styles.categoryRow}>
+                        <View style={[styles.categoryIconCircle, { backgroundColor: catColor + '18', borderColor: catColor + '35' }]}>
+                          <Ionicons name={catIcon} size={15} color={catColor} />
+                        </View>
+                        <View style={[styles.categoryBadge, { backgroundColor: catColor + '15', borderColor: catColor + '30' }]}>
                           <Text style={[styles.categoryBadgeText, { color: catColor }]}>{item.category}</Text>
                         </View>
-                        <Text style={styles.itemTitle}>{item.title}</Text>
                       </View>
+
+                      <Text style={styles.itemTitleText}>{item.title}</Text>
                     </View>
 
-                    <View style={styles.scoreBox}>
+                    {/* Score Chip */}
+                    <View style={styles.scoreContainer}>
                       {isGraded ? (
-                        <View style={styles.gradedChip}>
-                          <Text style={styles.scoreText}>{formattedScore}</Text>
+                        <View style={styles.gradedScorePill}>
+                          <Text style={styles.gradedScoreNumber}>{formattedScore}</Text>
                           {!!cleanRange && !formattedScore.includes('/') && (
-                            <Text style={styles.rangeText}> / {cleanRange}</Text>
+                            <Text style={styles.gradedScoreRange}> / {cleanRange}</Text>
                           )}
                         </View>
                       ) : (
-                        <View style={styles.unscoredChip}>
-                          <Text style={styles.unscoredDashText}>—</Text>
+                        <View style={styles.unscoredPill}>
+                          <Ionicons name="hourglass-outline" size={13} color={colors.textMuted} style={{ marginRight: 4 }} />
+                          <Text style={styles.unscoredPillText}>Pending</Text>
                           {!!cleanRange && (
-                            <Text style={styles.unscoredRangeText}> / {cleanRange}</Text>
+                            <Text style={styles.unscoredRangeText}> /{cleanRange}</Text>
                           )}
                         </View>
                       )}
                     </View>
                   </View>
 
-                  {/* Teacher Feedback Quote Box if present */}
+                  {/* Optional Mini Progress Bar for Graded Item */}
+                  {itemPct !== null && (
+                    <View style={styles.itemProgressBarTrack}>
+                      <View style={[styles.itemProgressBarFill, { width: `${itemPct}%`, backgroundColor: itemPct >= 70 ? '#10b981' : itemPct >= 40 ? colors.primary : '#ef4444' }]} />
+                    </View>
+                  )}
+
+                  {/* Teacher Feedback Quote Box */}
                   {!!item.feedback && item.feedback.trim().length > 0 && (
-                    <View style={styles.feedbackBox}>
-                      <Ionicons name="chatbubble-ellipses" size={16} color={colors.primary} style={{ marginRight: 6 }} />
-                      <Text style={styles.feedbackText} numberOfLines={3}>
-                        <Text style={{ fontFamily: Typography.h3.fontFamily, color: colors.text }}>Teacher Note: </Text>
-                        {item.feedback}
-                      </Text>
+                    <View style={styles.feedbackBubble}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} style={{ marginRight: 8, marginTop: 2 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.feedbackLabel}>Instructor Evaluation:</Text>
+                        <Text style={styles.feedbackText}>{item.feedback}</Text>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -604,75 +647,127 @@ export default function LmsGradeReportScreen() {
             })}
           </View>
         )}
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </View>
   );
 }
 
-const useStyles = (colors: any) =>
+const useStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
+    container: { flex: 1, backgroundColor: colors.background },
+    headerBackBtn: {
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: colors.surfaceHigh,
+      borderWidth: 1, borderColor: colors.border,
+      alignItems: 'center', justifyContent: 'center',
+      marginLeft: 12,
+    },
+    headerRefreshBtn: {
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: colors.primary + '15',
+      borderWidth: 1, borderColor: colors.primary + '30',
+      alignItems: 'center', justifyContent: 'center',
+      marginRight: 14,
     },
     scrollContent: {
       paddingHorizontal: Spacing.md,
-      paddingTop: 10,
+      paddingTop: 4,
       paddingBottom: Spacing.xl * 2,
     },
-    subjectHeader: {
-      backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.lg,
-      padding: Spacing.md,
-      marginTop: 10,
+    subjectHeroCard: {
+      borderRadius: Radius.xl,
+      overflow: 'hidden',
+      marginBottom: Spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
+      backgroundColor: colors.surfaceHigh,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.08,
+      shadowRadius: 10,
+      elevation: 4,
     },
-    headerTitleRow: {
+    heroGradient: {
+      padding: Spacing.md + 2,
+    },
+    heroTopRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 12,
+      alignItems: 'flex-start',
+      marginBottom: Spacing.md,
     },
-    subjectNameText: {
+    heroTitleColumn: {
       flex: 1,
-      fontFamily: Typography.h2.fontFamily,
-      fontSize: 20,
-      color: colors.text,
       marginRight: 12,
     },
-    totalBadgeBox: {
-      backgroundColor: (colors.xpGold || colors.warning || '#fbbf24') + '20',
-      paddingHorizontal: 14,
+    subjectBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      backgroundColor: colors.primary + '18',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: Radius.full,
+      marginBottom: 6,
+    },
+    subjectBadgeText: {
+      fontFamily: Typography.label.fontFamily,
+      fontSize: 10,
+      color: colors.primary,
+      letterSpacing: 0.8,
+    },
+    subjectTitleText: {
+      fontFamily: Typography.h2.fontFamily,
+      fontSize: 19,
+      color: colors.text,
+      lineHeight: 25,
+    },
+    totalScoreBox: {
+      alignItems: 'flex-end',
+      backgroundColor: colors.surface,
+      borderWidth: 1.5,
+      borderColor: (colors.xpGold || colors.warning || '#fbbf24') + '50',
+      paddingHorizontal: 12,
       paddingVertical: 8,
       borderRadius: Radius.lg,
-      borderWidth: 1.5,
-      borderColor: colors.xpGold || colors.warning || '#fbbf24',
-      alignItems: 'flex-end',
-      justifyContent: 'center',
+      minWidth: 84,
     },
-    totalLabelText: {
-      fontFamily: Typography.h3.fontFamily,
-      fontSize: 10,
+    totalScoreLabel: {
+      fontFamily: Typography.label.fontFamily,
+      fontSize: 9,
+      letterSpacing: 0.8,
       color: colors.xpGold || colors.warning || '#fbbf24',
-      letterSpacing: 1,
       marginBottom: 2,
     },
     totalScoreRow: {
       flexDirection: 'row',
       alignItems: 'baseline',
     },
-    totalScoreNumber: {
+    totalScoreNum: {
       fontFamily: Typography.h2.fontFamily,
       fontSize: 19,
       color: colors.text,
     },
-    totalRangeText: {
+    totalScoreMax: {
       fontFamily: Typography.body.fontFamily,
-      fontSize: 13,
-      color: colors.text,
+      fontSize: 12,
+      color: colors.textMuted,
     },
-    headerStatusBar: {
+    percentagePill: {
+      backgroundColor: (colors.xpGold || colors.warning || '#fbbf24') + '20',
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: Radius.full,
+      marginTop: 4,
+    },
+    percentagePillText: {
+      fontFamily: Typography.h3.fontFamily,
+      fontSize: 10,
+      color: colors.xpGold || colors.warning || '#fbbf24',
+    },
+    heroStatusBar: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
@@ -680,223 +775,249 @@ const useStyles = (colors: any) =>
       borderTopColor: colors.border,
       paddingTop: 10,
     },
-    statusHelperText: {
-      fontFamily: Typography.body.fontFamily,
-      fontSize: 13,
-      color: colors.text,
+    syncStatusLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
-    refreshBadge: {
+    syncStatusText: {
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    syncNowBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.primary,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 16,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: Radius.full,
     },
-    refreshText: {
+    syncNowBtnText: {
       fontFamily: Typography.h3.fontFamily,
-      fontSize: 12,
-      color: '#ffffff',
-      marginLeft: 6,
+      fontSize: 11,
+      color: '#fff',
     },
     analyticsRow: {
       flexDirection: 'row',
       gap: Spacing.sm,
-      marginTop: Spacing.md,
+      marginBottom: Spacing.md,
     },
-    statBox: {
+    statTile: {
       flex: 1,
       backgroundColor: colors.surfaceHigh,
-      padding: Spacing.sm,
-      borderRadius: Radius.md,
       borderWidth: 1,
       borderColor: colors.border,
-      borderLeftWidth: 4,
+      borderRadius: Radius.lg,
+      padding: Spacing.sm + 2,
+    },
+    statTileGraded: {
+      borderColor: '#10b98135',
+    },
+    statTileUnscored: {
+      borderColor: (colors.warning || '#f59e0b') + '35',
+    },
+    statTileTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
       alignItems: 'center',
+      marginBottom: 4,
     },
-    statNumber: {
+    statTileNumber: {
       fontFamily: Typography.h2.fontFamily,
-      fontSize: 22,
+      fontSize: 18,
       color: colors.text,
     },
-    statLabel: {
+    statTileLabel: {
       fontFamily: Typography.body.fontFamily,
-      fontSize: 12,
-      color: colors.text,
-      marginTop: 2,
+      fontSize: 11,
+      color: colors.textMuted,
     },
-    tabContainer: {
+    segmentedContainer: {
       flexDirection: 'row',
       backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.lg,
+      borderRadius: Radius.full,
       padding: 4,
-      marginTop: Spacing.md,
       marginBottom: Spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
     },
-    tab: {
+    segmentBtn: {
       flex: 1,
-      paddingVertical: 10,
+      paddingVertical: 9,
       alignItems: 'center',
-      borderRadius: Radius.md,
+      justifyContent: 'center',
+      borderRadius: Radius.full,
     },
-    activeTab: {
-      backgroundColor: colors.primary,
+    segmentBtnActive: {
+      backgroundColor: isDark ? colors.surface : '#fff',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: 4,
+      elevation: 2,
     },
-    tabText: {
+    segmentText: {
       fontFamily: Typography.body.fontFamily,
-      fontSize: 13,
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    segmentTextActive: {
+      fontFamily: Typography.h3.fontFamily,
       color: colors.text,
     },
-    activeTabText: {
-      fontFamily: Typography.h3.fontFamily,
-      color: '#ffffff',
-    },
-    listContainer: {
-      gap: Spacing.sm,
+    gradesList: {
+      gap: Spacing.sm + 2,
     },
     gradeCard: {
       backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.lg,
+      borderRadius: Radius.xl,
       padding: Spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
-      shadowRadius: 4,
-      elevation: 3,
+      shadowOpacity: isDark ? 0.25 : 0.05,
+      shadowRadius: 5,
+      elevation: 2,
     },
-    cardTopRow: {
+    cardHeaderRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'center',
+      alignItems: 'flex-start',
     },
-    leftMeta: {
+    leftMetaColumn: {
+      flex: 1,
+      marginRight: 10,
+    },
+    categoryRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      flex: 1,
-      marginRight: Spacing.sm,
+      marginBottom: 6,
     },
     categoryIconCircle: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: Spacing.md,
-    },
-    titleContainer: {
-      flex: 1,
+      width: 26, height: 26, borderRadius: 13,
+      alignItems: 'center', justifyContent: 'center',
+      borderWidth: 1,
+      marginRight: 6,
     },
     categoryBadge: {
-      alignSelf: 'flex-start',
       paddingHorizontal: 8,
       paddingVertical: 2,
-      borderRadius: Radius.sm,
-      marginBottom: 5,
+      borderRadius: Radius.full,
+      borderWidth: 1,
     },
     categoryBadgeText: {
       fontFamily: Typography.h3.fontFamily,
       fontSize: 10,
+      letterSpacing: 0.5,
       textTransform: 'uppercase',
     },
-    itemTitle: {
+    itemTitleText: {
       fontFamily: Typography.h3.fontFamily,
-      fontSize: 16,
+      fontSize: 15,
       color: colors.text,
+      lineHeight: 20,
     },
-    scoreBox: {
+    scoreContainer: {
       alignItems: 'flex-end',
-      justifyContent: 'center',
     },
-    gradedChip: {
+    gradedScorePill: {
       flexDirection: 'row',
       alignItems: 'baseline',
-      backgroundColor: (colors.success || '#22c55e') + '25',
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 20,
+      backgroundColor: '#10b98118',
       borderWidth: 1,
-      borderColor: colors.success || '#4ade80',
+      borderColor: '#10b98140',
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: Radius.full,
     },
-    scoreText: {
+    gradedScoreNumber: {
       fontFamily: Typography.h2.fontFamily,
-      fontSize: 18,
-      color: colors.success || '#4ade80',
+      fontSize: 16,
+      color: '#10b981',
     },
-    rangeText: {
+    gradedScoreRange: {
       fontFamily: Typography.body.fontFamily,
-      fontSize: 14,
+      fontSize: 12,
       color: colors.text,
     },
-    unscoredChip: {
+    unscoredPill: {
       flexDirection: 'row',
-      alignItems: 'baseline',
-      backgroundColor: colors.surface || '#334155',
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 20,
+      alignItems: 'center',
+      backgroundColor: colors.surface,
       borderWidth: 1,
-      borderColor: colors.border || '#475569',
+      borderColor: colors.border,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      borderRadius: Radius.full,
     },
-    unscoredDashText: {
-      fontFamily: Typography.h2.fontFamily,
-      fontSize: 18,
-      color: colors.text,
+    unscoredPillText: {
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 11,
+      color: colors.textMuted,
     },
     unscoredRangeText: {
       fontFamily: Typography.body.fontFamily,
-      fontSize: 13,
-      color: colors.text,
+      fontSize: 11,
+      color: colors.textMuted,
     },
-    feedbackBox: {
+    itemProgressBarTrack: {
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+      overflow: 'hidden',
+      marginTop: 10,
+    },
+    itemProgressBarFill: {
+      height: '100%',
+      borderRadius: 2,
+    },
+    feedbackBubble: {
       flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.primary + '15',
-      padding: Spacing.sm,
-      borderRadius: Radius.md,
-      marginTop: Spacing.md,
+      backgroundColor: colors.primary + '10',
       borderLeftWidth: 3,
       borderLeftColor: colors.primary,
+      borderRadius: Radius.md,
+      padding: Spacing.sm + 2,
+      marginTop: 10,
+    },
+    feedbackLabel: {
+      fontFamily: Typography.h3.fontFamily,
+      fontSize: 11,
+      color: colors.primary,
+      marginBottom: 2,
     },
     feedbackText: {
-      flex: 1,
       fontFamily: Typography.body.fontFamily,
-      fontSize: 13,
+      fontSize: 12,
       color: colors.text,
-      lineHeight: 18,
-    },
-    loadingState: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: 60,
-      paddingHorizontal: 20,
-    },
-    loadingText: {
-      fontFamily: Typography.h3.fontFamily,
-      fontSize: 17,
-      color: colors.text,
-      marginTop: 16,
-    },
-    loadingSubtext: {
-      fontFamily: Typography.body.fontFamily,
-      fontSize: 13,
-      color: colors.text,
-      textAlign: 'center',
-      marginTop: 6,
+      lineHeight: 17,
     },
     emptyState: {
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 60,
-      paddingHorizontal: 20,
+      paddingVertical: 48,
+      paddingHorizontal: 24,
     },
-    emptyText: {
-      fontFamily: Typography.body.fontFamily,
-      fontSize: 16,
+    emptyIconCircle: {
+      width: 72, height: 72, borderRadius: 36,
+      backgroundColor: colors.primary + '15',
+      borderWidth: 1, borderColor: colors.primary + '30',
+      alignItems: 'center', justifyContent: 'center',
+      marginBottom: 16,
+    },
+    emptyTitle: {
+      fontFamily: Typography.h2.fontFamily,
+      fontSize: 18,
       color: colors.text,
-      marginTop: 12,
+      marginBottom: 6,
+      textAlign: 'center',
+    },
+    emptySubtitle: {
+      fontFamily: Typography.body.fontFamily,
+      fontSize: 13,
+      color: colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 19,
     },
   });
