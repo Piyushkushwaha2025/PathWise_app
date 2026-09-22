@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -72,6 +72,8 @@ export default function LmsGradesSubjectListScreen() {
   const lmsCoursesFromStore = useStudyOSStore((s) => s.lmsCourses);
   const setLmsCourses = useStudyOSStore((s) => s.setLmsCourses);
 
+  const webViewRef = useRef<WebView>(null);
+  const [webViewUrl, setWebViewUrl] = useState('https://lms.culko.in/my/courses.php?paged=0');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scraperStatus, setScraperStatus] = useState<'syncing' | 'error'>('syncing');
@@ -87,6 +89,16 @@ export default function LmsGradesSubjectListScreen() {
           setLmsCourses(parsed);
         }
       }
+      // Ensure erpSubjects is hydrated from studyos_scraped_data if currently empty
+      if (useStudyOSStore.getState().subjects.length === 0) {
+        const stored = await AsyncStorage.getItem('studyos_scraped_data');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.subjects && Array.isArray(parsed.subjects)) {
+            await useStudyOSStore.getState().setScrapedData({ subjects: parsed.subjects });
+          }
+        }
+      }
     } catch (_) {}
     finally {
       setLoading(false);
@@ -96,13 +108,11 @@ export default function LmsGradesSubjectListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (lmsCoursesFromStore.length > 0) {
+      if (lmsCoursesFromStore.length > 0 || erpSubjects.length > 0) {
         setLoading(false);
-        return;
       }
-      setLoading(true);
       loadFromCache();
-    }, [lmsCoursesFromStore.length, loadFromCache])
+    }, [lmsCoursesFromStore.length, erpSubjects.length, loadFromCache])
   );
 
   const onRefresh = () => {
@@ -116,42 +126,54 @@ export default function LmsGradesSubjectListScreen() {
   const handleWebViewMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'COURSES' && data.courses && data.courses.length > 0) {
+      if ((data.type === 'COURSES_DATA' || data.type === 'COURSES') && data.courses && data.courses.length > 0) {
         setLmsCourses(data.courses);
         setScraperStatus('syncing');
         await AsyncStorage.setItem(LMS_COURSES_CACHE_KEY, JSON.stringify(data.courses));
-      } else if (data.type === 'ERROR') {
+      } else if (data.type === 'ERROR' || data.error === 'SESSION_EXPIRED') {
         setScraperStatus('error');
       }
     } catch (e) {}
   };
 
+  const handleNavigationStateChange = (navState: any) => {
+    if (!navState.loading) {
+      setTimeout(() => {
+        webViewRef.current?.injectJavaScript(injectedCourseScraper);
+      }, 700);
+    }
+  };
+
   const injectedCourseScraper = `
-    (function() {
-      function extract() {
+    (function checkReady() {
+      if (!window.ReactNativeWebView) {
+        setTimeout(checkReady, 500);
+        return;
+      }
+      try {
         var url = window.location.href.toLowerCase();
         
         if (url.includes('student.culko.in') && url.includes('login')) {
-           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
+           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR', error: 'SESSION_EXPIRED' }));
            return;
         }
-        if (url.includes('lms.culko.in') && url.includes('login')) {
+        else if (url.includes('lms.culko.in') && url.includes('login')) {
            window.location.href = 'https://student.culko.in/StudentHome.aspx';
            return;
         } 
-        if (url.includes('studenthome.aspx')) {
-           var links = document.querySelectorAll('a');
+        else if (url.includes('studenthome.aspx')) {
            var found = false;
-           for(var j=0; j<links.length; j++) {
-              var txt = links[j].innerText ? links[j].innerText.toUpperCase().trim() : '';
+           var allA = document.querySelectorAll('a');
+           for (var j = 0; j < allA.length; j++) {
+              var txt = allA[j].innerText ? allA[j].innerText.toUpperCase().trim() : '';
               if (txt === 'CU-LMS' || txt === 'MY LMS' || txt === 'LMS' || txt === 'CU LMS') {
-                 if (links[j].href && !links[j].href.toLowerCase().startsWith('javascript:')) {
-                    window.location.href = links[j].href;
-                 } else {
-                    links[j].click();
-                 }
-                 found = true;
-                 break;
+                  if (allA[j].href && !allA[j].href.toLowerCase().startsWith('javascript:')) {
+                     window.location.href = allA[j].href;
+                  } else {
+                     allA[j].click();
+                  }
+                  found = true;
+                  break;
               }
            }
            if (!found) {
@@ -160,42 +182,105 @@ export default function LmsGradesSubjectListScreen() {
                  var txt = els[i].innerText ? els[i].innerText.toUpperCase().trim() : '';
                  if (txt === 'CU-LMS' || txt === 'MY LMS' || txt === 'LMS' || txt === 'CU LMS') {
                     var parentA = els[i].closest('a');
-                    if (parentA && parentA.href) window.location.href = parentA.href;
-                    else els[i].click();
+                    if (parentA && parentA.href) {
+                       window.location.href = parentA.href;
+                    } else {
+                       els[i].click();
+                    }
                     found = true;
                     break;
                  }
               }
            }
            if (!found) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ERROR' }));
+              window.location.href = 'https://student.culko.in/frmmycourse.aspx';
            }
            return;
         }
-        var links = document.querySelectorAll('a[href*="course/view.php"]');
-        var courses = [];
-        for (var i = 0; i < links.length; i++) {
-           var href = links[i].getAttribute('href') || '';
-           var m = href.match(/id=([0-9]+)/);
-           var id = m ? m[1] : '';
-           var text = links[i].innerText ? links[i].innerText.trim() : '';
-           var parentCard = links[i].closest('.dashboard-card, .course-info-container, [data-course-id]');
-           var shortname = '';
-           if (parentCard) {
-              var snEl = parentCard.querySelector('.categoryname, .text-muted, [data-region="shortname"]');
-              if (snEl) shortname = snEl.innerText.trim();
+        else if (url.includes('frmmycourse.aspx')) {
+           var courses = [];
+           var added = {};
+           var rows = document.querySelectorAll('table tr');
+           for (var i = 1; i < rows.length; i++) {
+               var cells = rows[i].querySelectorAll('td, th');
+               var code = '';
+               var name = '';
+               for (var c = 0; c < cells.length; c++) {
+                   var text = cells[c].innerText.trim();
+                   if (text.length >= 4 && text.length <= 25 && /[a-zA-Z]/.test(text) && /[0-9]/.test(text) && !text.includes(' ') && !text.includes('\\n')) {
+                       code = text;
+                       if (c + 1 < cells.length) name = cells[c+1].innerText.trim();
+                       break;
+                   }
+               }
+               if (code && name && name.length > 3 && !added[code]) {
+                   courses.push({ fullname: name + ' (ERP)', shortname: code, id: code });
+                   added[code] = true;
+               }
            }
-           if (id && text && text.length > 2) {
-              courses.push({ id: id, fullname: text, shortname: shortname });
+           if (courses.length > 0) {
+               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COURSES_DATA', courses: courses }));
            }
+           return;
         }
-        if (courses.length > 0) {
-           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COURSES', courses: courses }));
+        else if (url.includes('lms.culko.in') && !url.includes('my/courses.php')) {
+           window.location.href = 'https://lms.culko.in/my/courses.php?paged=0';
+           return;
         }
-      }
-      setTimeout(extract, 2000);
-      setTimeout(extract, 5000);
+        else if (url.includes('my/courses.php')) {
+           function extractPageCourses() {
+              var courses = [];
+              var added = {};
+              
+              var links = document.querySelectorAll('a[href*="course/view.php"]');
+              for (var k = 0; k < links.length; k++) {
+                  if (links[k].closest('[data-region="recentlyaccessedcourses"]') || links[k].closest('.block_recentlyaccessedcourses') || links[k].closest('aside')) continue;
+                  var text = links[k].innerText ? links[k].innerText.trim() : '';
+                  if (text && text.length > 3 && !text.includes('Dashboard')) {
+                       var href = links[k].href || '';
+                       var idMatch = href.match(/id=(\\d+)/);
+                       var courseId = idMatch ? idMatch[1] : '';
+                       text = text.replace(/\\n/g, ' ').trim();
+                       var uniqueKey = text + "_" + courseId;
+                       if (!added[uniqueKey]) {
+                          var shortname = text.includes('::') ? text.split('::')[0].trim() : 'COURSE';
+                          courses.push({ fullname: text, shortname: shortname, id: courseId });
+                          added[uniqueKey] = true;
+                       }
+                  }
+              }
+              
+              var titles = document.querySelectorAll('.card-title, .coursename, h4, h5, h6, .text-truncate, .multiline');
+              for (var i = 0; i < titles.length; i++) {
+                 if (titles[i].closest('[data-region="recentlyaccessedcourses"]') || titles[i].closest('.block_recentlyaccessedcourses')) continue;
+                 var text = titles[i].innerText ? titles[i].innerText.trim() : '';
+                 if (!text || text.length < 4 || text === 'My Courses' || text === 'Active Courses' || text === 'Dashboard') continue;
+                 var aTag = titles[i].closest('a') || titles[i].closest('.card, .coursebox, .course')?.querySelector('a[href*="course/view.php"]');
+                 var href = aTag ? (aTag.href || '') : '';
+                 var idMatch = href.match(/id=(\\d+)/);
+                 var courseId = idMatch ? idMatch[1] : '';
+                 var hasSubjectCode = /[0-9]{2}[A-Z]{2,6}[-_]?[0-9]{2,4}/i.test(text);
+                 if (!aTag && !hasSubjectCode) continue;
+
+                 text = text.replace(/\\n/g, ' ').trim();
+                 var uniqueKey = text + "_" + courseId;
+                 if (!added[uniqueKey]) {
+                    var shortname = text.includes('::') ? text.split('::')[0].trim() : 'COURSE';
+                    courses.push({ fullname: text, shortname: shortname, id: courseId });
+                    added[uniqueKey] = true;
+                 }
+              }
+              
+              if (courses.length > 0) {
+                 window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COURSES_DATA', courses: courses }));
+              }
+           }
+           setTimeout(extractPageCourses, 500);
+           setTimeout(extractPageCourses, 2000);
+        }
+      } catch(e) {}
     })();
+    true;
   `;
 
   const getCoreCode = (str: string) => {
@@ -315,6 +400,20 @@ export default function LmsGradesSubjectListScreen() {
       code = stripAllWord(code);
       if (cleanName.length < 2) cleanName = rawFullname.trim() || best.shortname || 'Subject';
       mainCourses.push({ fullname: cleanName, shortname: code, originalName: best.fullname, id: best.id });
+    });
+  }
+
+  // Priority 3 (Instant Failsafe): If scraped courses are not yet available, immediately show all enrolled ERP / Attendance subjects!
+  if (mainCourses.length === 0 && erpTargets.length > 0) {
+    erpTargets.forEach((target) => {
+      const cleanTitle = target.originalTitle || target.code?.toUpperCase() || 'Subject';
+      const code = target.code?.toUpperCase() || '';
+      mainCourses.push({
+        fullname: cleanTitle,
+        shortname: code,
+        originalName: cleanTitle,
+        id: target.code || cleanTitle,
+      });
     });
   }
 
@@ -539,14 +638,17 @@ export default function LmsGradesSubjectListScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Background scraping WebView */}
-      {mainCourses.length === 0 && !loading && (
-        <View style={{ width: 0, height: 0, opacity: 0, position: 'absolute', top: 0, left: 0 }}>
+      {/* Background scraping WebView — only active while Moodle courses are resolving */}
+      {lmsCoursesFromStore.length === 0 && (
+        <View style={{ width: 2, height: 2, opacity: 0, overflow: 'hidden', position: 'absolute', top: 0, left: 0 }}>
           <WebView
-            source={{ uri: 'https://lms.culko.in/my/courses.php?paged=0' }}
+            key="grades-lms-scraper"
+            ref={webViewRef}
+            source={{ uri: webViewUrl }}
+            onNavigationStateChange={handleNavigationStateChange}
             onMessage={handleWebViewMessage}
-            injectedJavaScript={injectedCourseScraper}
             javaScriptEnabled={true}
+            domStorageEnabled={true}
             sharedCookiesEnabled={true}
           />
         </View>

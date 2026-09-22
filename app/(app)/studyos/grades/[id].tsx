@@ -650,6 +650,26 @@ export default function LmsGradeReportScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Background scraping WebView */}
+      <View style={{ width: 2, height: 2, opacity: 0, overflow: 'hidden', position: 'absolute', top: 0, left: 0 }}>
+        <WebView
+          ref={webViewRef}
+          source={{ uri: targetUrl }}
+          onNavigationStateChange={(navState) => {
+            if (!navState.loading) {
+              setTimeout(() => {
+                webViewRef.current?.injectJavaScript(injectedJs);
+              }, 700);
+            }
+          }}
+          onMessage={handleWebViewMessage}
+          injectedJavaScript={injectedJs}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          sharedCookiesEnabled={true}
+        />
+      </View>
     </View>
   );
 }
