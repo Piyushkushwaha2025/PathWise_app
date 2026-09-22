@@ -1248,19 +1248,8 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
         style={[
           stylesInternal.card,
           {
-            borderColor: isExpanded 
-              ? (isDark ? colors.primary + '60' : colors.primary + '40')
-              : (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'),
-            borderTopColor: isExpanded 
-              ? colors.primary 
-              : (isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.95)'),
-          },
-          isExpanded && {
-            shadowColor: colors.primary,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            elevation: 3,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)',
+            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.12)',
           }
         ]}
       >
@@ -1276,7 +1265,7 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 2 }}>
               {subjectCode ? (
                 <View style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                  <Text style={{ color: colors.primary, fontSize: 10, fontFamily: 'Inter_600SemiBold' }}>{subjectCode}</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_600SemiBold' }}>{subjectCode}</Text>
                 </View>
               ) : null}
             </View>
@@ -1326,7 +1315,7 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
                 const isMid = ex.name.toLowerCase().includes('mid') || ex.name.toLowerCase().includes('mst');
                 const isPrac = ex.name.toLowerCase().includes('prac') || ex.name.toLowerCase().includes('lab');
                 const iconName = isMid ? 'document-text-outline' : isPrac ? 'flask-outline' : 'clipboard-outline';
-                const iconColor = isMid ? colors.primary : isPrac ? '#10b981' : '#f59e0b';
+                const iconColor = isMid ? '#10b981' : isPrac ? '#10b981' : '#f59e0b';
 
                 return (
                   <View key={exIdx.toString()} style={stylesInternal.metricBox}>
@@ -1363,7 +1352,7 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
                   <View style={stylesInternal.metricBox}>
                     <View style={stylesInternal.metricLabelRow}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Ionicons name="document-text-outline" size={14} color={colors.primary} />
+                        <Ionicons name="document-text-outline" size={14} color="#10b981" />
                         <Text style={[stylesInternal.metricLabel, { color: colors.text }]}>Mid-Semester Test (MST)</Text>
                       </View>
                       <Text style={[stylesInternal.metricValue, { color: colors.text }]}>{mst.text}</Text>
