@@ -1094,34 +1094,30 @@ export default function StudyOSDashboard() {
   };
 
   useEffect(() => {
-    SecureStore.getItemAsync('services_menu_closed').then(val => {
-      if (val === 'true') setIsServicesMenuVisible(false);
-    });
-
-    useStudyOSStore.getState().loadGamification();
-
-    SecureStore.getItemAsync('culko_cookies').then(async c => {
+    Promise.all([
+      SecureStore.getItemAsync('services_menu_closed').catch(() => null),
+      SecureStore.getItemAsync('culko_cookies').catch(() => null),
+      SecureStore.getItemAsync('cleared_buggy_cache_v2').catch(() => null)
+    ]).then(async ([menuClosed, c, buggyCleared]) => {
+      if (menuClosed === 'true') setIsServicesMenuVisible(false);
       if (c) setCookies(c);
 
-      const val = await SecureStore.getItemAsync('cleared_buggy_cache_v2');
-      if (!val) {
-         useStudyOSStore.getState().setScrapedData({ detailedAttendanceCache: {} });
-         await SecureStore.setItemAsync('cleared_buggy_cache_v2', 'true');
+      if (!buggyCleared) {
+        useStudyOSStore.getState().setScrapedData({ detailedAttendanceCache: {} });
+        await SecureStore.setItemAsync('cleared_buggy_cache_v2', 'true').catch(() => {});
       }
       
-      // trigger sync only after cookies are set
-      setTimeout(() => {
+      if (c) {
+        setTimeout(() => {
           triggerSync(true);
-      }, 100);
+        }, 100);
+      }
     });
   }, []);
 
   useEffect(() => {
-    // Hide splash screen after the dashboard has rendered!
-    // This prevents the black screen flash.
-    setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, 100);
+    // Hide splash screen as soon as the dashboard has mounted
+    SplashScreen.hideAsync().catch(() => {});
   }, []);
 
   if (!isHydrated) {

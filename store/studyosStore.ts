@@ -137,13 +137,28 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
 
   loadGamification: async () => {
     try {
-      const storedStreak = await AsyncStorage.getItem('studyos_streak');
-      const storedXP = await AsyncStorage.getItem('studyos_xp');
-      const storedLastDate = await AsyncStorage.getItem('studyos_last_activity');
-      const storedRoadmaps = await AsyncStorage.getItem('studyos_roadmaps');
-      const storedScraped = await AsyncStorage.getItem('studyos_scraped_data');
-      const storedShowDates = await AsyncStorage.getItem('studyos_settings_history_dates');
-      const storedRoundPercentage = await AsyncStorage.getItem('studyos_settings_round_percentage');
+      const pairs = await AsyncStorage.multiGet([
+        'studyos_streak',
+        'studyos_xp',
+        'studyos_last_activity',
+        'studyos_roadmaps',
+        'studyos_scraped_data',
+        'studyos_settings_history_dates',
+        'studyos_settings_round_percentage'
+      ]);
+
+      const map: Record<string, string | null> = {};
+      for (const [key, val] of pairs) {
+        map[key] = val;
+      }
+
+      const storedStreak = map['studyos_streak'];
+      const storedXP = map['studyos_xp'];
+      const storedLastDate = map['studyos_last_activity'];
+      const storedRoadmaps = map['studyos_roadmaps'];
+      const storedScraped = map['studyos_scraped_data'];
+      const storedShowDates = map['studyos_settings_history_dates'];
+      const storedRoundPercentage = map['studyos_settings_round_percentage'];
 
       set({
         streak: storedStreak ? parseInt(storedStreak, 10) : 0,

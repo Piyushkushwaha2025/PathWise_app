@@ -37,10 +37,12 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
 
   checkConnection: async () => {
     try {
-      const uniId = await SecureStore.getItemAsync('study_university_id');
-      const sesskey = await SecureStore.getItemAsync('lms_sesskey');
-      const userIdStr = await SecureStore.getItemAsync('lms_userid');
-      const savedMode = await AsyncStorage.getItem('studyos_active_mode');
+      const [uniId, sesskey, userIdStr, savedMode] = await Promise.all([
+        SecureStore.getItemAsync('study_university_id').catch(() => null),
+        SecureStore.getItemAsync('lms_sesskey').catch(() => null),
+        SecureStore.getItemAsync('lms_userid').catch(() => null),
+        AsyncStorage.getItem('studyos_active_mode').catch(() => null),
+      ]);
       
       if (uniId) {
         set({ 

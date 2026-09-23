@@ -120,7 +120,6 @@ function RootLayoutInner() {
   const { isPro } = useSubscription();
 
   const [cachedIsPro, setCachedIsPro] = useState<boolean | null>(null);
-  const [authReady, setAuthReady] = useState(false);
   const splashHiddenRef = useRef(false);
 
   const hideSplashSafely = () => {
@@ -130,23 +129,11 @@ function RootLayoutInner() {
     }
   };
 
-  // Safe splash hide when Clerk is loaded or fallback when offline
+  // Safe splash hide when Clerk is loaded
   useEffect(() => {
     if (isLoaded) {
-      setAuthReady(true);
-      const timer = setTimeout(() => {
-        hideSplashSafely();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-
-    // Safety timeout: if device is offline or Clerk takes > 800ms, unblock layout and hide splash!
-    const fallbackTimer = setTimeout(() => {
-      setAuthReady(true);
       hideSplashSafely();
-    }, 800);
-
-    return () => clearTimeout(fallbackTimer);
+    }
   }, [isLoaded]);
 
   // Absolute safety fallback: never keep splash screen frozen past 1500ms
@@ -309,10 +296,6 @@ function RootLayoutInner() {
       );
     }
   }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
-
-  // Show nothing until Clerk auth is resolved OR offline safety fallback triggers
-  // This guarantees the app ALWAYS opens even with zero internet or Clerk downtime
-  if (!isLoaded && !authReady) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
