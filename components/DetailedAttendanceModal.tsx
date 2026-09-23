@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler, InteractionManager } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { useStudyOSStore } from '../store/studyosStore';
 import { useStudySessionStore } from '../store/studySessionStore';
 import { Spacing, Radius } from '../constants/theme';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useSubscription } from '../hooks/useSubscription';
 import { usePaywallStore } from '../store/usePaywallStore';
@@ -549,9 +550,72 @@ export function DetailedAttendanceModal({
   const colors = useThemeStore((s) => s.colors);
   const webViewRef = useRef<WebView>(null);
   const [cookieInjectScript, setCookieInjectScript] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  const detailedCache = useStudyOSStore((s) => s.detailedAttendanceCache);
+  const setScrapedData = useStudyOSStore((s) => s.setScrapedData);
+  const subjects = useStudyOSStore((s) => s.subjects);
+  const timetable = useStudyOSStore((s) => s.timetable);
+
+  // Synchronous cache lookup helper with multi-tier matching
+  const findCachedData = useCallback(() => {
+    if (!detailedCache || typeof detailedCache !== 'object') return null;
+
+    // 1. Direct key match on subjectCode
+    if (subjectCode && Array.isArray(detailedCache[subjectCode]) && detailedCache[subjectCode].length > 0) {
+      return detailedCache[subjectCode];
+    }
+    // 2. Direct key match on subjectName
+    if (subjectName && Array.isArray(detailedCache[subjectName]) && detailedCache[subjectName].length > 0) {
+      return detailedCache[subjectName];
+    }
+
+    // 3. Clean alphanumeric code match (e.g. 25CST-208 vs 25CST208)
+    const cleanCode = (subjectCode || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (cleanCode.length >= 3) {
+      for (const key of Object.keys(detailedCache)) {
+        const cleanKey = key.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        if (cleanKey && (cleanKey === cleanCode || cleanKey.includes(cleanCode) || cleanCode.includes(cleanKey))) {
+          if (Array.isArray(detailedCache[key]) && detailedCache[key].length > 0) return detailedCache[key];
+        }
+      }
+    }
+
+    // 4. Normalized name match (stripping (Theory), (Practical), (Lab), and special chars)
+    if (subjectName) {
+      const normalize = (str: string) => str.replace(/\([^)]*\)/g, '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().trim();
+      const cleanSubj = normalize(subjectName);
+      if (cleanSubj.length >= 3) {
+        for (const key of Object.keys(detailedCache)) {
+          const cleanKey = normalize(key);
+          if (cleanKey.length >= 3 && (cleanKey === cleanSubj || cleanKey.includes(cleanSubj) || cleanSubj.includes(cleanKey))) {
+            if (Array.isArray(detailedCache[key]) && detailedCache[key].length > 0) return detailedCache[key];
+          }
+        }
+      }
+    }
+
+    // 5. Cross-reference with subjects store list
+    const matchedSubject = (subjects || []).find((s: any) =>
+      (subjectCode && s.code === subjectCode) ||
+      (subjectName && s.name === subjectName)
+    );
+    if (matchedSubject) {
+      if (matchedSubject.code && Array.isArray(detailedCache[matchedSubject.code]) && detailedCache[matchedSubject.code].length > 0) {
+        return detailedCache[matchedSubject.code];
+      }
+      if (matchedSubject.name && Array.isArray(detailedCache[matchedSubject.name]) && detailedCache[matchedSubject.name].length > 0) {
+        return detailedCache[matchedSubject.name];
+      }
+    }
+
+    return null;
+  }, [detailedCache, subjectCode, subjectName, subjects]);
+
+  // Synchronously initialize attendanceData & loading state so cached records appear instantly (0ms)
+  const initialCache = findCachedData();
+  const [loading, setLoading] = useState<boolean>(!initialCache);
   const [errorMsg, setErrorMsg] = useState('');
-  const [attendanceData, setAttendanceData] = useState<any[]>([]);
+  const [attendanceData, setAttendanceData] = useState<any[]>(initialCache || []);
   const [isPredicting, setIsPredicting] = useState(initialPredicting);
   const [predictDays, setPredictDays] = useState(3);
   const [missedClassesInput, setMissedClassesInput] = useState('');
@@ -560,6 +624,111 @@ export function DetailedAttendanceModal({
   const { setSessionExpired } = useStudySessionStore();
   const router = useRouter();
   const { isSubscriptionRequired } = useSubscription();
+
+  const hasInjectedPostback = useRef(false);
+  const cacheHit = useRef(!!initialCache);
+  const postbackStarted = useRef(false);
+  const navAttempts = useRef(0);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleSetPredictDays = (val: number) => {
+    if (val > 3 && isSubscriptionRequired) {
+      setPredictDays(3);
+      usePaywallStore.getState().showPaywall("Attendance prediction beyond 3 days is a Pro feature. Upgrade to plan your bunks for the entire semester.");
+      return;
+    }
+    setPredictDays(val);
+  };
+
+  // High-speed direct API fetch to student portal GetFullReport endpoint (<500ms)
+  const loadAttendanceData = async () => {
+    try {
+      let target = viewActionTarget;
+      if (!target || !target.includes('|')) {
+        const matched = (subjects || []).find((s: any) =>
+          (subjectCode && s.code === subjectCode) ||
+          (subjectName && s.name === subjectName)
+        );
+        if (matched?.viewActionTarget) target = matched.viewActionTarget;
+      }
+
+      let cookies = await SecureStore.getItemAsync('culko_cookies');
+      if (!cookies) {
+        cookies = await AsyncStorage.getItem('culko_cookies');
+      }
+
+      if (target && target.includes('|') && cookies) {
+        const [uidVal, chkVal] = target.split('|');
+        const res = await fetch('https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx/GetFullReport', {
+          method: 'POST',
+          headers: {
+            'Cookie': cookies,
+            'Content-Type': 'application/json; charset=utf-8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+          body: JSON.stringify({
+            course: chkVal,
+            UID: uidVal,
+            fromDate: '0',
+            toDate: '0',
+            type: '0',
+            Session: '',
+          }),
+        });
+
+        if (res.ok) {
+          const resJson = await res.json();
+          if (resJson?.d?.Result) {
+            const rawRecords = JSON.parse(resJson.d.Result);
+            if (Array.isArray(rawRecords) && rawRecords.length > 0) {
+              const records = rawRecords.map((r: any) => ({
+                date: r["AttDate"] || '',
+                type: r["AttendanceType"] || '',
+                time: r["Timing"] || '',
+                status: r["AttendanceCode"] || '',
+                markedBy: r["Name"] || '',
+              }));
+
+              cacheHit.current = true;
+              setAttendanceData(records);
+              const currentCache = useStudyOSStore.getState().detailedAttendanceCache || {};
+              setScrapedData({
+                detailedAttendanceCache: {
+                  ...currentCache,
+                  [subjectCode]: records,
+                  ...(subjectName ? { [subjectName]: records } : {}),
+                },
+              });
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      }
+    } catch (apiErr) {
+      console.log('[DetailModal] Direct API fetch error, will fallback to WebView:', apiErr);
+    }
+
+    // Headless WebView Fallback
+    try {
+      let cookies = await SecureStore.getItemAsync('culko_cookies');
+      if (!cookies) {
+        cookies = await AsyncStorage.getItem('culko_cookies');
+      }
+      if (!cookies) {
+        setErrorMsg('Session expired. Please re-login.');
+        setLoading(false);
+        return;
+      }
+      const parts = cookies.split(';').map((c) => c.trim()).filter(Boolean);
+      const lines = parts.map((c) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
+      setCookieInjectScript(lines + '\ntrue;');
+    } catch (e) {
+      setErrorMsg('Failed to load attendance records.');
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!visible) {
@@ -576,139 +745,45 @@ export function DetailedAttendanceModal({
       return true;
     };
     const handler = BackHandler.addEventListener('hardwareBackPress', backAction);
-    return () => handler.remove();
-  }, [visible, onClose, initialPredicting]);
 
-  const handleSetPredictDays = (val: number) => {
-    if (val > 3 && isSubscriptionRequired) {
-      setPredictDays(3);
-      usePaywallStore.getState().showPaywall("Attendance prediction beyond 3 days is a Pro feature. Upgrade to plan your bunks for the entire semester.");
-      return;
+    // Fast check: if cache hit, display immediately
+    const cached = findCachedData();
+    if (cached && cached.length > 0) {
+      cacheHit.current = true;
+      setAttendanceData(cached);
+      setLoading(false);
+      setErrorMsg('');
+      return () => handler.remove();
     }
-    setPredictDays(val);
-  };
-  
-  const detailedCache = useStudyOSStore((s) => s.detailedAttendanceCache);
-  const setScrapedData = useStudyOSStore((s) => s.setScrapedData);
-  const subjects = useStudyOSStore((s) => s.subjects);
-  const timetable = useStudyOSStore((s) => s.timetable);
-  const hasInjectedPostback = useRef(false);
-  const cacheHit = useRef(false);
-  const postbackStarted = useRef(false);
-  const navAttempts = useRef(0);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Pull-to-refresh: bust cache for this subject and re-fetch from portal
+    // Cache miss: initiate fast fetch
+    cacheHit.current = false;
+    setLoading(true);
+    setErrorMsg('');
+    setAttendanceData([]);
+    loadAttendanceData();
+
+    return () => handler.remove();
+  }, [visible, subjectCode, subjectName, initialPredicting, onClose, findCachedData]);
+
+  // Pull-to-refresh: bust cache for this subject and re-fetch from portal instantly
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    // Remove only this subject's cache so fresh data is fetched
     const currentCache = useStudyOSStore.getState().detailedAttendanceCache || {};
-    const { [subjectCode]: _removed, ...rest } = currentCache;
+    const { [subjectCode]: _removed1, [subjectName]: _removed2, ...rest } = currentCache;
     await setScrapedData({ detailedAttendanceCache: rest });
 
     cacheHit.current = false;
     hasInjectedPostback.current = false;
     postbackStarted.current = false;
     navAttempts.current = 0;
-    setAttendanceData([]);
     setErrorMsg('');
     setDebugLogs([]);
     setLoading(true);
 
-    // Re-load cookie and trigger webview fetch
-    try {
-      const cookies = await SecureStore.getItemAsync('culko_cookies');
-      if (!cookies) {
-        setErrorMsg('Session expired. Please re-login.');
-        setLoading(false);
-        setIsRefreshing(false);
-        return;
-      }
-      const parts = cookies.split(';').map((c) => c.trim()).filter(Boolean);
-      const lines = parts.map((c) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
-      setCookieInjectScript(null);
-      // Small delay then set new script to trigger webview reload
-      setTimeout(() => {
-        setCookieInjectScript(lines + '\ntrue;');
-        setIsRefreshing(false);
-      }, 200);
-    } catch (e) {
-      setErrorMsg('Failed to refresh. Please try again.');
-      setLoading(false);
-      setIsRefreshing(false);
-    }
+    await loadAttendanceData();
+    setIsRefreshing(false);
   };
-
-
-  const findCachedData = () => {
-    if (!detailedCache) return null;
-    if (detailedCache[subjectCode] && Array.isArray(detailedCache[subjectCode]) && detailedCache[subjectCode].length > 0) {
-      return detailedCache[subjectCode];
-    }
-    if (subjectName && detailedCache[subjectName] && Array.isArray(detailedCache[subjectName]) && detailedCache[subjectName].length > 0) {
-      return detailedCache[subjectName];
-    }
-    const cleanCode = (subjectCode || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-    for (const key of Object.keys(detailedCache)) {
-      const cleanKey = key.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-      if (cleanKey && cleanCode && cleanKey === cleanCode) {
-        if (Array.isArray(detailedCache[key]) && detailedCache[key].length > 0) return detailedCache[key];
-      }
-      if (subjectName) {
-        const cleanSubj = subjectName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-        if (cleanKey && cleanSubj && (cleanKey.includes(cleanSubj) || cleanSubj.includes(cleanKey))) {
-          if (Array.isArray(detailedCache[key]) && detailedCache[key].length > 0) return detailedCache[key];
-        }
-      }
-    }
-    return null;
-  };
-
-  useEffect(() => {
-    if (!visible) return;
-
-    // Fast check: use cached detailed attendance if available
-    const cachedData = findCachedData();
-    if (cachedData) {
-      cacheHit.current = true;
-      setAttendanceData(cachedData);
-      setLoading(false);
-      setErrorMsg('');
-      return;
-    }
-    cacheHit.current = false;
-
-    setLoading(true);
-    setErrorMsg('');
-    setAttendanceData([]);
-    setDebugLogs([]);
-
-    postbackStarted.current = false;
-    navAttempts.current = 0;
-    setCookieInjectScript(null);
-
-    const task = InteractionManager.runAfterInteractions(async () => {
-      try {
-        const cookies = await SecureStore.getItemAsync('culko_cookies');
-        if (!cookies) {
-          setErrorMsg('Session expired. Please re-login.');
-          setLoading(false);
-          return;
-        }
-        const parts = cookies.split(';').map((c) => c.trim()).filter(Boolean);
-        const lines = parts.map((c) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
-        setCookieInjectScript(lines + '\ntrue;');
-      } catch (e) {
-        setErrorMsg('Failed to load session. Please re-sync.');
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      task.cancel();
-    };
-  }, [visible, subjectCode, subjectName]);
 
   const buildInjectScript = (code: string, name?: string, target?: string) => `
     try {
@@ -720,8 +795,48 @@ export function DetailedAttendanceModal({
         var targetName = (${JSON.stringify(target || '')}).trim();
         var clicked = false;
 
-        // 0. Try by exact viewActionTarget if provided
-        if (targetName) {
+        // 0. Fast direct JSON endpoint if targetName is UID|chk
+        if (targetName && targetName.indexOf('|') > -1) {
+           var targetParts = targetName.split('|');
+           var pageUrl = window.location.href.split('?')[0] + '/GetFullReport';
+           var Sel_Session = (document.querySelector('#ddlSession') && document.querySelector('#ddlSession').value) || (document.querySelector('#hfdbSelSes') && document.querySelector('#hfdbSelSes').value) || '';
+           var typeFilter = (document.querySelector('#drpfilter') && document.querySelector('#drpfilter').value) || '0';
+
+           var xhr = new XMLHttpRequest();
+           xhr.open('POST', pageUrl, true);
+           xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
+           xhr.onreadystatechange = function() {
+              if (xhr.readyState === 4 && xhr.status === 200) {
+                 try {
+                    var response = JSON.parse(xhr.responseText);
+                    var objData = JSON.parse(response.d.Result);
+                    var records = [];
+                    for(var j=0; j<objData.length; j++) {
+                       var r = objData[j];
+                       records.push({
+                          date: r["AttDate"] || '',
+                          type: r["AttendanceType"] || '',
+                          time: r["Timing"] || '',
+                          status: r["AttendanceCode"] || '',
+                          markedBy: r["Name"] || ''
+                       });
+                    }
+                    if (records.length > 0) {
+                       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SUCCESS', data: records }));
+                    }
+                 } catch(e) {}
+              }
+           };
+           xhr.send(JSON.stringify({
+              course: targetParts[1],
+              UID: targetParts[0],
+              fromDate: "0",
+              toDate: "0",
+              type: typeFilter,
+              Session: Sel_Session
+           }));
+           clicked = true;
+        } else if (targetName) {
            var targetBtn = document.querySelector('[name="' + targetName + '"]') || document.getElementById(targetName) || document.getElementById(targetName.replace(/\\$/g, '_'));
            if (targetBtn) {
               targetBtn.click();
@@ -1233,24 +1348,21 @@ export function DetailedAttendanceModal({
                     setSessionExpired(true);
                     return;
                   }
-                  // First real load: inject cookies, then scrape script
+                  // First real load: inject cookies, then scrape script immediately
                   if (navAttempts.current === 0) {
                     navAttempts.current = 1;
-                    setTimeout(() => {
-                      if (!cacheHit.current) {
-                        webViewRef.current?.injectJavaScript(cookieInjectScript);
-                        setTimeout(() => {
-                          webViewRef.current?.injectJavaScript(buildInjectScript(subjectCode, subjectName, viewActionTarget));
-                        }, 600);
-                      }
-                    }, 800);
-                  } else if (hasInjectedPostback.current) {
-                    // Subsequent page load after postback / form submission
+                    webViewRef.current?.injectJavaScript(cookieInjectScript);
                     setTimeout(() => {
                       if (!cacheHit.current) {
                         webViewRef.current?.injectJavaScript(buildInjectScript(subjectCode, subjectName, viewActionTarget));
                       }
-                    }, 500);
+                    }, 200);
+                  } else if (hasInjectedPostback.current) {
+                    setTimeout(() => {
+                      if (!cacheHit.current) {
+                        webViewRef.current?.injectJavaScript(buildInjectScript(subjectCode, subjectName, viewActionTarget));
+                      }
+                    }, 200);
                   }
                 }
               }}

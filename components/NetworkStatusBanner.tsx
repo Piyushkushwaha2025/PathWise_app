@@ -6,58 +6,54 @@ import { useNetworkStatus, checkConnectivity } from '../lib/networkManager';
 
 export const NetworkStatusBanner: React.FC = () => {
   const insets = useSafeAreaInsets();
-  const { isOnline, isSlow } = useNetworkStatus();
+  const { isOnline } = useNetworkStatus();
   const [wasOffline, setWasOffline] = useState(false);
   const [showBackOnline, setShowBackOnline] = useState(false);
-  const translateY = useRef(new Animated.Value(-60)).current;
+  const translateY = useRef(new Animated.Value(-70)).current;
 
-  const shouldShow = !isOnline || isSlow || showBackOnline;
+  // Banner should ONLY be visible when actually offline, or temporarily for 2s when restored
+  const shouldShow = !isOnline || showBackOnline;
+  const [rendered, setRendered] = useState(shouldShow);
 
   useEffect(() => {
     if (!isOnline) {
       setWasOffline(true);
+      setShowBackOnline(false);
     } else if (wasOffline && isOnline) {
       setShowBackOnline(true);
       setWasOffline(false);
       const timer = setTimeout(() => {
         setShowBackOnline(false);
-      }, 2500);
+      }, 2000);
       return () => clearTimeout(timer);
     }
   }, [isOnline, wasOffline]);
 
   useEffect(() => {
     if (shouldShow) {
+      setRendered(true);
       Animated.spring(translateY, {
         toValue: 0,
         useNativeDriver: true,
         bounciness: 4,
-        speed: 14,
+        speed: 16,
       }).start();
     } else {
       Animated.timing(translateY, {
-        toValue: -60,
+        toValue: -70,
         duration: 250,
         useNativeDriver: true,
-      }).start();
+      }).start(() => {
+        setRendered(false);
+      });
     }
   }, [shouldShow]);
 
-  if (!shouldShow) return null;
+  if (!rendered && !shouldShow) return null;
 
-  let bg = '#ef4444'; // Red for offline
-  let iconName: any = 'cloud-offline-outline';
-  let message = 'No Internet Connection • Offline Mode';
-
-  if (showBackOnline) {
-    bg = '#10b981'; // Green for restored
-    iconName = 'checkmark-circle-outline';
-    message = 'Back Online';
-  } else if (isSlow) {
-    bg = '#f59e0b'; // Amber for slow
-    iconName = 'speedometer-outline';
-    message = 'Weak Connection • Syncing may be slow';
-  }
+  const bg = showBackOnline ? '#10b981' : '#ef4444';
+  const iconName: any = showBackOnline ? 'checkmark-circle-outline' : 'cloud-offline-outline';
+  const message = showBackOnline ? 'Back Online' : 'No Internet Connection • Offline Mode';
 
   return (
     <Animated.View

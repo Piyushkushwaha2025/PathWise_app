@@ -151,7 +151,7 @@ export default function AttendanceScreen() {
           safeBunks,
           recoveryNeeded,
           bunkMsg,
-          viewActionTarget: undefined,
+          viewActionTarget: (storeSubjects || []).find((s: any) => s.code === code || s.name === name)?.viewActionTarget,
         };
       });
     }

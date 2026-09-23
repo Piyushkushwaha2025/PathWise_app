@@ -20,7 +20,6 @@ import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context'
 import { BlurView, BlurTargetView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { NetworkStatusBanner } from '../../../../../components/NetworkStatusBanner';
 import { getNetworkState, reportNetworkError, reportNetworkSuccess, useNetworkStatus } from '../../../../../lib/networkManager';
 
 interface Message {
@@ -764,8 +763,10 @@ export default function AITutorChatScreen() {
          imagePayload
       );
 
-      reportNetworkSuccess(Date.now() - reqStartTime);
-
+      reportNetworkSuccess(Date.now() - reqStartTime);
+
+
+
       // Trigger self-learning in the background (non-blocking)
       if (apiKey) {
          const fullHistory = [...history, { role: 'model' as const, parts: [{ text: aiText }] }];
@@ -1306,8 +1307,6 @@ export default function AITutorChatScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
-      <NetworkStatusBanner />
-      
       <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={kbOffset}>
         

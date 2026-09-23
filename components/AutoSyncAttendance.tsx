@@ -461,16 +461,18 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
 
           const prevSig = (await AsyncStorage.getItem(LAST_NOTIF_SIG_KEY)) || '';
 
-          if (prevSig === '') {
-            // First sync after login/install: seed signature, never notify on echo.
-            await AsyncStorage.setItem(LAST_NOTIF_SIG_KEY, newSig).catch(() => {});
-            finish(false, []);
-          } else if (newSig !== prevSig || changesDetected.length > 0) {
-            await AsyncStorage.setItem(LAST_NOTIF_SIG_KEY, newSig).catch(() => {});
-            finish(true, changesDetected);
-          } else {
-            finish(dataChanged, []);
-          }
+          // Allow background detail fetch XHRs 2s to populate detailedAttendanceCache before unmounting
+          setTimeout(async () => {
+            if (prevSig === '') {
+              await AsyncStorage.setItem(LAST_NOTIF_SIG_KEY, newSig).catch(() => {});
+              finish(false, []);
+            } else if (newSig !== prevSig || changesDetected.length > 0) {
+              await AsyncStorage.setItem(LAST_NOTIF_SIG_KEY, newSig).catch(() => {});
+              finish(true, changesDetected);
+            } else {
+              finish(dataChanged, []);
+            }
+          }, 2000);
         } else {
           console.log('[AutoSync] No data scraped');
           finish(false, []);
