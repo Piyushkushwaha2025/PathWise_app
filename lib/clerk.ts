@@ -1,4 +1,5 @@
 import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { TokenCache } from "@clerk/clerk-expo";
 
 /**
@@ -14,9 +15,20 @@ export const tokenCache: TokenCache = {
     }
   },
   async saveToken(key: string, value: string): Promise<void> {
-    await SecureStore.setItemAsync(key, value);
+    try {
+      await SecureStore.setItemAsync(key, value);
+      await AsyncStorage.setItem("auth_was_signed_in", "true");
+    } catch (e) {
+      console.warn("Failed to persist auth token:", e);
+    }
   },
   async clearToken(key: string): Promise<void> {
-    await SecureStore.deleteItemAsync(key);
+    try {
+      await SecureStore.deleteItemAsync(key);
+      await AsyncStorage.setItem("auth_was_signed_in", "false");
+    } catch (e) {
+      console.warn("Failed to clear auth token:", e);
+    }
   },
 };
+

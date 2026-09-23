@@ -94,6 +94,8 @@ if (LogBox) {
 }
 
 loadTheme();
+useStudySessionStore.getState().checkConnection().catch(() => {});
+useStudyOSStore.getState().loadGamification().catch(() => {});
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient({
@@ -118,6 +120,42 @@ function RootLayoutInner() {
   const { isPro } = useSubscription();
 
   const [cachedIsPro, setCachedIsPro] = useState<boolean | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const splashHiddenRef = useRef(false);
+
+  const hideSplashSafely = () => {
+    if (!splashHiddenRef.current) {
+      splashHiddenRef.current = true;
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  };
+
+  // Safe splash hide when Clerk is loaded or fallback when offline
+  useEffect(() => {
+    if (isLoaded) {
+      setAuthReady(true);
+      const timer = setTimeout(() => {
+        hideSplashSafely();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+
+    // Safety timeout: if device is offline or Clerk takes > 800ms, unblock layout and hide splash!
+    const fallbackTimer = setTimeout(() => {
+      setAuthReady(true);
+      hideSplashSafely();
+    }, 800);
+
+    return () => clearTimeout(fallbackTimer);
+  }, [isLoaded]);
+
+  // Absolute safety fallback: never keep splash screen frozen past 1500ms
+  useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      hideSplashSafely();
+    }, 1500);
+    return () => clearTimeout(safetyTimer);
+  }, []);
 
   // Load cached Pro / Trial state instantly from local storage for seamless cold starts
   useEffect(() => {
@@ -134,12 +172,14 @@ function RootLayoutInner() {
   useEffect(() => {
     if (isLoaded && user) {
       AsyncStorage.setItem('@pathwise_cached_is_pro', isPro ? 'true' : 'false').catch(() => {});
+      AsyncStorage.setItem('auth_was_signed_in', 'true').catch(() => {});
     }
   }, [isLoaded, user, isPro]);
 
   // If user has Pro, is on active 30-day trial, has reward Pro, or was cached as Pro -> DO NOT show ads
   const isProEffective = isPro || cachedIsPro === true;
   const isProEffectiveRef = useRef(isProEffective);
+
 
   useEffect(() => {
     isProEffectiveRef.current = isProEffective;
@@ -270,17 +310,9 @@ function RootLayoutInner() {
     }
   }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
 
-  useEffect(() => {
-    if (isLoaded) {
-      setTimeout(() => {
-        SplashScreen.hideAsync().catch(() => {});
-      }, 150); // Small delay to let the initial screen paint
-    }
-  }, [isLoaded]);
-
-  // Show nothing until Clerk auth is resolved (needed for routing)
-  // This also holds the splash screen safely
-  if (!isLoaded) return null;
+  // Show nothing until Clerk auth is resolved OR offline safety fallback triggers
+  // This guarantees the app ALWAYS opens even with zero internet or Clerk downtime
+  if (!isLoaded && !authReady) return null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

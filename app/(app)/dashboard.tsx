@@ -8,8 +8,12 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 
 export default function DashboardSwitcher() {
-  const { isStudyOSMode } = useStudySessionStore();
+  const { isStudyOSMode, checkConnection } = useStudySessionStore();
 
+  useEffect(() => {
+    SplashScreen.hideAsync().catch(() => {});
+    checkConnection();
+  }, [checkConnection]);
 
   return (
     <View style={styles.container}>

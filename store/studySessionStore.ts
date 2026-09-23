@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStudyOSStore } from './studyosStore';
 
 interface StudySessionState {
@@ -39,11 +40,12 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
       const uniId = await SecureStore.getItemAsync('study_university_id');
       const sesskey = await SecureStore.getItemAsync('lms_sesskey');
       const userIdStr = await SecureStore.getItemAsync('lms_userid');
+      const savedMode = await AsyncStorage.getItem('studyos_active_mode');
       
       if (uniId) {
         set({ 
           isConnected: true,
-          isStudyOSMode: true,
+          isStudyOSMode: savedMode !== null ? savedMode === 'true' : true,
           universityId: uniId,
           lmsSesskey: sesskey, 
           lmsUserId: userIdStr ? parseInt(userIdStr, 10) : null
@@ -58,6 +60,8 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
     await SecureStore.setItemAsync('study_university_id', universityId);
     await SecureStore.setItemAsync('lms_sesskey', sesskey);
     await SecureStore.setItemAsync('lms_userid', userId.toString());
+    await AsyncStorage.setItem('auth_was_signed_in', 'true').catch(() => {});
+    await AsyncStorage.setItem('studyos_active_mode', 'true').catch(() => {});
     set({ isConnected: true, isStudyOSMode: true, universityId, lmsSesskey: sesskey, lmsUserId: userId, isSessionDisconnected: false });
   },
 
@@ -68,6 +72,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
       await SecureStore.deleteItemAsync('lms_cookie');
       await SecureStore.deleteItemAsync('lms_sesskey');
       await SecureStore.deleteItemAsync('lms_userid');
+      await AsyncStorage.removeItem('studyos_active_mode').catch(() => {});
       
       if (!keepCreds) {
         await SecureStore.deleteItemAsync('culko_u');
@@ -84,6 +89,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   
   setStudyOSMode: (mode: boolean) => {
     set({ isSwitchingMode: true, isStudyOSMode: mode });
+    AsyncStorage.setItem('studyos_active_mode', mode ? 'true' : 'false').catch(() => {});
     // Keep loading screen active long enough for the new dashboard to mount and render cleanly
     setTimeout(() => {
       set({ isSwitchingMode: false });
