@@ -12,6 +12,30 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAuth } from '@clerk/clerk-expo';
 import { verifyUidWithDB, useDBProfile } from '../../../lib/db';
 
+function sanitizeUserFacingError(rawMsg: string | undefined | null, fallback: string = ''): string {
+  if (!rawMsg) return fallback;
+  const str = String(rawMsg).trim();
+  const isTechnical = 
+    str.includes('<') ||
+    str.includes('>') ||
+    str.toLowerCase().includes('json parse') ||
+    str.toLowerCase().includes('unexpected') ||
+    str.toLowerCase().includes('syntaxerror') ||
+    str.toLowerCase().includes('network request failed') ||
+    str.toLowerCase().includes('failed to fetch') ||
+    str.toLowerCase().includes('token') ||
+    str.toLowerCase().includes('typeerror') ||
+    str.toLowerCase().includes('referenceerror') ||
+    str.toLowerCase().includes('object') ||
+    str.toLowerCase().includes('undefined') ||
+    str.toLowerCase().includes('null');
+
+  if (isTechnical) {
+    return fallback;
+  }
+  return str;
+}
+
 export default function WebViewLoginScreen() {
   const { userId } = useAuth();
   const { dbUser } = useDBProfile();
@@ -189,7 +213,10 @@ export default function WebViewLoginScreen() {
         setStep(2);
         setIsProcessing(false);
       } else if (data.type === 'ERROR') {
-        setInlineError(data.msg);
+        const cleanMsg = sanitizeUserFacingError(data.msg, '');
+        if (cleanMsg) {
+          setInlineError(cleanMsg);
+        }
         setCaptchaInput(''); // Clear the old input
         setIsProcessing(false);
       }
@@ -225,12 +252,17 @@ export default function WebViewLoginScreen() {
       try {
         await verifyUidWithDB(userId, uid.trim());
       } catch (err: any) {
-        setIsProcessing(false);
-        setLoadingMsg('');
-        const msg = err.message || 'College ID not permitted on this account.';
-        setUidError(msg);
-        setInlineError(msg);
-        return;
+        if (err?.code === 'UID_ALREADY_LINKED' || err?.code === 'UID_NOT_ALLOWED') {
+          setIsProcessing(false);
+          setLoadingMsg('');
+          const friendlyMsg = 'This college ID is already linked to another PathWise account.';
+          setUidError(friendlyMsg);
+          setInlineError(friendlyMsg);
+          return;
+        }
+        // If it's a backend cold start, HTML response, or network error,
+        // do NOT block the student and NEVER display parse/technical errors!
+        console.warn('verifyUidWithDB non-fatal issue bypassed:', err?.message);
       }
     }
 

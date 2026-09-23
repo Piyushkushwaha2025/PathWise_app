@@ -207,13 +207,20 @@ async function callCloudPool(
        signal: AbortSignal.timeout(35000)
     });
 
-    const data = await response.json();
-    if (!response.ok) {
-       console.error("[aiManager] Proxy returned error:", data);
-       if (data.error === 'ALL_POOL_KEYS_EXHAUSTED' || data.error === 'NO_POOL_KEYS') {
+    const rawText = await response.text();
+    let data: any = null;
+    try {
+      if (rawText && !rawText.trim().startsWith('<')) {
+        data = JSON.parse(rawText);
+      }
+    } catch {}
+
+    if (!response.ok || !data) {
+       console.error("[aiManager] Proxy returned error:", data || rawText);
+       if (data?.error === 'ALL_POOL_KEYS_EXHAUSTED' || data?.error === 'NO_POOL_KEYS') {
            throw new Error('ALL_POOL_KEYS_EXHAUSTED');
        }
-       throw new Error(data.message || data.error || 'PROXY_ERROR');
+       throw new Error(data?.message || data?.error || 'AI service temporarily unavailable. Please try again.');
     }
 
     usage.count += 1;
@@ -528,13 +535,18 @@ You are an expert University Academic Problem Solver and AI Vision Specialist wi
                        throw new Error("OVERLOADED");
                    }
 
-                   data = await response.json();
-                   if (!response.ok) {
-                       if (data.error?.message?.includes('high demand') || response.status === 503) {
+                   const resText = await response.text();
+                   try {
+                       data = resText && !resText.trim().startsWith('<') ? JSON.parse(resText) : null;
+                   } catch {
+                       data = null;
+                   }
+                   if (!response.ok || !data) {
+                       if (data?.error?.message?.includes('high demand') || response.status === 503) {
                            throw new Error("OVERLOADED");
                        }
-                       console.error("[aiManager] Gemini API Error:", data);
-                       throw new Error(data.error?.message || 'Gemini API Error');
+                       console.error("[aiManager] Gemini API Error:", data || resText);
+                       throw new Error(data?.error?.message || 'Gemini API Error');
                    }
                    
                    break; // Success! Break out of retry loop

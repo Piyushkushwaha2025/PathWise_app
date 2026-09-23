@@ -32,58 +32,91 @@ export interface AssignmentData {
   createdAt: string;
 }
 
+async function safeJsonParse(res: Response): Promise<any> {
+  try {
+    const text = await res.text();
+    if (!text || text.trim().startsWith('<')) {
+      return null;
+    }
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export async function syncUserWithDB(
   clerkId: string,
   section_code?: string,
   uid?: string,
   expoPushToken?: string
 ): Promise<UserData> {
-  const res = await fetch(`${API_URL}/user/sync`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-clerk-user-id': clerkId
-    },
-    body: JSON.stringify({ section_code, uid, expoPushToken })
-  });
-  
-  if (res.status === 409) {
-    const data = await res.json();
-    const err = new Error(data.message || 'This college ID is already linked to another PathWise account.') as any;
-    err.code = data.error || 'UID_ALREADY_LINKED';
-    err.boundUid = data.boundUid;
-    throw err;
+  try {
+    const res = await fetch(`${API_URL}/user/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-clerk-user-id': clerkId
+      },
+      body: JSON.stringify({ section_code, uid, expoPushToken })
+    });
+    
+    const data = await safeJsonParse(res);
+
+    if (res.status === 409) {
+      const err = new Error(data?.message || 'This college ID is already linked to another PathWise account.') as any;
+      err.code = data?.error || 'UID_ALREADY_LINKED';
+      err.boundUid = data?.boundUid;
+      throw err;
+    }
+    
+    if (!res.ok || !data) throw new Error('Failed to sync user');
+    if (data?.user?.trial_started_at) {
+      AsyncStorage.setItem(`@pathwise_trial_start_${clerkId}`, data.user.trial_started_at).catch(() => {});
+    }
+    return data;
+  } catch (err: any) {
+    if (err?.code === 'UID_ALREADY_LINKED') throw err;
+    console.warn('syncUserWithDB non-fatal error:', err?.message);
+    throw new Error(err?.code ? err.message : 'Unable to sync user data right now.');
   }
-  
-  if (!res.ok) throw new Error('Failed to sync user');
-  const data = await res.json();
-  if (data?.user?.trial_started_at) {
-    AsyncStorage.setItem(`@pathwise_trial_start_${clerkId}`, data.user.trial_started_at).catch(() => {});
-  }
-  return data;
 }
 
 export async function verifyUidWithDB(
   clerkId: string,
   uid: string
 ): Promise<{ allowed: boolean; boundUid: string | null }> {
-  const res = await fetch(`${API_URL}/user/verify-uid`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-clerk-user-id': clerkId
-    },
-    body: JSON.stringify({ uid })
-  });
+  try {
+    const res = await fetch(`${API_URL}/user/verify-uid`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-clerk-user-id': clerkId
+      },
+      body: JSON.stringify({ uid })
+    });
 
-  const data = await res.json();
-  if (res.status === 409 || !res.ok) {
-    const err = new Error(data.message || data.error || 'UID verification failed') as any;
-    err.code = data.error || 'UID_NOT_ALLOWED';
-    err.boundUid = data.boundUid;
-    throw err;
+    const data = await safeJsonParse(res);
+
+    if (res.status === 409 || (data && data.allowed === false)) {
+      const err = new Error(data?.message || data?.error || 'This college ID is already linked to another PathWise account.') as any;
+      err.code = data?.error || 'UID_NOT_ALLOWED';
+      err.boundUid = data?.boundUid;
+      throw err;
+    }
+
+    if (!res.ok) {
+      console.warn('verify-uid non-ok response status:', res.status);
+      return { allowed: true, boundUid: null };
+    }
+
+    return data || { allowed: true, boundUid: null };
+  } catch (err: any) {
+    if (err?.code === 'UID_NOT_ALLOWED' || err?.code === 'UID_ALREADY_LINKED') {
+      throw err;
+    }
+    console.warn('verifyUidWithDB bypassed due to network/server condition:', err?.message);
+    return { allowed: true, boundUid: null };
   }
-  return data;
 }
 
 export async function savePushToken(clerkId: string, expoPushToken: string): Promise<boolean> {
@@ -121,8 +154,8 @@ export async function updateUserSubscription(clerkId: string, is_premium: boolea
     body: JSON.stringify({ is_premium, plan })
   });
   
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update subscription in DB');
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw new Error(data?.error || 'Failed to update subscription in DB');
   return data.user;
 }
 
@@ -136,8 +169,8 @@ export async function setFreeAISubject(clerkId: string, subjectId: string): Prom
     body: JSON.stringify({ subjectId })
   });
   
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to set free subject');
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw new Error(data?.error || 'Failed to set free subject');
   return data.user;
 }
 
@@ -152,8 +185,8 @@ export async function createRazorpayOrder(clerkId: string, planId: string, token
     body: JSON.stringify({ plan_id: planId })
   });
   
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to create order');
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw new Error(data?.error || 'Failed to create order');
   return data;
 }
 
@@ -189,7 +222,7 @@ export async function fetchSaturdayOverrides(clerkId: string, section_code?: str
       headers: { 'x-clerk-user-id': clerkId }
     });
     if (!res.ok) return [];
-    return res.json();
+    return (await safeJsonParse(res)) || [];
   } catch {
     return [];
   }
@@ -204,8 +237,8 @@ export async function setSaturdayOverride(clerkId: string, date: string, mapped_
     },
     body: JSON.stringify({ date, mapped_day, section_code })
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to set override');
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw new Error(data?.error || 'Failed to set override');
   return data;
 }
 
@@ -224,7 +257,7 @@ export async function fetchNotifications(clerkId: string, section?: string): Pro
       headers: { 'x-clerk-user-id': clerkId }
     });
     if (!res.ok) return [];
-    return res.json();
+    return (await safeJsonParse(res)) || [];
   } catch {
     return [];
   }
@@ -247,8 +280,8 @@ export async function createNotification(
     },
     body: JSON.stringify({ title, message, expiresAt, section_code, pdf_key, pdf_filename })
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to create notification');
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw new Error(data?.error || 'Failed to create notification');
   return data;
 }
 
@@ -269,7 +302,7 @@ export async function fetchAssignments(clerkId: string, section?: string): Promi
       headers: { 'x-clerk-user-id': clerkId }
     });
     if (!res.ok) return [];
-    return res.json();
+    return (await safeJsonParse(res)) || [];
   } catch {
     return [];
   }
@@ -279,7 +312,7 @@ export async function fetchSections(): Promise<string[]> {
   try {
     const res = await fetch(`${API_URL}/sections`);
     if (!res.ok) return [];
-    return res.json();
+    return (await safeJsonParse(res)) || [];
   } catch {
     return [];
   }
@@ -290,8 +323,8 @@ export async function toggleAssignment(clerkId: string, assignmentId: string): P
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-clerk-user-id': clerkId }
   });
-  const data = await res.json();
-  return data.status;
+  const data = await safeJsonParse(res);
+  return data?.status || 'pending';
 }
 
 function inferClientMimeType(name: string, fallbackType?: string): string {
@@ -402,8 +435,8 @@ export async function uploadPdf(clerkId: string, file: { uri: string; name: stri
     });
 
     if (presignedRes.ok) {
-      const data = await presignedRes.json();
-      if (data.uploadUrl && data.key) {
+      const data = await safeJsonParse(presignedRes);
+      if (data?.uploadUrl && data?.key) {
         const blob = await uriToBlob(file.uri);
         await uploadBlobDirectToStorage(data.uploadUrl, blob, data.contentType || resolvedMime);
         return { pdf_key: data.key, pdf_filename: data.filename || file.name };
@@ -426,8 +459,8 @@ export async function createAssignment(clerkId: string, payload: {
     headers: { 'Content-Type': 'application/json', 'x-clerk-user-id': clerkId },
     body: JSON.stringify(payload)
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to create assignment');
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw new Error(data?.error || 'Failed to create assignment');
   return data.assignment;
 }
 
@@ -545,7 +578,8 @@ export async function getRewardStatus(clerkId: string, token?: string | null): P
       return DEFAULT_REWARD_STATUS;
     }
 
-    const data = await res.json();
+    const data = await safeJsonParse(res);
+    if (!data) return DEFAULT_REWARD_STATUS;
     if (data?.trial_started_at) {
       AsyncStorage.setItem(`@pathwise_trial_start_${clerkId}`, data.trial_started_at).catch(() => {});
     }
@@ -595,8 +629,8 @@ export async function claimDailyBonus(clerkId: string, token?: string | null): P
     } catch {}
   }
 
-  const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw Object.assign(new Error(data?.message || 'Daily bonus temporarily unavailable.'), { code: data?.error });
   return data;
 }
 
@@ -639,8 +673,8 @@ export async function claimAdReward(clerkId: string, adType: string, token?: str
     } catch {}
   }
 
-  const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw Object.assign(new Error(data?.message || 'Reward temporarily unavailable.'), { code: data?.error });
   return data;
 }
 
@@ -684,7 +718,7 @@ export async function redeemTokensForPremium(clerkId: string, plan: 'one_day' | 
     } catch {}
   }
 
-  const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(data.message || 'Failed'), { code: data.error });
+  const data = await safeJsonParse(res);
+  if (!res.ok || !data) throw Object.assign(new Error(data?.message || 'Redemption temporarily unavailable.'), { code: data?.error });
   return data;
 }
