@@ -907,12 +907,11 @@ export default function AITutorChatScreen() {
       borderColor: isDark ? 'rgba(255,255,255,0.12)' : colors.border, 
       borderRadius: 22, 
       paddingHorizontal: 16, 
-      paddingTop: 11, 
-      paddingBottom: 11, 
+      paddingTop: Platform.OS === 'android' ? 10 : 11, 
+      paddingBottom: Platform.OS === 'android' ? 10 : 11, 
       color: colors.text, 
       fontFamily: 'Inter_400Regular', 
       fontSize: 15, 
-      textAlignVertical: 'top', 
       lineHeight: 20 
     },
     historyButton: { 
@@ -1672,27 +1671,38 @@ export default function AITutorChatScreen() {
                 value={inputText}
                 onChangeText={(text) => {
                   setInputText(text);
-                  if (!text || text.trim().length === 0) {
+                  // If empty or short single line without newline, immediately reset height to 44
+                  if (!text || text.trim().length === 0 || (!text.includes('\n') && text.length < 35)) {
                     setInputHeight(44);
                   }
                 }}
                 multiline={true}
                 scrollEnabled={inputHeight >= 110}
-                textAlignVertical="top"
+                textAlignVertical={inputHeight > 48 ? "top" : "center"}
                 maxLength={2000}
                 onContentSizeChange={(e) => {
                   const rawH = e.nativeEvent.contentSize.height;
-                  if (!inputText || inputText.trim().length === 0) {
+                  // If empty or text has no newlines and is short, keep crisp single-line 44px height
+                  if (!inputText || inputText.trim().length === 0 || (!inputText.includes('\n') && inputText.length < 35)) {
                     setInputHeight(44);
                     return;
                   }
-                  // 1 line ~ 20px -> 44px
-                  // 2 lines ~ 40px -> 62px
-                  // 3 lines ~ 60px -> 82px
-                  // 4 lines ~ 80px -> 102-106px
-                  // 5+ lines -> capped at 112px max (up to 4 lines visible, scrolls beyond)
-                  const computedH = Math.min(Math.max(rawH + 18, 44), 112);
-                  setInputHeight(computedH);
+
+                  // On Android, rawH already includes compound vertical padding (~40-44px for 1 line).
+                  // On platforms where rawH only measures raw text height, rawH is ~20px for 1 line.
+                  const effectiveH = Platform.OS === 'android' ? rawH : (rawH < 35 ? rawH + 22 : rawH);
+
+                  // 1 line: ~40-45px -> keeps 44px base height
+                  // 2 lines: ~60-65px -> expands to ~62px
+                  // 3 lines: ~80-85px -> expands to ~82px
+                  // 4 lines: ~100-105px -> expands to ~102px
+                  // 5+ lines: capped at 112px with scrolling
+                  if (effectiveH <= 50) {
+                    setInputHeight(44);
+                  } else {
+                    const computedH = Math.min(Math.max(effectiveH, 44), 112);
+                    setInputHeight(computedH);
+                  }
                 }}
              />
            <TouchableOpacity 
