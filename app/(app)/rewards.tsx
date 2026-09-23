@@ -118,6 +118,10 @@ export default function RewardsScreen() {
       const token = await getToken();
       const data = await getRewardStatus(user.id, token);
       setStatus(data);
+      if (data?.daily_claimed_today) {
+        setDailyClaimed(true);
+        AsyncStorage.setItem('last_daily_claim', new Date().toDateString()).catch(() => {});
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -157,11 +161,17 @@ export default function RewardsScreen() {
       const result = await claimDailyBonus(user.id, token);
       animateToken();
       await AsyncStorage.setItem('last_daily_claim', new Date().toDateString());
-      setStatus(prev => prev ? { ...prev, token_balance: result.token_balance } : prev);
+      setStatus(prev => prev ? { ...prev, token_balance: result.token_balance, daily_claimed_today: true } : prev);
       showToast('Daily Bonus! 🎁', `You collected your daily bonus! Balance: ${result.token_balance}`);
     } catch (e: any) {
-      setDailyClaimed(false); // Revert if failed
-      showToast('Error', 'Could not collect daily bonus. Try again.', true);
+      if (e.code === 'ALREADY_CLAIMED' || e.message?.toLowerCase().includes('already claimed')) {
+        setDailyClaimed(true);
+        await AsyncStorage.setItem('last_daily_claim', new Date().toDateString());
+        showToast('Already Claimed 🎁', 'You already collected today\'s bonus. Come back tomorrow!');
+      } else {
+        setDailyClaimed(false); // Revert only on genuine failure
+        showToast('Error', e.message || 'Could not collect daily bonus. Try again.', true);
+      }
     }
   };
 
@@ -381,7 +391,14 @@ export default function RewardsScreen() {
           <Ionicons name="arrow-back" size={22} color={colors.text} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Rewards</Text>
-        <View style={{ width: 36 }} />
+        <TouchableOpacity 
+          onPress={() => router.push('/(app)/_pathwise_subscription' as any)} 
+          style={s.headerSubBtn}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="flash" size={13} color="#FBBF24" />
+          <Text style={s.headerSubBtnText}>Plans</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -469,6 +486,29 @@ export default function RewardsScreen() {
           </View>
         </MotiView>
 
+        {/* Pro Subscription Shortcut Card */}
+        <MotiView from={{ opacity: 0, translateY: 16 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', delay: 240 }}>
+          <TouchableOpacity 
+            style={s.subBanner}
+            onPress={() => router.push('/(app)/_pathwise_subscription' as any)}
+            activeOpacity={0.85}
+          >
+            <View style={s.subBannerLeft}>
+              <View style={s.subBannerIconBox}>
+                <Ionicons name="flash" size={20} color="#FBBF24" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.subBannerTitle}>No Ads? Get Pro Subscription</Text>
+                <Text style={s.subBannerSub}>Unlock unlimited AI roadmaps & tutors directly</Text>
+              </View>
+            </View>
+            <View style={s.subBannerBtn}>
+              <Text style={s.subBannerBtnText}>View Plans</Text>
+              <Ionicons name="arrow-forward" size={13} color="#000" />
+            </View>
+          </TouchableOpacity>
+        </MotiView>
+
         {/* Ad Options */}
         <MotiView from={{ opacity: 0, translateY: 16 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', delay: 300 }}>
           <Text style={s.sectionTitle}>Watch Ads, Earn Tokens</Text>
@@ -528,7 +568,18 @@ const styles = (colors: any) => StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 18, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text },
+  headerSubBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(251, 191, 36, 0.15)', borderWidth: 1, borderColor: 'rgba(251, 191, 36, 0.4)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100 },
+  headerSubBtnText: { color: '#FBBF24', fontSize: 12.5, fontFamily: 'SpaceGrotesk_700Bold' },
   content: { paddingHorizontal: 20, paddingTop: 8 },
+
+  // Subscription Banner
+  subBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderRadius: 18, padding: 14, borderWidth: 1.5, borderColor: 'rgba(251, 191, 36, 0.35)', marginBottom: 24 },
+  subBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 8 },
+  subBannerIconBox: { width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(251, 191, 36, 0.15)', justifyContent: 'center', alignItems: 'center' },
+  subBannerTitle: { fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, marginBottom: 2 },
+  subBannerSub: { fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.textDim, lineHeight: 15 },
+  subBannerBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FBBF24', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10 },
+  subBannerBtnText: { color: '#000', fontSize: 12, fontFamily: 'SpaceGrotesk_700Bold' },
 
   // Balance Card
   balanceCard: { borderRadius: 20, padding: 20, marginBottom: 14 },

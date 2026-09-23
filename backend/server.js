@@ -1068,6 +1068,8 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
 
     res.json({
       token_balance: user.token_balance || 0,
+      daily_claimed_today: user.last_daily_bonus_date === today,
+      last_daily_bonus_date: user.last_daily_bonus_date || null,
       ads_watched_today: user.ads_watched_today || 0,
       ads_remaining_today: Math.max(0, MAX_ADS_PER_DAY - (user.ads_watched_today || 0)),
       max_ads_per_day: MAX_ADS_PER_DAY,

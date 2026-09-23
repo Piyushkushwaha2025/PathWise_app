@@ -472,6 +472,8 @@ export function useDBProfile() {
 
 export interface RewardStatus {
   token_balance: number;
+  daily_claimed_today?: boolean;
+  last_daily_bonus_date?: string | null;
   ads_watched_today: number;
   ads_remaining_today: number;
   max_ads_per_day: number;
@@ -489,6 +491,8 @@ export interface RewardStatus {
 
 export const DEFAULT_REWARD_STATUS: RewardStatus = {
   token_balance: 0,
+  daily_claimed_today: false,
+  last_daily_bonus_date: null,
   ads_watched_today: 0,
   ads_remaining_today: 5,
   max_ads_per_day: 5,
@@ -568,6 +572,7 @@ export async function claimDailyBonus(clerkId: string, token?: string | null): P
   let res = await fetch(`${API_URL}/rewards/daily-bonus`, {
     method: 'POST',
     headers,
+    body: JSON.stringify({}),
   });
 
   if (res.status === 401 && headers['Authorization']) {
@@ -575,6 +580,7 @@ export async function claimDailyBonus(clerkId: string, token?: string | null): P
     res = await fetch(`${API_URL}/rewards/daily-bonus`, {
       method: 'POST',
       headers,
+      body: JSON.stringify({}),
     });
   }
 
@@ -584,6 +590,7 @@ export async function claimDailyBonus(clerkId: string, token?: string | null): P
       res = await fetch(`${API_URL}/rewards/daily-bonus`, {
         method: 'POST',
         headers,
+        body: JSON.stringify({}),
       });
     } catch {}
   }
