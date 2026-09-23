@@ -698,9 +698,73 @@ You are an expert University Academic Problem Solver and AI Vision Specialist wi
     return validateAndSanitizeOutput(aiResponseText);
 }
 
-// Output validation — just sanitize empty responses
+// Output validation & Mobile Math Sanitizer (converts LaTeX to clean Unicode)
 function validateAndSanitizeOutput(text: string): string {
-  return text || "I'm sorry, I couldn't generate a response. Please try again.";
+  if (!text) return "I'm sorry, I couldn't generate a response. Please try again.";
+  let cleaned = text;
+
+  // Convert LaTeX math expressions $...$ into clean Unicode
+  cleaned = cleaned.replace(/\$([^\$\n]+)\$/g, (_match, formula) => {
+    let f = formula;
+    f = f.replace(/\\log/g, 'log');
+    f = f.replace(/\\ln/g, 'ln');
+    f = f.replace(/\\times/g, '×');
+    f = f.replace(/\\cdot/g, '·');
+    f = f.replace(/\\approx/g, '≈');
+    f = f.replace(/\\le|\\leq/g, '≤');
+    f = f.replace(/\\ge|\\geq/g, '≥');
+    f = f.replace(/\\ne|\\neq/g, '≠');
+    f = f.replace(/\\pm/g, '±');
+    f = f.replace(/\\mp/g, '∓');
+    f = f.replace(/\\in/g, '∈');
+    f = f.replace(/\\notin/g, '∉');
+    f = f.replace(/\\subset/g, '⊂');
+    f = f.replace(/\\subseteq/g, '⊆');
+    f = f.replace(/\\cup/g, '∪');
+    f = f.replace(/\\cap/g, '∩');
+    f = f.replace(/\\to|\\rightarrow/g, '→');
+    f = f.replace(/\\infty/g, '∞');
+    f = f.replace(/\\sum/g, '∑');
+    f = f.replace(/\\prod/g, '∏');
+    f = f.replace(/\\int/g, '∫');
+    f = f.replace(/\\sqrt\{([^}]+)\}/g, '√($1)');
+    f = f.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1 / $2)');
+    f = f.replace(/\\text\{([^}]+)\}/g, '$1');
+    f = f.replace(/\\mathbf\{([^}]+)\}/g, '$1');
+    f = f.replace(/\\mathit\{([^}]+)\}/g, '$1');
+    f = f.replace(/\^2/g, '²');
+    f = f.replace(/\^3/g, '³');
+    f = f.replace(/\^n/g, 'ⁿ');
+    f = f.replace(/\^k/g, 'ᵏ');
+    f = f.replace(/\^x/g, 'ˣ');
+    f = f.replace(/_2/g, '₂');
+    f = f.replace(/_n/g, 'ₙ');
+    f = f.replace(/_i/g, 'ᵢ');
+    f = f.replace(/_j/g, 'ⱼ');
+    f = f.replace(/_0/g, '₀');
+    f = f.replace(/_1/g, '₁');
+    f = f.replace(/\\Omega/g, 'Ω');
+    f = f.replace(/\\Theta/g, 'Θ');
+    f = f.replace(/\\alpha/g, 'α');
+    f = f.replace(/\\beta/g, 'β');
+    f = f.replace(/\\gamma/g, 'γ');
+    f = f.replace(/\\delta/g, 'δ');
+    f = f.replace(/\\epsilon/g, 'ε');
+    f = f.replace(/\\lambda/g, 'λ');
+    f = f.replace(/\\mu/g, 'μ');
+    f = f.replace(/\\pi/g, 'π');
+    f = f.replace(/\\sigma/g, 'σ');
+    f = f.replace(/\\tau/g, 'τ');
+    f = f.replace(/\\/g, ''); // strip any lingering backslashes
+    return f.trim();
+  });
+
+  // Strip standalone double dollar signs $$...$$
+  cleaned = cleaned.replace(/\$\$([^\$]+)\$\$/g, (_match, formula) => {
+    return '\n' + formula.replace(/\\/g, '').trim() + '\n';
+  });
+
+  return cleaned.trim();
 }
 
 export async function reflectAndLearn(messages: any[], currentProfile: string): Promise<string | null> {

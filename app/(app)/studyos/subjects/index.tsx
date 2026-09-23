@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, TextInput, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, RefreshControl, TextInput, Platform, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -36,6 +36,55 @@ export default function LmsCoursesScreen() {
   const [pendingCount, setPendingCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'theory' | 'lab' | 'low'>('all');
+
+  // AI Tutor Chat Choice Modal State
+  const [selectedSubjectForChat, setSelectedSubjectForChat] = useState<any | null>(null);
+  const [subjectChatSessions, setSubjectChatSessions] = useState<any[]>([]);
+  const [showChatChoiceModal, setShowChatChoiceModal] = useState(false);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+  const handleOpenChatOptions = async (sub: any) => {
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    if (isSubscriptionRequired) {
+      usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
+      return;
+    }
+    setSelectedSubjectForChat(sub);
+    setIsLoadingSessions(true);
+    setShowChatChoiceModal(true);
+
+    try {
+      const storageKey = `@chat_history_${sub.code}_${sub.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const stored = await AsyncStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          parsed.sort((a: any, b: any) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          setSubjectChatSessions(parsed);
+        } else {
+          setSubjectChatSessions([]);
+        }
+      } else {
+        setSubjectChatSessions([]);
+      }
+    } catch (e) {
+      setSubjectChatSessions([]);
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  };
+
+  const handleStartNewChat = () => {
+    if (!selectedSubjectForChat) return;
+    setShowChatChoiceModal(false);
+    router.push(`/studyos/subjects/chat/${encodeURIComponent(selectedSubjectForChat.code)}?name=${encodeURIComponent(selectedSubjectForChat.name)}&mode=new_chat` as any);
+  };
+
+  const handleOpenExistingSession = (sessionId: string) => {
+    if (!selectedSubjectForChat) return;
+    setShowChatChoiceModal(false);
+    router.push(`/studyos/subjects/chat/${encodeURIComponent(selectedSubjectForChat.code)}?name=${encodeURIComponent(selectedSubjectForChat.name)}&sessionId=${encodeURIComponent(sessionId)}` as any);
+  };
 
   useEffect(() => {
     if (userId) {
@@ -1044,7 +1093,7 @@ export default function LmsCoursesScreen() {
                             usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
                             return;
                           }
-                          router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
+                          router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}&mode=latest` as any);
                         }}
                       >
                         <LinearGradient
@@ -1062,10 +1111,7 @@ export default function LmsCoursesScreen() {
                       <TouchableOpacity
                         style={[styles.lmsContentBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' }]}
                         activeOpacity={0.75}
-                        onPress={() => {
-                          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
-                          router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
-                        }}
+                        onPress={() => handleOpenChatOptions(sub)}
                       >
                         <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} style={{ marginRight: 5 }} />
                         <Text style={[styles.lmsContentBtnText, { color: colors.text }]}>Start Chat</Text>
@@ -1135,6 +1181,161 @@ export default function LmsCoursesScreen() {
            />
         </View>
       )}
+    
+      {/* Start Chat / Session Picker Modal */}
+      <Modal
+        visible={showChatChoiceModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowChatChoiceModal(false)}
+      >
+        <TouchableOpacity 
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' }} 
+          activeOpacity={1} 
+          onPress={() => setShowChatChoiceModal(false)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            style={{
+              backgroundColor: isDark ? '#14141c' : '#ffffff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingHorizontal: 20,
+              paddingTop: 12,
+              paddingBottom: 36,
+              maxHeight: '80%',
+              borderTopWidth: 1,
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: -4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 10,
+              elevation: 8,
+            }}
+          >
+            {/* Drag handle */}
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)', alignSelf: 'center', marginBottom: 16 }} />
+
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <View style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', color: colors.primary }}>
+                      {selectedSubjectForChat?.code || 'SUBJECT'}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 12, fontFamily: 'Inter_500Medium', color: colors.textMuted }}>Choose Session</Text>
+                </View>
+                <Text style={{ fontSize: 17, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }} numberOfLines={1}>
+                  {selectedSubjectForChat?.name || 'AI Tutor Chats'}
+                </Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setShowChatChoiceModal(false)}
+                style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', justifyContent: 'center', alignItems: 'center' }}
+              >
+                <Ionicons name="close" size={18} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Start Fresh New Chat Button */}
+            <TouchableOpacity
+              onPress={handleStartNewChat}
+              activeOpacity={0.85}
+              style={{
+                borderRadius: 14,
+                overflow: 'hidden',
+                marginBottom: 18,
+                shadowColor: colors.primary,
+                shadowOffset: { width: 0, height: 3 },
+                shadowOpacity: 0.25,
+                shadowRadius: 6,
+                elevation: 3,
+              }}
+            >
+              <LinearGradient
+                colors={[colors.primary, colors.accent || '#8b5cf6']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, gap: 12 }}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.22)', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="add" size={22} color="#ffffff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#ffffff', fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold' }}>Start Fresh New Chat</Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11.5, fontFamily: 'Inter_400Regular', marginTop: 1 }}>
+                    Start a new conversation with clean context
+                  </Text>
+                </View>
+                <Ionicons name="arrow-forward" size={18} color="#ffffff" />
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Existing Chats Section */}
+            <View style={{ marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.textMuted, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                Previous Chats ({subjectChatSessions.length})
+              </Text>
+            </View>
+
+            {isLoadingSessions ? (
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : subjectChatSessions.length === 0 ? (
+              <View style={{ paddingVertical: 20, alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc', borderRadius: 12, borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                <Ionicons name="chatbubble-outline" size={28} color={colors.textDim} style={{ marginBottom: 6 }} />
+                <Text style={{ fontSize: 13, fontFamily: 'Inter_500Medium', color: colors.textDim }}>No previous chats for this subject yet.</Text>
+                <Text style={{ fontSize: 11.5, fontFamily: 'Inter_400Regular', color: colors.textMuted, marginTop: 2 }}>Tap "+ Start Fresh New Chat" above to begin!</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 250 }} showsVerticalScrollIndicator={false}>
+                {subjectChatSessions.map((session, idx) => {
+                  const timeStr = session.updatedAt 
+                    ? new Date(session.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                    : 'Recently active';
+                  const msgCount = (session.messages?.length || 1) - 1;
+                  return (
+                    <TouchableOpacity
+                      key={session.id || idx}
+                      onPress={() => handleOpenExistingSession(session.id)}
+                      activeOpacity={0.7}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 12,
+                        paddingHorizontal: 14,
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc',
+                        borderRadius: 12,
+                        marginBottom: 8,
+                        borderWidth: 1,
+                        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                        gap: 12,
+                      }}
+                    >
+                      <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primary + '18', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="chatbubble-ellipses" size={16} color={colors.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.text }} numberOfLines={1}>
+                          {session.title || 'Chat ' + (idx + 1)}
+                        </Text>
+                        <Text style={{ fontSize: 11.5, fontFamily: 'Inter_400Regular', color: colors.textDim, marginTop: 2 }}>
+                          {timeStr} • {msgCount > 0 ? msgCount + (msgCount > 1 ? ' messages' : ' message') : 'Fresh session'}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
     </View>
   );
 }

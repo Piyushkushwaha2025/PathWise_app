@@ -19,6 +19,7 @@ import { useSubscription } from '../../../../../hooks/useSubscription';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView, BlurTargetView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface Message {
   id: string;
@@ -138,7 +139,7 @@ const QuickChatOverlay = ({ colors, sessions, currentSessionId, blurTargetRef, i
 
 export default function AITutorChatScreen() {
   const blurTargetRef = useRef<View>(null);
-  const { id, name, mode } = useLocalSearchParams();
+  const { id, name, mode, sessionId } = useLocalSearchParams();
   const isDoubtSolver = id === 'SNAP_SOLVE_DOUBTS' || mode === 'doubt_solver' || name?.toString().toLowerCase().includes('snap & solve');
   const router = useRouter();
   const colors = useThemeStore((state) => state.colors);
@@ -190,7 +191,7 @@ export default function AITutorChatScreen() {
   useEffect(() => {
     Animated.timing(animatedHeight, {
       toValue: Math.max(44, inputHeight),
-      duration: 100, // fast & smooth transition
+      duration: 80, // instant fluid auto-expand
       useNativeDriver: false,
     }).start();
   }, [inputHeight]);
@@ -296,7 +297,7 @@ export default function AITutorChatScreen() {
     loadApiKey();
     loadSessions();
     fetchAvailableFiles();
-  }, [id, name]);
+  }, [id, name, sessionId, mode]);
 
   useEffect(() => {
     if (isDoubtSolver) {
@@ -388,7 +389,7 @@ export default function AITutorChatScreen() {
     setIsLoadingFiles(false);
   };
 
-  const loadSessions = async () => {
+    const loadSessions = async () => {
     try {
       const stored = await AsyncStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -396,6 +397,23 @@ export default function AITutorChatScreen() {
         if (parsed.length > 0) {
           parsed.sort((a, b) => b.updatedAt - a.updatedAt);
           setSessions(parsed);
+
+          // 1. Specific session requested via Start Chat picker
+          if (sessionId) {
+            const target = parsed.find(s => s.id === sessionId);
+            if (target) {
+              setCurrentSessionId(target.id);
+              return;
+            }
+          }
+
+          // 2. Start Fresh New Chat requested
+          if (mode === 'new_chat') {
+            createNewSession(false);
+            return;
+          }
+
+          // 3. Default (mode === 'latest' or standard navigation): Open most recent active session
           setCurrentSessionId(parsed[0].id);
           return;
         }
@@ -827,11 +845,61 @@ export default function AITutorChatScreen() {
     },
     userText: { color: 'white', fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 22 },
     
-    inputArea: { flexDirection: 'row', padding: 12, borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'flex-end' },
-    chatInput: { flex: 1, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, textAlignVertical: 'top', lineHeight: 20 },
-    historyButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, justifyContent: 'center', alignItems: 'center', marginRight: 8, alignSelf: 'flex-end' },
-    sendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center', marginLeft: 8, alignSelf: 'flex-end' },
-    sendButtonDisabled: { backgroundColor: colors.border },
+    inputArea: { 
+      flexDirection: 'row', 
+      paddingHorizontal: 12, 
+      paddingTop: 8, 
+      paddingBottom: Platform.OS === 'ios' ? 12 : 10, 
+      borderTopWidth: 1, 
+      borderColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border, 
+      backgroundColor: isDark ? '#0d0d14' : '#ffffff', 
+      alignItems: 'flex-end',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: isDark ? 0.3 : 0.05,
+      shadowRadius: 6,
+      elevation: 4,
+    },
+    chatInput: { 
+      flex: 1, 
+      backgroundColor: isDark ? '#14141e' : '#f8fafc', 
+      borderWidth: 1.5, 
+      borderColor: isDark ? 'rgba(255,255,255,0.12)' : colors.border, 
+      borderRadius: 22, 
+      paddingHorizontal: 16, 
+      paddingTop: 11, 
+      paddingBottom: 11, 
+      color: colors.text, 
+      fontFamily: 'Inter_400Regular', 
+      fontSize: 15, 
+      textAlignVertical: 'top', 
+      lineHeight: 20 
+    },
+    historyButton: { 
+      width: 44, 
+      height: 44, 
+      borderRadius: 22, 
+      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.surface, 
+      borderWidth: 1, 
+      borderColor: isDark ? 'rgba(255,255,255,0.1)' : colors.border, 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      marginRight: 8, 
+      alignSelf: 'flex-end' 
+    },
+    sendButton: { 
+      width: 44, 
+      height: 44, 
+      borderRadius: 22, 
+      overflow: 'hidden',
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      marginLeft: 8, 
+      alignSelf: 'flex-end' 
+    },
+    sendButtonDisabled: { 
+      opacity: 0.5 
+    },
     
     // Modal Mechanics styles
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
@@ -1325,11 +1393,69 @@ export default function AITutorChatScreen() {
             keyExtractor={msg => msg.id}
             onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
             onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
-            ListFooterComponent={isTyping ? (
-               <View style={[styles.messageBubble, styles.aiBubble, { width: 72, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center', paddingVertical: 12 }]}>
-                 <ActivityIndicator size="small" color={colors.primary} />
-               </View>
-            ) : null}
+            ListFooterComponent={() => {
+              if (isTyping) {
+                return (
+                  <View style={[styles.messageBubble, styles.aiBubble, { width: 72, alignSelf: 'flex-start', alignItems: 'center', justifyContent: 'center', paddingVertical: 12 }]}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  </View>
+                );
+              }
+              if (activeMessages.length <= 1) {
+                const quickPrompts = isDoubtSolver ? [
+                  { icon: 'camera', text: 'Snap handwritten math problem' },
+                  { icon: 'bulb-outline', text: 'Explain a physics numerical step-by-step' },
+                  { icon: 'code-slash-outline', text: 'Debug a code error or algorithm' },
+                  { icon: 'document-text-outline', text: 'Formula sheet & key constants' }
+                ] : [
+                  { icon: 'book-outline', text: 'Explain core concepts of Unit 1' },
+                  { icon: 'help-circle-outline', text: 'Top 5 important exam questions' },
+                  { icon: 'git-compare-outline', text: 'Compare key algorithms step-by-step' },
+                  { icon: 'flash-outline', text: 'Quick syllabus summary & memory tips' }
+                ];
+                return (
+                  <View style={{ marginTop: 14, marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11.5, fontFamily: 'Inter_600SemiBold', color: colors.textMuted, marginBottom: 10, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                      💡 Suggested Topics
+                    </Text>
+                    <View style={{ gap: 8 }}>
+                      {quickPrompts.map((p, idx) => (
+                        <TouchableOpacity
+                          key={idx}
+                          onPress={() => {
+                            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                            if (p.icon === 'camera') {
+                              setShowPhotoPickerModal(true);
+                            } else {
+                              setInputText(p.text);
+                            }
+                          }}
+                          activeOpacity={0.7}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingVertical: 11,
+                            paddingHorizontal: 14,
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: isDark ? 'rgba(255,255,255,0.08)' : colors.border,
+                            gap: 10,
+                          }}
+                        >
+                          <Ionicons name={p.icon as any} size={16} color={colors.primary} />
+                          <Text style={{ flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: colors.text }}>
+                            {p.text}
+                          </Text>
+                          <Ionicons name="arrow-up-circle-outline" size={17} color={colors.primary} />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                );
+              }
+              return null;
+            }}
             renderItem={({ item: msg }) => {
                 const { displayText, hiddenFiles } = msg.role === 'user' ? renderUserMessage(msg.text) : { displayText: msg.text, hiddenFiles: [] };
                 return (
@@ -1380,11 +1506,21 @@ export default function AITutorChatScreen() {
                       </View>
                    ) : (
                       <View style={{ width: '100%' }}>
-                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 6 }}>
-                            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center' }}>
-                               <Ionicons name="sparkles" size={12} color={colors.primary} />
+                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                               <LinearGradient
+                                  colors={[colors.primary, colors.accent || '#8b5cf6']}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                  style={{ width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }}
+                               >
+                                  <Ionicons name="sparkles" size={13} color="#ffffff" />
+                               </LinearGradient>
+                               <Text style={{ fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, letterSpacing: 0.2 }}>AI Tutor</Text>
+                               <View style={{ backgroundColor: colors.primary + '16', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: colors.primary + '30' }}>
+                                  <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.primary }}>Exam Verified</Text>
+                               </View>
                             </View>
-                            <Text style={{ fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', color: colors.primary, letterSpacing: 0.3 }}>AI Tutor</Text>
                          </View>
                          <Markdown style={markdownStyles} rules={markdownRules}>
                             {msg.text}
@@ -1485,28 +1621,60 @@ export default function AITutorChatScreen() {
            </TouchableOpacity>
 
             <AnimatedTextInput 
-               style={[styles.chatInput, { height: animatedHeight }]}
-               placeholder={attachedPhoto ? "Ask about this photo (optional)..." : (isDoubtSolver ? "Snap photo or type your doubt..." : "Ask about a topic...")}
-               placeholderTextColor={colors.textMuted}
-               value={inputText}
-               onChangeText={setInputText}
-               multiline={true}
-               scrollEnabled={true}
-               textAlignVertical="top"
-               maxLength={1000}
-               onContentSizeChange={(e) => {
-                 if (!inputText) return;
-                 const h = e.nativeEvent.contentSize.height;
-                 setInputHeight(Math.min(Math.max(h, 44), 104));
-               }}
-            />
+                style={[
+                  styles.chatInput, 
+                  { 
+                    height: animatedHeight,
+                    borderRadius: inputHeight > 54 ? 16 : 22,
+                  }
+                ]}
+                placeholder={attachedPhoto ? "Ask about this photo (optional)..." : (isDoubtSolver ? "Snap photo or type your doubt..." : "Ask AI Tutor a question...")}
+                placeholderTextColor={colors.textMuted}
+                value={inputText}
+                onChangeText={(text) => {
+                  setInputText(text);
+                  if (!text || text.trim().length === 0) {
+                    setInputHeight(44);
+                  }
+                }}
+                multiline={true}
+                scrollEnabled={inputHeight >= 110}
+                textAlignVertical="top"
+                maxLength={2000}
+                onContentSizeChange={(e) => {
+                  const rawH = e.nativeEvent.contentSize.height;
+                  if (!inputText || inputText.trim().length === 0) {
+                    setInputHeight(44);
+                    return;
+                  }
+                  // 1 line ~ 20px -> 44px
+                  // 2 lines ~ 40px -> 62px
+                  // 3 lines ~ 60px -> 82px
+                  // 4 lines ~ 80px -> 102-106px
+                  // 5+ lines -> capped at 112px max (up to 4 lines visible, scrolls beyond)
+                  const computedH = Math.min(Math.max(rawH + 18, 44), 112);
+                  setInputHeight(computedH);
+                }}
+             />
            <TouchableOpacity 
-             style={[styles.sendButton, ((!inputText.trim() && !attachedPhoto) || isTyping) && styles.sendButtonDisabled]} 
-             onPress={sendMessage}
-             disabled={(!inputText.trim() && !attachedPhoto) || isTyping}
-           >
-              <Ionicons name="send" size={18} color="white" style={{ marginLeft: 4 }} />
-           </TouchableOpacity>
+              style={[
+                styles.sendButton, 
+                ((!inputText.trim() && !attachedPhoto) || isTyping) && styles.sendButtonDisabled
+              ]} 
+              onPress={sendMessage}
+              disabled={(!inputText.trim() && !attachedPhoto) || isTyping}
+            >
+               <LinearGradient
+                 colors={((!inputText.trim() && !attachedPhoto) || isTyping) 
+                   ? [colors.border, colors.border] 
+                   : [colors.primary, colors.accent || '#8b5cf6']}
+                 start={{ x: 0, y: 0 }}
+                 end={{ x: 1, y: 1 }}
+                 style={{ width: '100%', height: '100%', borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}
+               >
+                 <Ionicons name="send" size={17} color="white" style={{ marginLeft: 3 }} />
+               </LinearGradient>
+            </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
