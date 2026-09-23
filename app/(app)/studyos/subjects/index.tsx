@@ -794,7 +794,7 @@ export default function LmsCoursesScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <View style={[styles.liveDot, { backgroundColor: isScraping ? colors.warning : '#22c55e' }]} />
                 <Text style={[styles.heroSubtext, { color: colors.textMuted }]}>
-                  {isScraping ? 'Syncing Moodle Courses...' : 'Moodle & UIMS Synced'}
+                  {isScraping ? 'Syncing Courses...' : 'All Courses Synced'}
                 </Text>
               </View>
               {activeSection && (
@@ -1058,32 +1058,18 @@ export default function LmsCoursesScreen() {
                         </LinearGradient>
                       </TouchableOpacity>
 
-                      {/* Moodle LMS Content Button (if ID exists) or Chat Button */}
-                      {matchedLms?.id ? (
-                        <TouchableOpacity
-                          style={[styles.lmsContentBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' }]}
-                          activeOpacity={0.75}
-                          onPress={() => {
-                            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
-                            router.push(`/studyos/subjects/${matchedLms.id}?name=${encodeURIComponent(sub.name)}` as any);
-                          }}
-                        >
-                          <Ionicons name="folder-open-outline" size={15} color={colors.primary} style={{ marginRight: 5 }} />
-                          <Text style={[styles.lmsContentBtnText, { color: colors.text }]}>Moodle</Text>
-                        </TouchableOpacity>
-                      ) : (
-                        <TouchableOpacity
-                          style={[styles.lmsContentBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' }]}
-                          activeOpacity={0.75}
-                          onPress={() => {
-                            try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
-                            router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
-                          }}
-                        >
-                          <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} style={{ marginRight: 5 }} />
-                          <Text style={[styles.lmsContentBtnText, { color: colors.text }]}>Study Chat</Text>
-                        </TouchableOpacity>
-                      )}
+                      {/* Start Chat Button (Next to AI Tutor) */}
+                      <TouchableOpacity
+                        style={[styles.lmsContentBtn, { borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' }]}
+                        activeOpacity={0.75}
+                        onPress={() => {
+                          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                          router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}` as any);
+                        }}
+                      >
+                        <Ionicons name="chatbubble-ellipses-outline" size={15} color={colors.primary} style={{ marginRight: 5 }} />
+                        <Text style={[styles.lmsContentBtnText, { color: colors.text }]}>Start Chat</Text>
+                      </TouchableOpacity>
                     </View>
                   </LinearGradient>
                 </View>
