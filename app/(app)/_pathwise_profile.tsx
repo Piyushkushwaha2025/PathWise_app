@@ -43,11 +43,12 @@ import { useDBProfile, deleteUserFromDB } from "../../lib/db";
 import { DeleteAccountModal } from "../../components/modals/DeleteAccountModal";
 import { ClearStudyOSModal } from "../../components/modals/ClearStudyOSModal";
 import { useSubscription } from "../../hooks/useSubscription";
-type SubBadge = "FREE" | "PRO" | "ELITE";
+type SubBadge = "FREE" | "TRIAL" | "PRO" | "ELITE";
 
 const SUB_COLORS: Record<SubBadge, [string, string]> = {
   FREE: ["#374151", "#1f2937"],
-  PRO: ["#3b82f6", "#1d4ed8"],
+  TRIAL: ["#0284c7", "#0369a1"],
+  PRO: ["#d97706", "#b45309"],
   ELITE: ["#8b5cf6", "#6d28d9"],
 };
 
@@ -151,8 +152,8 @@ export default function ProfileScreen() {
   const allRoadmaps = React.useMemo(() => [...catalog, ...customRoadmaps], [catalog, customRoadmaps]);
   
   // Determine Subscription Tier from Clerk User Metadata
-  const { isPro } = useSubscription();
-  const userTier: SubBadge = isPro ? "PRO" : "FREE";
+  const { isPro, statusType } = useSubscription();
+  const userTier: SubBadge = (statusType === 'paid' || statusType === 'reward') ? "PRO" : statusType === 'trial' ? "TRIAL" : "FREE";
 
   const completedRoadmapsCount = React.useMemo(() => {
     let count = 0;

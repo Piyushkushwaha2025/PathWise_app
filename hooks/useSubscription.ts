@@ -85,7 +85,6 @@ export function useSubscription() {
     const diffMs = now.getTime() - trialStartedAt.getTime();
     const daysSinceTrialStart = Math.floor(diffMs / MS_PER_DAY);
     const trialDaysLeft = Math.max(0, TRIAL_DAYS - daysSinceTrialStart);
-    const isTrialActive = trialDaysLeft > 0;
 
     let subscriptionDaysLeft = 0;
     const rawPlan = (user.unsafeMetadata?.plan as string) || (isSubscribed ? 'pro' : null);
@@ -105,21 +104,90 @@ export function useSubscription() {
       }
     }
 
-    const isRewardPro = !!rewardStatus?.is_reward_premium_active;
-    const isPro = isSubscribed || isTrialActive || isRewardPro;
-    const plan = isSubscribed ? rawPlan : (isRewardPro ? 'reward' : null);
+    const rewardExpiry = rewardStatus?.premium_expires_at;
+    const rewardDaysLeft = (rewardExpiry && rewardExpiry > now.getTime())
+      ? Math.max(0, Math.ceil((rewardExpiry - now.getTime()) / MS_PER_DAY))
+      : 0;
+    const isRewardPro = (!!rewardStatus?.is_reward_premium_active && rewardDaysLeft > 0) || rewardDaysLeft > 0;
+
+    // Strict Status Hierarchy:
+    // 1. Paid Subscription (highest tier)
+    // 2. Reward Pro (unlocked with tokens)
+    // 3. Free Trial (30-day initial trial for new users)
+    // 4. Expired (trial ended, neither paid nor reward active)
+    type SubscriptionStatusType = 'paid' | 'reward' | 'trial' | 'expired';
+    let statusType: SubscriptionStatusType = 'expired';
+
+    if (isSubscribed && subscriptionDaysLeft > 0) {
+      statusType = 'paid';
+    } else if (isRewardPro && rewardDaysLeft > 0) {
+      statusType = 'reward';
+    } else if (trialDaysLeft > 0) {
+      statusType = 'trial';
+    } else {
+      statusType = 'expired';
+    }
+
+    const isTrialActive = statusType === 'trial';
+    const isPro = statusType !== 'expired';
+    const isExpired = statusType === 'expired';
+    const isSubscriptionRequired = isExpired;
+
+    const plan = isSubscribed
+      ? rawPlan
+      : (isRewardPro ? 'reward' : (isTrialActive ? 'trial' : null));
+
+    const planName = isSubscribed
+      ? (rawPlan === 'yearly' ? '1 Year (Yearly)' : rawPlan === 'semester' ? '6 Months' : rawPlan === 'monthly' ? '1 Month' : 'Pro Plan')
+      : isRewardPro
+        ? 'Reward Pro'
+        : isTrialActive
+          ? 'Free Trial'
+          : 'Free Plan';
+
+    const effectiveDaysLeft = statusType === 'paid'
+      ? subscriptionDaysLeft
+      : statusType === 'reward'
+        ? rewardDaysLeft
+        : statusType === 'trial'
+          ? trialDaysLeft
+          : 0;
+
+    const badgeText = statusType === 'paid'
+      ? 'Pro'
+      : statusType === 'reward'
+        ? 'Pro'
+        : statusType === 'trial'
+          ? `${trialDaysLeft}d`
+          : 'Upgrade';
+
+    const badgeIcon = statusType === 'paid'
+      ? 'star'
+      : statusType === 'reward'
+        ? 'star'
+        : statusType === 'trial'
+          ? 'time-outline'
+          : 'flash';
 
     return {
       isPro,
+      statusType,
       trialDaysLeft,
-      isTrialActive,
-      isSubscribed,
-      isRewardPro,
-      isSubscriptionRequired: !isPro, // if neither subscribed nor in trial nor reward premium
-      plan,
+      rewardDaysLeft,
       subscriptionDaysLeft,
+      effectiveDaysLeft,
+      isTrialActive,
+      isSubscribed: statusType === 'paid',
+      isRewardPro: statusType === 'reward',
+      isExpired,
+      isSubscriptionRequired,
+      plan,
+      planName,
+      badgeText,
+      badgeIcon,
     };
-  }, [user, user?.unsafeMetadata, rewardStatus]);
+  }, [user, user?.unsafeMetadata, rewardStatus, cachedTrialDate]);
 
   return subscriptionStatus;
 }
+

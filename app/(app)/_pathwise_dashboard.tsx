@@ -62,7 +62,7 @@ export default function DashboardScreen() {
   const styles = useStyles(colors);
   const { isStudyOSMode, toggleMode } = useStudySessionStore();
   
-  const { isPro, isSubscribed, isTrialActive, trialDaysLeft, isRewardPro } = useSubscription();
+  const { isPro, statusType, isSubscribed, isTrialActive, trialDaysLeft, isRewardPro, isExpired } = useSubscription();
   const [tokenBalance, setTokenBalance] = useState(0);
 
   useFocusEffect(
@@ -74,7 +74,7 @@ export default function DashboardScreen() {
           setTokenBalance(res.token_balance || 0);
         })
         .catch(() => {});
-    }, [user])
+    }, [user?.id])
   );
 
   const { data: roadmapsCatalog = [], isLoading: isLoadingCatalog } =
@@ -118,16 +118,24 @@ export default function DashboardScreen() {
         <View style={styles.headerRight}>
           <TouchableOpacity
             activeOpacity={0.8}
-            onPress={() => router.push('/(app)/rewards')}
+            onPress={() => {
+              if (statusType === 'reward') {
+                router.push('/(app)/rewards');
+              } else {
+                router.push('/(app)/_pathwise_subscription');
+              }
+            }}
             style={{
               backgroundColor: isSubscribed || isRewardPro
                 ? '#FBBF24'
                 : isTrialActive
                   ? colors.primary + '20'
-                  : colors.surfaceHigh,
+                  : isExpired
+                    ? colors.primary + '18'
+                    : colors.surfaceHigh,
               flexDirection: 'row',
               height: 36,
-              paddingHorizontal: 10,
+              paddingHorizontal: 11,
               justifyContent: 'center',
               alignItems: 'center',
               borderRadius: 18,
@@ -136,27 +144,29 @@ export default function DashboardScreen() {
                 ? '#F59E0B'
                 : isTrialActive
                   ? colors.primary
-                  : colors.border,
+                  : isExpired
+                    ? colors.primary + '60'
+                    : colors.border,
               gap: 5,
               flexShrink: 0,
             }}
           >
-            {isTrialActive ? (
+            {isSubscribed || isRewardPro ? (
+              <>
+                <Ionicons name="star" size={15} color="#fff" />
+                <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Pro</Text>
+              </>
+            ) : isTrialActive ? (
               <>
                 <Ionicons name="time-outline" size={15} color={colors.primary} />
                 <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 12.5 }}>
                   {trialDaysLeft}d
                 </Text>
               </>
-            ) : isSubscribed || isRewardPro ? (
-              <>
-                <Ionicons name="star" size={15} color="#fff" />
-                <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Pro</Text>
-              </>
             ) : (
               <>
-                <Ionicons name="sparkles-outline" size={14} color={colors.textDim} />
-                <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Free</Text>
+                <Ionicons name="flash" size={14} color={colors.primary} />
+                <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 12.5 }}>Upgrade</Text>
               </>
             )}
           </TouchableOpacity>

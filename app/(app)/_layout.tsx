@@ -142,7 +142,7 @@ export default function AppLayout() {
           tabBar={(props) => <TabBar {...props} />}
           screenOptions={{ 
             headerShown: false,
-            freezeOnBlur: false,
+            freezeOnBlur: true,
             lazy: true,
             sceneStyle: { backgroundColor: colors.background }
           }}

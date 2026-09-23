@@ -911,7 +911,13 @@ app.post('/api/payment/verify', getClerkId, async (req, res) => {
         'yearly': 365,
       };
       const validDurationDays = PLAN_DURATIONS[plan_id] || (typeof duration_days === 'number' && duration_days > 0 && duration_days <= 365 ? duration_days : 30);
-      const expiryTime = Date.now() + (validDurationDays * 24 * 60 * 60 * 1000);
+      
+      const existingUser = await User.findOne({ clerkUserId: req.clerkUserId });
+      const now = Date.now();
+      const currentExpiry = existingUser?.premium_expires_at && existingUser.premium_expires_at > now
+        ? existingUser.premium_expires_at
+        : now;
+      const expiryTime = currentExpiry + (validDurationDays * 24 * 60 * 60 * 1000);
 
       await User.findOneAndUpdate(
         { clerkUserId: req.clerkUserId }, 
@@ -920,7 +926,8 @@ app.post('/api/payment/verify', getClerkId, async (req, res) => {
           subscription_plan: plan_id || 'pro',
           subscription_updated_at: new Date(),
           premium_expires_at: expiryTime
-        }
+        },
+        { upsert: true }
       );
       res.json({ success: true, message: 'Payment verified successfully' });
     } else {
@@ -1187,7 +1194,9 @@ app.post('/api/rewards/redeem', getClerkId, rewardRateLimiter, async (req, res) 
     const startFrom = currentExpiry > now ? currentExpiry : now;
     user.premium_expires_at = startFrom + plan.days * 24 * 60 * 60 * 1000;
     user.is_premium = true;
-    user.subscription_plan = 'pro';
+    if (!user.subscription_plan || user.subscription_plan === 'free') {
+      user.subscription_plan = 'reward';
+    }
     user.subscription_updated_at = new Date();
     
     await user.save();

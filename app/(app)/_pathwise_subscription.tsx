@@ -29,14 +29,27 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.100:5000/ap
 export default function SubscriptionScreen() {
   const colors = useThemeStore((s) => s.colors);
   const styles = useStyles(colors);
-  const { isPro, trialDaysLeft, isTrialActive, isSubscribed, plan, subscriptionDaysLeft } = useSubscription();
+  const { 
+    isPro, 
+    statusType,
+    trialDaysLeft, 
+    rewardDaysLeft,
+    subscriptionDaysLeft,
+    effectiveDaysLeft,
+    isTrialActive, 
+    isSubscribed, 
+    isRewardPro,
+    isExpired,
+    plan, 
+    planName 
+  } = useSubscription();
   const { user } = useUser();
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(() => PLANS.find(p => p.id === plan) || PLANS[0]);
 
   React.useEffect(() => {
-    if (plan) {
+    if (plan && plan !== 'reward' && plan !== 'trial') {
       const p = PLANS.find(item => item.id === plan);
       if (p) setSelectedPlan(p);
     }
@@ -126,7 +139,9 @@ export default function SubscriptionScreen() {
           
           if (!verifyRes.ok) throw new Error(verifyData.error || 'Payment verification failed');
           
-          const expiryTime = Date.now() + (durationDays * 24 * 60 * 60 * 1000);
+          const currentExpiry = (user.unsafeMetadata?.subscriptionExpiry as number) || 0;
+          const startFrom = currentExpiry > Date.now() ? currentExpiry : Date.now();
+          const expiryTime = startFrom + (durationDays * 24 * 60 * 60 * 1000);
           await user.update({
             unsafeMetadata: { ...user.unsafeMetadata, isSubscribed: true, plan: selectedPlan.id, subscriptionExpiry: expiryTime }
           });
@@ -158,20 +173,44 @@ export default function SubscriptionScreen() {
       </View>
 
       {/* Status Card */}
-      <View style={[styles.statusCard, { borderColor: isPro ? (isSubscribed ? '#22c55e' : colors.primary) : colors.border, backgroundColor: isSubscribed ? '#22c55e10' : colors.surface }]}>
+      <View style={[
+        styles.statusCard, 
+        { 
+          borderColor: isSubscribed ? '#22c55e' : isRewardPro ? '#F59E0B' : isTrialActive ? colors.primary : colors.border, 
+          backgroundColor: isSubscribed ? '#22c55e10' : isRewardPro ? '#F59E0B10' : isTrialActive ? `${colors.primary}10` : colors.surface 
+        }
+      ]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
-            <Ionicons name={isSubscribed ? "shield-checkmark" : isTrialActive ? "time" : "lock-closed"} size={24} color={isSubscribed ? '#22c55e' : isPro ? colors.primary : colors.textMuted} />
-            <Text style={{ ...Typography.h3, color: isSubscribed ? '#22c55e' : colors.text, flexShrink: 1 }} numberOfLines={1}>
+            <Ionicons 
+              name={isSubscribed ? "shield-checkmark" : isRewardPro ? "star" : isTrialActive ? "time" : "lock-closed"} 
+              size={24} 
+              color={isSubscribed ? '#22c55e' : isRewardPro ? '#F59E0B' : isTrialActive ? colors.primary : colors.textMuted} 
+            />
+            <Text style={{ ...Typography.h3, color: isSubscribed ? '#22c55e' : isRewardPro ? '#F59E0B' : isTrialActive ? colors.primary : colors.text, flexShrink: 1 }} numberOfLines={1}>
               {isSubscribed 
                 ? (plan === 'yearly' ? "Active: Yearly ⭐" : plan === 'semester' ? "Active: 6 Months ⚡" : plan === 'monthly' ? "Active: 1 Month ⚡" : "Active Pro ⭐")
-                : isTrialActive ? "Free Trial Active" : "Trial Expired"}
+                : isRewardPro
+                  ? "Active: Reward Pro ⭐"
+                  : isTrialActive 
+                    ? "Free Trial Active" 
+                    : "Trial Expired 🔒"}
             </Text>
           </View>
-          {isSubscribed && (
-            <View style={{ backgroundColor: '#22c55e25', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100, marginLeft: 8 }}>
-              <Text style={{ color: '#22c55e', fontWeight: 'bold', fontSize: 12 }}>
-                {subscriptionDaysLeft} {subscriptionDaysLeft === 1 ? 'Day' : 'Days'} Left
+          {(isSubscribed || isRewardPro || isTrialActive) && (
+            <View style={{ 
+              backgroundColor: isSubscribed ? '#22c55e25' : isRewardPro ? '#F59E0B25' : `${colors.primary}25`, 
+              paddingHorizontal: 10, 
+              paddingVertical: 4, 
+              borderRadius: 100, 
+              marginLeft: 8 
+            }}>
+              <Text style={{ 
+                color: isSubscribed ? '#22c55e' : isRewardPro ? '#F59E0B' : colors.primary, 
+                fontWeight: 'bold', 
+                fontSize: 12 
+              }}>
+                {effectiveDaysLeft} {effectiveDaysLeft === 1 ? 'Day' : 'Days'} Left
               </Text>
             </View>
           )}
@@ -179,9 +218,11 @@ export default function SubscriptionScreen() {
         <Text style={{ ...Typography.body, color: colors.textDim }}>
           {isSubscribed 
             ? `You are currently on the ${plan === 'yearly' ? '1 Year (Yearly)' : plan === 'semester' ? '6 Months' : plan === 'monthly' ? '1 Month' : 'Pro'} Plan with ${subscriptionDaysLeft} days remaining. Enjoy unlimited AI roadmaps & doubt solvers!` 
-            : isTrialActive 
-              ? `You have ${trialDaysLeft} days left in your free trial of AI Superpowers.` 
-              : "Your 30-day trial has ended. Upgrade to continue using AI roadmaps and solvers."}
+            : isRewardPro
+              ? `You unlocked Pro using Reward Tokens with ${rewardDaysLeft} days remaining. You can also upgrade to a paid plan below anytime!`
+              : isTrialActive 
+                ? `You have ${trialDaysLeft} days left in your free trial of AI Superpowers.` 
+                : "Your 30-day free trial has completed. Choose a plan below or earn free days via Rewards to unlock unlimited AI roadmaps & doubt solvers!"}
         </Text>
       </View>
 

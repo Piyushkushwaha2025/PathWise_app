@@ -257,7 +257,7 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
       Animated.timing(progressAnim, {
         toValue: progress,
         duration: 1500,
-        useNativeDriver: false
+        useNativeDriver: true
       }).start();
     }
   }, [isOngoing, currentMinutes, displayClass]);
@@ -458,14 +458,13 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
             position: 'absolute',
             top: 0,
             left: 0,
+            right: 0,
             bottom: 0,
             backgroundColor: attendanceStatus === 'present' ? '#10b98112' : attendanceStatus === 'absent' ? '#ef444410' : '#22c55e12',
             borderTopRightRadius: Radius.lg,
             borderBottomRightRadius: Radius.lg,
-            width: progressAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: ['0%', '100%']
-            })
+            transformOrigin: 'left',
+            transform: [{ scaleX: progressAnim }]
           }} />
         )}
 
@@ -654,7 +653,7 @@ export default function StudyOSDashboard() {
   const styles = useStyles(colors);
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isPro, isTrialActive, trialDaysLeft, isSubscribed, isRewardPro, plan } = useSubscription();
+  const { isPro, statusType, isTrialActive, trialDaysLeft, isSubscribed, isRewardPro, isExpired, plan } = useSubscription();
   const { roadmaps, profile, subjects, detailedAttendanceCache, isHydrated } = useStudyOSStore();
   const { clearSession, isSessionDisconnected } = useStudySessionStore();
   const [isCalendarVisible, setIsCalendarVisible] = useState(false);
@@ -677,7 +676,7 @@ export default function StudyOSDashboard() {
           })
           .catch(() => {});
       }
-    }, [user])
+    }, [user?.id])
   );
 
   const [selectedSubjectDetails, setSelectedSubjectDetails] = useState<{code: string, name: string, viewActionTarget?: string} | null>(null);
@@ -719,7 +718,7 @@ export default function StudyOSDashboard() {
   const theme = useThemeStore((s) => s.theme);
   const isDark = theme === 'black' || theme === 'emerald';
 
-  const facilityItems = [
+  const facilityItems = React.useMemo(() => [
     {
       id: 'profile',
       name: 'Profile',
@@ -776,7 +775,7 @@ export default function StudyOSDashboard() {
       color: '#06b6d4',
       onPress: () => setIsAttendanceOverviewVisible(true),
     },
-  ];
+  ], []);
 
   const { userId } = useAuth();
   const { dbUser } = useDBProfile();
@@ -1086,16 +1085,24 @@ export default function StudyOSDashboard() {
           <View style={styles.headerRight}>
             <TouchableOpacity 
               activeOpacity={0.8}
-              onPress={() => router.push('/(app)/rewards' as any)} 
+              onPress={() => {
+                if (statusType === 'reward') {
+                  router.push('/(app)/rewards' as any);
+                } else {
+                  router.push('/(app)/_pathwise_subscription' as any);
+                }
+              }} 
               style={{ 
                 backgroundColor: isPaidOrRewardPro
                   ? '#FBBF24' 
                   : isTrialActive
                     ? colors.primary + '20'
-                    : colors.surfaceHigh, 
+                    : isExpired
+                      ? colors.primary + '18'
+                      : colors.surfaceHigh, 
                 flexDirection: 'row', 
                 height: 36, 
-                paddingHorizontal: 10, 
+                paddingHorizontal: 11, 
                 justifyContent: 'center', 
                 alignItems: 'center', 
                 borderRadius: 18, 
@@ -1104,25 +1111,27 @@ export default function StudyOSDashboard() {
                   ? '#F59E0B' 
                   : isTrialActive
                     ? colors.primary
-                    : colors.border, 
+                    : isExpired
+                      ? colors.primary + '60'
+                      : colors.border, 
                 gap: 5,
                 flexShrink: 0,
               }}
             >
-              {isTrialActive ? (
-                <>
-                  <Ionicons name="time-outline" size={15} color={colors.primary} />
-                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 12.5 }}>{trialDaysLeft}d</Text>
-                </>
-              ) : isPaidOrRewardPro ? (
+              {isPaidOrRewardPro ? (
                 <>
                   <Ionicons name="star" size={15} color="#fff" />
                   <Text style={{ color: '#fff', fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Pro</Text>
                 </>
+              ) : isTrialActive ? (
+                <>
+                  <Ionicons name="time-outline" size={15} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 12.5 }}>{trialDaysLeft}d</Text>
+                </>
               ) : (
                 <>
-                  <Ionicons name="sparkles-outline" size={14} color={colors.textDim} />
-                  <Text style={{ color: colors.text, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 13 }}>Free</Text>
+                  <Ionicons name="flash" size={14} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontFamily: 'SpaceGrotesk_700Bold', fontSize: 12.5 }}>Upgrade</Text>
                 </>
               )}
             </TouchableOpacity>
