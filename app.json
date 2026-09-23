@@ -105,12 +105,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "6ec620f1-e4e6-4862-8223-6418976b86e4"
+        "projectId": "983f9008-442a-4984-9f18-859c152558c4"
       }
     },
-    "owner": "its123",
+    "owner": "its-dangerous",
     "updates": {
-      "url": "https://u.expo.dev/6ec620f1-e4e6-4862-8223-6418976b86e4"
+      "url": "https://u.expo.dev/983f9008-442a-4984-9f18-859c152558c4"
     }
   }
 }

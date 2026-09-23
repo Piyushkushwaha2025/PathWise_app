@@ -268,7 +268,7 @@ function RootLayoutInner() {
           }
           if (finalStatus === "granted" && user?.id && Platform.OS !== 'web') {
             try {
-              const projectId = "6ec620f1-e4e6-4862-8223-6418976b86e4";
+              const projectId = "983f9008-442a-4984-9f18-859c152558c4";
               const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
               if (tokenData?.data) {
                 await savePushToken(user.id, tokenData.data);
