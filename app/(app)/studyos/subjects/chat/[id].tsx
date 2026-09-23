@@ -20,6 +20,8 @@ import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context'
 import { BlurView, BlurTargetView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { NetworkStatusBanner } from '../../../../../components/NetworkStatusBanner';
+import { getNetworkState, reportNetworkError, reportNetworkSuccess, useNetworkStatus } from '../../../../../lib/networkManager';
 
 interface Message {
   id: string;
@@ -150,6 +152,7 @@ export default function AITutorChatScreen() {
   const kbOffset = insets.top;
 
   const { isSubscriptionRequired } = useSubscription();
+  const netState = useNetworkStatus();
   const isAccessGranted = !isSubscriptionRequired;
   
   useEffect(() => {
@@ -431,8 +434,8 @@ export default function AITutorChatScreen() {
       if (currentSessions.length >= 5) return currentSessions;
       
       const welcomeText = isDoubtSolver
-        ? `👋 **Snap & Solve (AI Vision)**\n\nTake a photo or upload an image of any math problem, physics numerical, circuit diagram, or programming question to get an instant step-by-step solution with full explanations!`
-        : `Hello! I am your AI Tutor for **${name}**. I've read your entire syllabus and course materials. What would you like to learn today?`;
+        ? `👋 **Quirren Snap & Solve (AI Vision)**\n\nTake a photo or upload an image of any math problem, physics numerical, circuit diagram, or programming question to get an instant step-by-step solution with full explanations!`
+        : `Hello! I am Quirren, your AI Tutor for **${name}**. I've read your entire syllabus and course materials. What would you like to learn today?`;
 
       const newSession: ChatSession = {
         id: Date.now().toString(),
@@ -712,6 +715,29 @@ export default function AITutorChatScreen() {
       return updated;
     });
 
+    // Instant offline check: Don't hang or wait 35s when disconnected
+    const currentNet = getNetworkState();
+    if (!currentNet.isOnline) {
+      const offlineMsg: Message = {
+        id: Date.now().toString() + 'err',
+        role: 'model',
+        text: "⚠️ **No Internet Connection**\n\nYou are currently offline. Please reconnect to Wi-Fi or mobile data to chat with Quirren.",
+      };
+      setSessions(prevSessions => {
+        const updated = prevSessions.map(s => {
+          if (s.id === currentSessionId) {
+            return { ...s, messages: [...s.messages, offlineMsg], updatedAt: Date.now() };
+          }
+          return s;
+        });
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+      setIsTyping(false);
+      return;
+    }
+
+    const reqStartTime = Date.now();
     try {
       // Use a ref to avoid stale closure on sessions state
       const latestSession = sessions.find(s => s.id === currentSessionId) ||
@@ -738,6 +764,8 @@ export default function AITutorChatScreen() {
          imagePayload
       );
 
+      reportNetworkSuccess(Date.now() - reqStartTime);
+
       // Trigger self-learning in the background (non-blocking)
       if (apiKey) {
          const fullHistory = [...history, { role: 'model' as const, parts: [{ text: aiText }] }];
@@ -763,8 +791,19 @@ export default function AITutorChatScreen() {
     } catch (error: any) {
       console.error("AI Generation Error:", error);
       let errMsg = "Failed to get a response. Please try again.";
-      
-      if (error.message?.includes('DAILY_LIMIT_REACHED')) {
+
+      const isTimeout = error.name === 'TimeoutError' || error.message?.includes('timeout') || error.message?.includes('aborted');
+      const isNetFail = error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch') || error.message?.includes('Network Error');
+
+      if (isTimeout || isNetFail) {
+         reportNetworkError();
+      }
+
+      if (isTimeout) {
+         errMsg = "⚠️ **Connection Timeout**\n\nQuirren took too long to respond due to a slow or unstable network. Please check your connection and tap retry.";
+      } else if (isNetFail) {
+         errMsg = "⚠️ **Network Connection Failed**\n\nUnable to reach Quirren. Please check your internet connection and try again.";
+      } else if (error.message?.includes('DAILY_LIMIT_REACHED')) {
          errMsg = "You've reached today's free PathWise Cloud limit (100 questions). To continue without limits, save your own free personal API Key in Settings!";
          setShowSettings(true);
       } else if (error.message?.includes('ALL_POOL_KEYS_EXHAUSTED') || error.message?.includes('NO_POOL_KEYS')) {
@@ -1123,12 +1162,12 @@ export default function AITutorChatScreen() {
   if (showSettings) {
     return (
       <View style={styles.setupContainer}>
-        <Stack.Screen options={{ title: "AI Tutor Settings", headerShadowVisible: false, headerStyle: { backgroundColor: colors.background } }} />
+        <Stack.Screen options={{ title: "Quirren Settings", headerShadowVisible: false, headerStyle: { backgroundColor: colors.background } }} />
         <View style={styles.setupCard}>
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
             <Ionicons name="key" size={24} color={colors.primary} />
           </View>
-          <Text style={styles.title}>{hasSavedKey && !isEditingKey ? "AI Tutor Settings" : "AI Engine Settings"}</Text>
+          <Text style={styles.title}>{hasSavedKey && !isEditingKey ? "Quirren Settings" : "AI Engine Settings"}</Text>
           <Text style={styles.subtitle}>
             {activeProvider === 'pool' 
               ? "⚡ PathWise Cloud AI Pool is active. You can chat and solve doubts freely without entering any key! To connect personal keys for dedicated limits, paste below." 
@@ -1267,6 +1306,7 @@ export default function AITutorChatScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
+      <NetworkStatusBanner />
       
       <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={kbOffset}>
@@ -1292,7 +1332,7 @@ export default function AITutorChatScreen() {
 
             <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }} numberOfLines={1}>
-                {isDoubtSolver ? 'Snap & Solve' : (name || 'AI Tutor')}
+                {isDoubtSolver ? 'Snap & Solve' : (name ? `${name} • Quirren` : 'Quirren')}
               </Text>
               <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.textDim }} numberOfLines={1}>
                 {isDoubtSolver ? 'Universal AI Vision Solver' : (id || 'Course Tutor')}
@@ -1516,7 +1556,7 @@ export default function AITutorChatScreen() {
                                >
                                   <Ionicons name="sparkles" size={13} color="#ffffff" />
                                </LinearGradient>
-                               <Text style={{ fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, letterSpacing: 0.2 }}>AI Tutor</Text>
+                               <Text style={{ fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, letterSpacing: 0.2 }}>Quirren</Text>
                                <View style={{ backgroundColor: colors.primary + '16', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: colors.primary + '30' }}>
                                   <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.primary }}>Exam Verified</Text>
                                </View>
@@ -1628,7 +1668,7 @@ export default function AITutorChatScreen() {
                     borderRadius: inputHeight > 54 ? 16 : 22,
                   }
                 ]}
-                placeholder={attachedPhoto ? "Ask about this photo (optional)..." : (isDoubtSolver ? "Snap photo or type your doubt..." : "Ask AI Tutor a question...")}
+                placeholder={attachedPhoto ? "Ask about this photo (optional)..." : (isDoubtSolver ? "Snap photo or ask Quirren..." : "Ask Quirren a question...")}
                 placeholderTextColor={colors.textMuted}
                 value={inputText}
                 onChangeText={(text) => {
@@ -1932,7 +1972,7 @@ export default function AITutorChatScreen() {
             </View>
 
             <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: colors.textDim, marginBottom: 18, lineHeight: 19 }}>
-              Take a photo of any question, math formula, circuit diagram, or textbook page to get an instant step-by-step solution from AI Tutor.
+              Take a photo of any question, math formula, circuit diagram, or textbook page to get an instant step-by-step solution from Quirren.
             </Text>
 
             <TouchableOpacity 

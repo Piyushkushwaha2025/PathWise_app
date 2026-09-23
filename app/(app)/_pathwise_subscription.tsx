@@ -234,7 +234,7 @@ export default function SubscriptionScreen() {
             "Full AI Superpowers",
             "No need to download/upload PDFs",
             "Unlimited Custom AI Roadmaps",
-            "Unlimited AI Doubt Solver",
+            "Unlimited Quirren AI Doubt Solver",
             "Advanced StudyOS Analytics",
             "Premium Notes & PYQs",
           ].map((feat, i) => (

@@ -46,7 +46,7 @@ export default function LmsCoursesScreen() {
   const handleOpenChatOptions = async (sub: any) => {
     try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
     if (isSubscriptionRequired) {
-      usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
+      usePaywallStore.getState().showPaywall("Quirren is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
       return;
     }
     setSelectedSubjectForChat(sub);
@@ -1090,7 +1090,7 @@ export default function LmsCoursesScreen() {
                         onPress={() => {
                           try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
                           if (isSubscriptionRequired) {
-                            usePaywallStore.getState().showPaywall("AI Tutor is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
+                            usePaywallStore.getState().showPaywall("Quirren is a Pro feature. Upgrade to get instant answers and explanations for any subject.");
                             return;
                           }
                           router.push(`/studyos/subjects/chat/${encodeURIComponent(sub.code)}?name=${encodeURIComponent(sub.name)}&mode=latest` as any);
@@ -1103,7 +1103,7 @@ export default function LmsCoursesScreen() {
                           style={styles.aiTutorGradient}
                         >
                           <Ionicons name="sparkles" size={14} color="#ffffff" style={{ marginRight: 6 }} />
-                          <Text style={styles.aiTutorText}>Ask AI Tutor</Text>
+                          <Text style={styles.aiTutorText}>Ask Quirren</Text>
                         </LinearGradient>
                       </TouchableOpacity>
 
@@ -1228,7 +1228,7 @@ export default function LmsCoursesScreen() {
                   <Text style={{ fontSize: 12, fontFamily: 'Inter_500Medium', color: colors.textMuted }}>Choose Session</Text>
                 </View>
                 <Text style={{ fontSize: 17, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }} numberOfLines={1}>
-                  {selectedSubjectForChat?.name || 'AI Tutor Chats'}
+                  {selectedSubjectForChat?.name ? `${selectedSubjectForChat.name} • Quirren` : 'Quirren Chats'}
                 </Text>
               </View>
               <TouchableOpacity 

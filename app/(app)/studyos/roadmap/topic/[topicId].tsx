@@ -32,7 +32,7 @@ export default function TopicScreen() {
   const handleAskDoubt = () => {
     if (isSubscriptionRequired) {
       doubtSheetRef.current?.close();
-      usePaywallStore.getState().showPaywall("AI Doubt Solver is a Pro feature. Upgrade to ask unlimited questions and clear your concepts instantly.");
+      usePaywallStore.getState().showPaywall("Quirren AI Doubt Solver is a Pro feature. Upgrade to ask unlimited questions and clear your concepts instantly.");
       return;
     }
     
@@ -87,7 +87,7 @@ export default function TopicScreen() {
         style={styles.fab} 
         onPress={() => doubtSheetRef.current?.expand()}
       >
-        <Text style={styles.fabText}>🤔 Ask AI Doubt</Text>
+        <Text style={styles.fabText}>🤔 Ask Quirren</Text>
       </TouchableOpacity>
 
       {/* Bottom Sheet for Doubt Solver */}
@@ -99,7 +99,7 @@ export default function TopicScreen() {
         backgroundStyle={{ backgroundColor: colors.surface }}
       >
         <BottomSheetView style={styles.sheetContent}>
-          <Text style={styles.sheetTitle}>Ask AI Doubt Solver</Text>
+          <Text style={styles.sheetTitle}>Ask Quirren</Text>
           <Text style={styles.sheetContext}>Topic: {topicId}</Text>
           
           <TextInput
@@ -117,7 +117,7 @@ export default function TopicScreen() {
             disabled={!doubtText.trim() || isPending}
           >
             <Text style={styles.submitBtnText}>
-              {isPending ? 'Thinking...' : 'Ask AI'}
+              {isPending ? 'Thinking...' : 'Ask Quirren'}
             </Text>
           </TouchableOpacity>
 
