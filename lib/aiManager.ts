@@ -169,6 +169,62 @@ If retrieved documents contain the answer:
 - Keep the answer factually consistent.
 - Do not invent missing details.`;
 
+async function callCloudPool(
+  messages: any[], 
+  syllabusText: string, 
+  courseName: string,
+  courseCode?: string,
+  userLearningProfile?: string,
+  imageAttachment?: { base64: string; mimeType: string }
+): Promise<string> {
+  const proxyUrl = process.env.EXPO_PUBLIC_AI_PROXY_URL || PROXY_URL || 'https://studyos-ai-proxy.piyushkushwaha2520.workers.dev';
+  
+  // Daily Fair-Use check for Shared Pool (100 queries/day per device)
+  const today = new Date().toISOString().split('T')[0];
+  const usageRaw = await AsyncStorage.getItem('ai_daily_usage');
+  let usage = usageRaw ? JSON.parse(usageRaw) : { date: today, count: 0 };
+  
+  if (usage.date !== today) {
+    usage = { date: today, count: 0 };
+  }
+
+  if (usage.count >= 100) {
+    throw new Error('DAILY_LIMIT_REACHED');
+  }
+
+  try {
+    const response = await fetch(proxyUrl, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({
+          messages,
+          syllabusText,
+          courseName,
+          courseCode,
+          userLearningProfile,
+          imageAttachment
+       }),
+       signal: AbortSignal.timeout(35000)
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+       console.error("[aiManager] Proxy returned error:", data);
+       if (data.error === 'ALL_POOL_KEYS_EXHAUSTED' || data.error === 'NO_POOL_KEYS') {
+           throw new Error('ALL_POOL_KEYS_EXHAUSTED');
+       }
+       throw new Error(data.message || data.error || 'PROXY_ERROR');
+    }
+
+    usage.count += 1;
+    await AsyncStorage.setItem('ai_daily_usage', JSON.stringify(usage));
+    return validateAndSanitizeOutput(data.text);
+  } catch (error: any) {
+    console.error("[aiManager] Cloud Pool error:", error);
+    throw error;
+  }
+}
+
 export async function generateAiResponse(
   messages: any[], 
   syllabusText: string, 
@@ -178,9 +234,11 @@ export async function generateAiResponse(
   activeProvider?: string,
   imageAttachment?: { base64: string; mimeType: string }
 ): Promise<string> {
-  // 1. Check active BYOK provider key or fallback to available connected key
+  // 1. Check if user selected Cloud Pool or has a personal BYOK key
   let personalKey: string | null = null;
-  if (activeProvider === 'groq') {
+  if (activeProvider === 'pool') {
+      personalKey = null; // User explicitly selected PathWise Cloud Pool
+  } else if (activeProvider === 'groq') {
       personalKey = await SecureStore.getItemAsync('byok_key_groq');
   } else if (activeProvider === 'openrouter') {
       personalKey = await SecureStore.getItemAsync('byok_key_openrouter');
@@ -194,7 +252,7 @@ export async function generateAiResponse(
       personalKey = await SecureStore.getItemAsync('byok_key_gemini') || await SecureStore.getItemAsync('gemini_api_key');
   }
   
-  if (!personalKey) {
+  if (!personalKey && activeProvider !== 'pool') {
       personalKey = await SecureStore.getItemAsync('byok_key_gemini') ||
                     await SecureStore.getItemAsync('gemini_api_key') ||
                     await SecureStore.getItemAsync('byok_key_groq') ||
@@ -204,8 +262,9 @@ export async function generateAiResponse(
                     await SecureStore.getItemAsync('byok_key_nvidia');
   }
   
+  // If no personal key is configured or user selected 'pool', use Cloud Pool!
   if (!personalKey || personalKey.trim().length <= 10) {
-     throw new Error('NO_PERSONAL_KEY');
+     return await callCloudPool(messages, syllabusText, courseName, courseCode, userLearningProfile, imageAttachment);
   }
 
   // USE PERSONAL KEY DIRECTLY (BYOK Mode)
@@ -627,8 +686,13 @@ You are an expert University Academic Problem Solver and AI Vision Specialist wi
             }
         }
     } catch (e: any) {
-        console.error("Multi-provider generation failed:", e);
-        throw e;
+        console.warn("[aiManager] Personal key generation failed, attempting Cloud Pool fallback:", e.message);
+        try {
+            return await callCloudPool(messages, syllabusText, courseName, courseCode, userLearningProfile, imageAttachment);
+        } catch (poolErr) {
+            console.error("Multi-provider generation failed:", e);
+            throw e;
+        }
     }
 
     return validateAndSanitizeOutput(aiResponseText);

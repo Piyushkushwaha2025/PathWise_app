@@ -480,17 +480,26 @@ export default function AITutorChatScreen() {
 
     setConnectedModels(loadedModels);
 
+    const savedActive = await AsyncStorage.getItem('active_byok_provider');
+
     if (loadedModels.length > 0) {
        setHasSavedKey(true);
        setIsEditingKey(false);
-       const savedActive = await AsyncStorage.getItem('active_byok_provider');
-       const activeM = loadedModels.find(m => m.id === savedActive) || loadedModels[0];
-       setActiveProvider(activeM.id);
-       setApiKey(activeM.key);
+       if (savedActive === 'pool') {
+          setActiveProvider('pool');
+          setApiKey('');
+       } else {
+          const activeM = loadedModels.find(m => m.id === savedActive) || loadedModels[0];
+          setActiveProvider(activeM.id);
+          setApiKey(activeM.key);
+       }
     } else {
        setHasSavedKey(false);
-       setIsEditingKey(true);
-       setShowSettings(true);
+       setIsEditingKey(false);
+       setActiveProvider('pool');
+       setApiKey('');
+       // Zero friction: Cloud Pool is ready out of the box!
+       setShowSettings(false);
     }
     setIsInitializingSettings(false);
   };
@@ -580,6 +589,7 @@ export default function AITutorChatScreen() {
     } else if (activeProvider === 'nvidia') {
        await SecureStore.deleteItemAsync('byok_key_nvidia');
     }
+    await AsyncStorage.setItem('active_byok_provider', 'pool');
     await loadApiKey();
   };
 
@@ -590,10 +600,6 @@ export default function AITutorChatScreen() {
     if (Platform.OS !== 'android') return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (showSettings) {
-        if (!hasSavedKey) {
-          router.navigate('/(app)/studyos' as any);
-          return true;
-        }
         setShowSettings(false);
         return true;
       }
@@ -740,20 +746,21 @@ export default function AITutorChatScreen() {
       console.error("AI Generation Error:", error);
       let errMsg = "Failed to get a response. Please try again.";
       
-      if (error.message?.includes('DAILY_LIMIT_REACHED') || error.message?.includes('NO_PERSONAL_KEY')) {
-         errMsg = "To chat without limits, please save your free personal API Key in Settings!";
+      if (error.message?.includes('DAILY_LIMIT_REACHED')) {
+         errMsg = "You've reached today's free PathWise Cloud limit (100 questions). To continue without limits, save your own free personal API Key in Settings!";
          setShowSettings(true);
+      } else if (error.message?.includes('ALL_POOL_KEYS_EXHAUSTED') || error.message?.includes('NO_POOL_KEYS')) {
+         errMsg = "The PathWise Cloud AI pool is experiencing high traffic. Please try again in 15 seconds, or add your own free Gemini/Groq key in Settings.";
       } else if (error.message?.includes('OVERLOADED')) {
          errMsg = "Google Gemini is currently facing very high global demand and is overloaded. Please try again in 15 seconds, or switch to Groq in Settings for a faster experience.";
       } else if (error.message?.includes('Rate Limit Exceeded') || error.message?.includes('429') || error.message?.includes('Quota exceeded')) {
-         errMsg = "Rate Limit Exceeded. You are sending queries too fast or the document/photo is too large for this free API key.";
+         errMsg = "Rate Limit Exceeded on this API key. Falling back to PathWise Cloud Pool, or try again in a few moments.";
          setShowContextLimitModal(true);
       } else if (error.message?.includes('Payload Too Large') || error.message?.includes('413')) {
-         errMsg = "The image or document you attached is too large for this API key. Try asking a shorter question or use a more capable API Key.";
+         errMsg = "The image or document you attached is too large. Try asking a shorter question or use a more capable API Key.";
          setShowContextLimitModal(true);
-      } else if (error.message?.includes('NO_POOL_KEYS') || error.message?.includes('PROXY_ERROR') || error.message?.includes('NO_PROXY_URL')) {
-         errMsg = "Please tap the Settings gear icon at the top right to enter your own free API Key.";
-         setShowSettings(true);
+      } else if (error.message?.includes('PROXY_ERROR') || error.message?.includes('NO_PROXY_URL')) {
+         errMsg = "Network error communicating with PathWise AI. Please check your internet connection or enter your personal API Key in Settings.";
       } else if (error.message?.includes('AI Provider Error')) {
          errMsg = error.message;
          if (error.message?.includes('must be a string')) {
@@ -1053,11 +1060,22 @@ export default function AITutorChatScreen() {
           <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primary + '20', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
             <Ionicons name="key" size={24} color={colors.primary} />
           </View>
-          <Text style={styles.title}>Setup AI Tutor (BYOK)</Text>
-          <Text style={styles.subtitle}>To get unlimited daily tutoring without server rate limits, paste your free personal API Key below.</Text>
+          <Text style={styles.title}>{hasSavedKey && !isEditingKey ? "AI Tutor Settings" : "AI Engine Settings"}</Text>
+          <Text style={styles.subtitle}>
+            {activeProvider === 'pool' 
+              ? "⚡ PathWise Cloud AI Pool is active. You can chat and solve doubts freely without entering any key! To connect personal keys for dedicated limits, paste below." 
+              : "You are using a personal BYOK key. To switch to the free shared pool, tap Remove API Key."}
+          </Text>
           
           {(!hasSavedKey || isEditingKey) && (
               <View style={{ width: '100%', marginBottom: 16 }}>
+                <View style={{ backgroundColor: colors.primary + '12', padding: 12, borderRadius: 10, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: colors.primary + '30' }}>
+                   <Ionicons name="cloud-done" size={20} color={colors.primary} />
+                   <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold' }}>PathWise Cloud AI Active</Text>
+                      <Text style={{ color: colors.textDim, fontSize: 11, fontFamily: 'Inter_400Regular' }}>Free pool ready. Connecting a personal key is optional.</Text>
+                   </View>
+                </View>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <TouchableOpacity 
                     style={{ flex: 1, backgroundColor: colors.primary + '20', borderWidth: 1, borderColor: colors.primary, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' }}
@@ -1093,7 +1111,7 @@ export default function AITutorChatScreen() {
                    <Text style={[styles.buttonText, { color: colors.text }]}>Change API Key</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.error, marginTop: 12 }]} onPress={removeApiKey}>
-                   <Text style={[styles.buttonText, { color: colors.error }]}>Remove API Key</Text>
+                   <Text style={[styles.buttonText, { color: colors.error }]}>Remove Key (Revert to Cloud)</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity 
@@ -1112,7 +1130,7 @@ export default function AITutorChatScreen() {
              <View style={{ width: '100%' }}>
                 <TextInput 
                   style={[styles.input, keyError ? { borderColor: colors.error } : null]}
-                  placeholder="Paste sk-or-... (Free Hermes AI), Gemini, Groq..."
+                  placeholder="Paste personal key (optional)..."
                   placeholderTextColor={colors.textMuted}
                   value={apiKey}
                   onChangeText={(txt) => { setApiKey(txt); setKeyError(''); }}
@@ -1127,16 +1145,10 @@ export default function AITutorChatScreen() {
                 </TouchableOpacity>
                 
                 <TouchableOpacity style={[styles.button, { backgroundColor: 'transparent', marginTop: 12 }]} onPress={() => { 
-                   if (!hasSavedKey || connectedModels.length === 0) {
-                      router.navigate('/(app)/studyos' as any);
-                   } else {
-                      const activeM = connectedModels.find(m => m.id === activeProvider) || connectedModels[0];
-                      if (activeM) setApiKey(activeM.key);
-                      setIsEditingKey(false);
-                      setShowSettings(false);
-                   }
+                   setIsEditingKey(false);
+                   setShowSettings(false);
                 }}>
-                   <Text style={[styles.buttonText, { color: colors.text }]}>{!hasSavedKey ? 'Exit to Dashboard' : 'Cancel'}</Text>
+                   <Text style={[styles.buttonText, { color: colors.text }]}>Back to Chat</Text>
                 </TouchableOpacity>
              </View>
           )}
@@ -1222,17 +1234,17 @@ export default function AITutorChatScreen() {
 
           {/* Right: Active Model Selector, Quick Chat & Settings */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            {hasSavedKey && (
-              <TouchableOpacity 
-                style={{ backgroundColor: colors.primary + '15', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18, borderWidth: 1, borderColor: colors.primary + '40', flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                onPress={() => setShowModelSwitcherModal(true)}
-              >
-                <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>
-                  {connectedModels.find(m => m.id === activeProvider)?.icon || '🤖'} {connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}
-                </Text>
-                <Ionicons name="chevron-down" size={14} color={colors.primary} />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity 
+              style={{ backgroundColor: colors.primary + '15', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18, borderWidth: 1, borderColor: colors.primary + '40', flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              onPress={() => setShowModelSwitcherModal(true)}
+            >
+              <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>
+                {activeProvider === 'pool' 
+                  ? '⚡ PathWise AI' 
+                  : `${connectedModels.find(m => m.id === activeProvider)?.icon || '🤖'} ${connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}`}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={colors.primary} />
+            </TouchableOpacity>
 
             {/* Quick Chat Switcher Button (Gesture Enabled) */}
             <View
@@ -1618,16 +1630,41 @@ export default function AITutorChatScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '70%' }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>⚡ Connected AI Models</Text>
+              <Text style={styles.modalTitle}>⚡ Active AI Engine</Text>
               <TouchableOpacity onPress={() => setShowModelSwitcherModal(false)}>
                 <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
             <Text style={{ color: colors.textDim, fontSize: 13, marginBottom: 16, fontFamily: 'Inter_400Regular' }}>
-               Switch instantly between your connected BYOK AI models, or connect additional keys:
+               Select between PathWise Cloud AI (built-in free shared pool) or your personal BYOK models:
             </Text>
             
             <ScrollView showsVerticalScrollIndicator={false}>
+               {/* 1. Default Built-in Cloud Pool */}
+               <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                  onPress={() => {
+                     setActiveProvider('pool');
+                     setApiKey('');
+                     AsyncStorage.setItem('active_byok_provider', 'pool');
+                     setShowModelSwitcherModal(false);
+                  }}
+               >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                     <Text style={{ fontSize: 20 }}>⚡</Text>
+                     <View>
+                        <Text style={{ color: activeProvider === 'pool' ? colors.primary : colors.text, fontSize: 16, fontFamily: activeProvider === 'pool' ? 'SpaceGrotesk_700Bold' : 'Inter_500Medium' }}>
+                           PathWise Cloud AI
+                        </Text>
+                        <Text style={{ color: colors.success, fontSize: 11, fontFamily: 'Inter_600SemiBold', marginTop: 2, textTransform: 'uppercase' }}>
+                           Default Free Shared Pool (Ready)
+                        </Text>
+                     </View>
+                  </View>
+                  <Ionicons name={activeProvider === 'pool' ? "radio-button-on" : "radio-button-off"} size={22} color={activeProvider === 'pool' ? colors.primary : colors.textDim} />
+               </TouchableOpacity>
+
+               {/* 2. Personal BYOK Connected Models */}
                {connectedModels.map((model) => (
                  <TouchableOpacity
                     key={model.id}
