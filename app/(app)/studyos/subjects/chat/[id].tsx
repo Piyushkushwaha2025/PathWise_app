@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Animated, BackHandler, Linking, DeviceEventEmitter, FlatList, Image, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 
-const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
-
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -186,17 +184,8 @@ export default function AITutorChatScreen() {
 
   const [inputText, setInputText] = useState('');
   const [inputHeight, setInputHeight] = useState(44);
-  const animatedHeight = useRef(new Animated.Value(44)).current;
   const [isTyping, setIsTyping] = useState(false);
   const scrollViewRef = useRef<FlatList>(null);
-
-  useEffect(() => {
-    Animated.timing(animatedHeight, {
-      toValue: Math.max(44, inputHeight),
-      duration: 80, // instant fluid auto-expand
-      useNativeDriver: false,
-    }).start();
-  }, [inputHeight]);
 
   
   // File Selection State
@@ -1658,12 +1647,12 @@ export default function AITutorChatScreen() {
               )}
            </TouchableOpacity>
 
-            <AnimatedTextInput 
+            <TextInput 
                 style={[
                   styles.chatInput, 
                   { 
-                    height: animatedHeight,
-                    borderRadius: inputHeight > 54 ? 16 : 22,
+                    height: inputHeight,
+                    borderRadius: inputHeight > 54 ? 18 : 22,
                   }
                 ]}
                 placeholder={attachedPhoto ? "Ask about this photo (optional)..." : (isDoubtSolver ? "Snap photo or ask Quirren..." : "Ask Quirren a question...")}
@@ -1671,8 +1660,7 @@ export default function AITutorChatScreen() {
                 value={inputText}
                 onChangeText={(text) => {
                   setInputText(text);
-                  // If empty or short single line without newline, immediately reset height to 44
-                  if (!text || text.trim().length === 0 || (!text.includes('\n') && text.length < 35)) {
+                  if (!text || text.trim().length === 0) {
                     setInputHeight(44);
                   }
                 }}
@@ -1682,26 +1670,20 @@ export default function AITutorChatScreen() {
                 maxLength={2000}
                 onContentSizeChange={(e) => {
                   const rawH = e.nativeEvent.contentSize.height;
-                  // If empty or text has no newlines and is short, keep crisp single-line 44px height
-                  if (!inputText || inputText.trim().length === 0 || (!inputText.includes('\n') && inputText.length < 35)) {
+                  if (!rawH || rawH <= 0) return;
+                  if (!inputText || !inputText.trim()) {
                     setInputHeight(44);
                     return;
                   }
 
-                  // On Android, rawH already includes compound vertical padding (~40-44px for 1 line).
-                  // On platforms where rawH only measures raw text height, rawH is ~20px for 1 line.
-                  const effectiveH = Platform.OS === 'android' ? rawH : (rawH < 35 ? rawH + 22 : rawH);
+                  const effectiveH = Platform.OS === 'android' ? rawH : rawH + 20;
 
-                  // 1 line: ~40-45px -> keeps 44px base height
-                  // 2 lines: ~60-65px -> expands to ~62px
-                  // 3 lines: ~80-85px -> expands to ~82px
-                  // 4 lines: ~100-105px -> expands to ~102px
-                  // 5+ lines: capped at 112px with scrolling
-                  if (effectiveH <= 50) {
+                  // 1 line threshold: <= 46px and no newline
+                  if (effectiveH <= 46 && !inputText.includes('\n')) {
                     setInputHeight(44);
                   } else {
-                    const computedH = Math.min(Math.max(effectiveH, 44), 112);
-                    setInputHeight(computedH);
+                    const clamped = Math.min(Math.max(effectiveH, 44), 112);
+                    setInputHeight(clamped);
                   }
                 }}
              />

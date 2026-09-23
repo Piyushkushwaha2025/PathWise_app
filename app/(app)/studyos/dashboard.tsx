@@ -213,6 +213,91 @@ function getExamsForDate(datesheet: any[], dateObj: Date) {
   });
 }
 
+function getSlotAttendanceStatus(
+  displayClass: any,
+  classesToday: any[],
+  matchedSubject: any,
+  detailedAttendanceCache?: Record<string, any[]>,
+  justUpdated?: Record<string, string>
+): 'present' | 'absent' | 'leave' | 'pending' {
+  if (!matchedSubject || !displayClass) return 'pending';
+
+  const allRecords = detailedAttendanceCache?.[matchedSubject.code] || [];
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const todayEnd = todayStart + 86400000;
+
+  // Filter records specifically for today
+  const todayRecords = allRecords.map((r: any) => {
+    const t = parseRecordDate(r?.date, r?.time);
+    return { ...r, parsedT: t };
+  }).filter((r: any) => !isNaN(r.parsedT) && r.parsedT >= todayStart && r.parsedT <= todayEnd);
+
+  // Find all scheduled classes for this subject today
+  const sameSubjectSlotsToday = (classesToday || []).filter((c: any) => {
+    const raw = c?.subjectName || '';
+    const base = raw.split(' ')[0];
+    return matchedSubject && (
+      matchedSubject.code === base || 
+      (matchedSubject.code && base.includes(matchedSubject.code.replace(/^[A-Z]+_/, '')))
+    );
+  });
+
+  // Sort slots chronologically by start time
+  sameSubjectSlotsToday.sort((a: any, b: any) => parseTimeRange(a.time).start - parseTimeRange(b.time).start);
+  
+  // Find which slot index the current displayClass is (0 for 1st class, 1 for 2nd class, etc.)
+  const slotIndex = sameSubjectSlotsToday.findIndex((c: any) => c.time === displayClass.time);
+
+  // Helper to map record status string to status type
+  const mapStatusType = (rec: any): 'present' | 'absent' | 'leave' | 'pending' => {
+    const st = String(rec?.status || rec?.type || '').toUpperCase();
+    if (st.includes('DUTY') || st === 'DL') return 'leave';
+    if (st.includes('MEDIC') || st === 'ML' || st.includes('SICK')) return 'leave';
+    if (st.includes('ABSENT') || st === 'A' || st.includes('LEAVE')) return 'absent';
+    if (st.includes('PRESENT') || st === 'P') return 'present';
+    return 'pending';
+  };
+
+  // 1. Try to find a record for today that matches this class time within 30 minutes
+  const displayStart = parseTimeRange(displayClass.time).start;
+  const timeMatchedRecord = todayRecords.find((r: any) => {
+    const recStart = parseTimeRange(r.time).start;
+    return recStart > 0 && Math.abs(recStart - displayStart) <= 30;
+  });
+
+  if (timeMatchedRecord) {
+    return mapStatusType(timeMatchedRecord);
+  }
+
+  // 2. If no exact time match, match chronologically by slot index:
+  todayRecords.sort((a: any, b: any) => {
+    const tA = parseTimeRange(a.time).start;
+    const tB = parseTimeRange(b.time).start;
+    return tA - tB || a.parsedT - b.parsedT;
+  });
+
+  const effectiveIndex = slotIndex >= 0 ? slotIndex : 0;
+  if (todayRecords.length > effectiveIndex) {
+    return mapStatusType(todayRecords[effectiveIndex]);
+  }
+
+  // If this is a subsequent slot (e.g. 2nd class of the day), but the portal only has fewer
+  // records for today (e.g. only 1st class was marked), then this slot has NOT been marked yet!
+  if (sameSubjectSlotsToday.length > 1 && effectiveIndex >= todayRecords.length) {
+    return 'pending';
+  }
+
+  // 3. Fallback to justUpdated only for the first slot or single-slot subjects
+  if (justUpdated?.[matchedSubject.code] && effectiveIndex === 0) {
+    const ju = justUpdated[matchedSubject.code].toLowerCase();
+    if (ju.includes('present')) return 'present';
+    if (ju.includes('absent')) return 'absent';
+  }
+
+  return 'pending';
+}
+
 function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, string> }) {
   const colors = useThemeStore((s) => s.colors);
   const theme = useThemeStore((s) => s.theme);
@@ -341,18 +426,14 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
   const fullNameToDisplay = matchedSubject ? `${matchedSubject.name}${suffix}` : rawSubjectName;
   const history = matchedSubject ? getHistoryStatuses(detailedAttendanceCache?.[matchedSubject.code]) : [];
 
-  // Find today's attendance record
-  const todayRecord = history.find(h => h.isToday);
-  let attendanceStatus: 'present' | 'absent' | 'leave' | 'pending' = 'pending';
-  if (todayRecord) {
-    if (todayRecord.type === 'P') attendanceStatus = 'present';
-    else if (todayRecord.type === 'A') attendanceStatus = 'absent';
-    else if (todayRecord.type === 'DL' || todayRecord.type === 'ML') attendanceStatus = 'leave';
-  } else if (matchedSubject && justUpdated?.[matchedSubject.code]) {
-    const ju = justUpdated[matchedSubject.code].toLowerCase();
-    if (ju.includes('present')) attendanceStatus = 'present';
-    else if (ju.includes('absent')) attendanceStatus = 'absent';
-  }
+  // Determine attendance status specifically for this class slot (prevents multiple classes of the same subject on the same day from falsely inheriting earlier attendance)
+  const attendanceStatus = getSlotAttendanceStatus(
+    displayClass,
+    classesToday,
+    matchedSubject,
+    detailedAttendanceCache,
+    justUpdated
+  );
 
   let whatIfAttend = null;
   let whatIfMiss = null;
