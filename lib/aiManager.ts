@@ -179,7 +179,7 @@ async function callCloudPool(
 ): Promise<string> {
   const proxyUrl = process.env.EXPO_PUBLIC_AI_PROXY_URL || PROXY_URL || 'https://studyos-ai-proxy.piyushkushwaha2520.workers.dev';
   
-  // Daily Fair-Use check for Shared Pool (100 queries/day per device)
+  // Daily Fair-Use check for Shared Pool (50 queries/day per device)
   const today = new Date().toISOString().split('T')[0];
   const usageRaw = await AsyncStorage.getItem('ai_daily_usage');
   let usage = usageRaw ? JSON.parse(usageRaw) : { date: today, count: 0 };
@@ -188,7 +188,7 @@ async function callCloudPool(
     usage = { date: today, count: 0 };
   }
 
-  if (usage.count >= 100) {
+  if (usage.count >= 50) {
     throw new Error('DAILY_LIMIT_REACHED');
   }
 
@@ -598,7 +598,7 @@ You are an expert University Academic Problem Solver and AI Vision Specialist wi
                headers: { 'x-api-key': personalKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
                body: JSON.stringify({
                   model: 'claude-3-5-sonnet-20241022',
-                  max_tokens: 2048,
+                  max_tokens: 4096,
                   system: systemContext + claudeAck,
                   messages: anthropicMessages
                })
@@ -661,7 +661,7 @@ You are an expert University Academic Problem Solver and AI Vision Specialist wi
             let res = await fetch(endpoint, {
                method: 'POST',
                headers: { 'Authorization': `Bearer ${personalKey}`, 'Content-Type': 'application/json', ...customHeaders },
-               body: JSON.stringify({ model: model, messages: openAIMessages, max_tokens: 2048 })
+               body: JSON.stringify({ model: model, messages: openAIMessages, max_tokens: 4096 })
             });
 
             // If Groq vision model failed (e.g. 400 or decommissioned), automatically retry with qwen/qwen3.8-27b
@@ -670,7 +670,7 @@ You are an expert University Academic Problem Solver and AI Vision Specialist wi
                const fallbackRes = await fetch(endpoint, {
                   method: 'POST',
                   headers: { 'Authorization': `Bearer ${personalKey}`, 'Content-Type': 'application/json', ...customHeaders },
-                  body: JSON.stringify({ model: 'qwen/qwen3.8-27b', messages: openAIMessages, max_tokens: 2048 })
+                  body: JSON.stringify({ model: 'qwen/qwen3.8-27b', messages: openAIMessages, max_tokens: 4096 })
                });
                if (fallbackRes.ok) {
                   res = fallbackRes;
@@ -834,4 +834,16 @@ Do NOT output anything else except the bulleted list.`;
         console.error("[aiManager] Proxy Reflect error", e);
         return null;
     }
+}
+
+export async function getDailyAiUsage(): Promise<{ used: number; limit: number; remaining: number }> {
+    const today = new Date().toISOString().split('T')[0];
+    const usageRaw = await AsyncStorage.getItem('ai_daily_usage');
+    const usage = usageRaw ? JSON.parse(usageRaw) : { date: today, count: 0 };
+    const count = usage.date === today ? (usage.count || 0) : 0;
+    return {
+        used: count,
+        limit: 50,
+        remaining: Math.max(0, 50 - count)
+    };
 }

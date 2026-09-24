@@ -186,6 +186,7 @@ export default function AITutorChatScreen() {
   const [inputHeight, setInputHeight] = useState(44);
   const [isTyping, setIsTyping] = useState(false);
   const scrollViewRef = useRef<FlatList>(null);
+  const shouldScrollToEndRef = useRef(false);
 
   
   // File Selection State
@@ -684,6 +685,7 @@ export default function AITutorChatScreen() {
     setIsTyping(true);
     setSelectedFiles([]);
     
+    shouldScrollToEndRef.current = true;
     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
 
     // Save user msg to state & local storage
@@ -767,9 +769,11 @@ export default function AITutorChatScreen() {
       }
 
       // Save AI msg to state & local storage
+      let newAiMsgIndex = -1;
       setSessions(prevSessions => {
         const updated = prevSessions.map(s => {
            if (s.id === currentSessionId) {
+              newAiMsgIndex = s.messages.length;
               return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'ai', role: 'model' as const, text: aiText }], updatedAt: Date.now() };
            }
            return s;
@@ -777,6 +781,20 @@ export default function AITutorChatScreen() {
         AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
         return updated;
       });
+
+      // Smoothly scroll to the START of the new AI reply so user reads from the beginning!
+      shouldScrollToEndRef.current = false;
+      if (newAiMsgIndex >= 0) {
+        setTimeout(() => {
+          try {
+            scrollViewRef.current?.scrollToIndex({
+              index: newAiMsgIndex,
+              viewPosition: 0,
+              animated: true,
+            });
+          } catch {}
+        }, 120);
+      }
 
     } catch (error: any) {
       console.error("AI Generation Error:", error);
@@ -794,7 +812,7 @@ export default function AITutorChatScreen() {
       } else if (isNetFail) {
          errMsg = "⚠️ **Network Connection Failed**\n\nUnable to reach Quirren. Please check your internet connection and try again.";
       } else if (error.message?.includes('DAILY_LIMIT_REACHED')) {
-         errMsg = "You've reached today's free PathWise Cloud limit (100 questions). To continue without limits, save your own free personal API Key in Settings!";
+         errMsg = "You've reached today's free PathWise limit (50 messages/day). To continue asking unlimited questions, save your own free personal API Key in Settings!";
          setShowSettings(true);
       } else if (error.message?.includes('ALL_POOL_KEYS_EXHAUSTED') || error.message?.includes('NO_POOL_KEYS')) {
          errMsg = "The PathWise Cloud AI pool is experiencing high traffic. Please try again in 15 seconds, or add your own free Gemini/Groq key in Settings.";
@@ -829,7 +847,6 @@ export default function AITutorChatScreen() {
       });
     } finally {
       setIsTyping(false);
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
     }
   };
 
@@ -941,12 +958,12 @@ export default function AITutorChatScreen() {
 
   const markdownStyles = useMemo(() => ({
     body: { color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 15, lineHeight: 23 },
-    heading1: { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 21, color: colors.text, marginTop: 14, marginBottom: 8 },
-    heading2: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 18, color: colors.text, marginTop: 12, marginBottom: 6 },
-    heading3: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 16, color: colors.text, marginTop: 10, marginBottom: 4 },
-    heading4: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 15, color: colors.text, marginTop: 8, marginBottom: 4 },
-    heading5: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 14, color: colors.text, marginTop: 6, marginBottom: 2 },
-    heading6: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 13, color: colors.text, marginTop: 4, marginBottom: 2 },
+    heading1: { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 6, fontSize: 21, lineHeight: 28, color: colors.text, marginTop: 14, marginBottom: 8 },
+    heading2: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 6, fontSize: 18, lineHeight: 24, color: colors.text, marginTop: 12, marginBottom: 6 },
+    heading3: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 16, lineHeight: 22, color: colors.text, marginTop: 10, marginBottom: 4 },
+    heading4: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 15, lineHeight: 20, color: colors.text, marginTop: 8, marginBottom: 4 },
+    heading5: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 14, lineHeight: 18, color: colors.text, marginTop: 6, marginBottom: 2 },
+    heading6: { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 13, lineHeight: 18, color: colors.text, marginTop: 4, marginBottom: 2 },
     paragraph: { marginTop: 0, marginBottom: 10, color: colors.text, flexWrap: 'wrap' as const },
     strong: { fontFamily: 'Inter_700Bold', color: colors.text },
     em: { fontFamily: 'Inter_400Regular', fontStyle: 'italic' as const, color: colors.text },
@@ -1418,8 +1435,27 @@ export default function AITutorChatScreen() {
             ref={scrollViewRef as any}
             data={activeMessages}
             keyExtractor={msg => msg.id}
-            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-            onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+            onScrollToIndexFailed={(info) => {
+              setTimeout(() => {
+                try {
+                  scrollViewRef.current?.scrollToIndex({
+                    index: info.index,
+                    viewPosition: 0,
+                    animated: true,
+                  });
+                } catch {}
+              }, 100);
+            }}
+            onContentSizeChange={() => {
+              if (shouldScrollToEndRef.current) {
+                scrollViewRef.current?.scrollToEnd({ animated: true });
+              }
+            }}
+            onLayout={() => {
+              if (shouldScrollToEndRef.current) {
+                scrollViewRef.current?.scrollToEnd({ animated: false });
+              }
+            }}
             ListFooterComponent={() => {
               if (isTyping) {
                 return (

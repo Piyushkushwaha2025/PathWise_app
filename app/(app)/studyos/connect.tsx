@@ -1,10 +1,10 @@
 import { useThemeStore } from '../../../store/useThemeStore';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler, Modal, Platform, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
-import { GraduationCap, ChevronRight, ChevronLeft, Search, X, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react-native';
+import { GraduationCap, ChevronRight, ChevronLeft, Search, X, ShieldAlert, ShieldCheck, Sparkles, Calendar, BarChart3 } from 'lucide-react-native';
 import { GlassCard } from '../../../components/ui/GlassCard';
 import { UNIVERSITIES, UniversityConfig } from '../../../constants/universities';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -13,8 +13,8 @@ import * as Haptics from 'expo-haptics';
 export default function ConnectScreen() {
   const colors = useThemeStore((s) => s.colors);
   const theme = useThemeStore((s) => s.theme);
-  const isDark = theme === 'black' || theme === 'emerald';
-  const styles = useStyles(colors, isDark);
+  const isDark = theme === 'black';
+  const styles = useStyles(colors, isDark, theme);
   const router = useRouter();
   const { reset, error } = useLocalSearchParams<{ reset?: string; error?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
@@ -139,31 +139,76 @@ export default function ConnectScreen() {
         )}
         
         {selectedUni ? (
-          <View style={styles.selectedContainer}>
-            <LinearGradient
-              colors={[colors.primary + '28', colors.primary + '08']}
-              style={styles.selectedGlowPod}
-            >
-              <GraduationCap size={56} color={colors.primary} />
-            </LinearGradient>
+          <ScrollView 
+            style={styles.selectedScrollView}
+            contentContainerStyle={styles.selectedContainer}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* University Emblem Pod */}
+            <View style={styles.selectedEmblemWrapper}>
+              <LinearGradient
+                colors={[`${colors.primary}25`, `${colors.primary}08`]}
+                style={styles.selectedGlowPod}
+              >
+                <GraduationCap size={44} color={colors.primary} />
+                <View style={[styles.emblemBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={styles.emblemBadgeText}>{selectedUni.shortName}</Text>
+                </View>
+              </LinearGradient>
+            </View>
 
-            <Text style={styles.title} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>
+            {/* University Name & Live Sync Pill */}
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>
               {selectedUni.name}
             </Text>
 
-            <Text style={styles.subtitle}>
-              StudyOS securely connects to your University Portal to fetch and organize your Attendance, Timetable, Marks, and Campus Services directly on your device.
-            </Text>
-            
-            <GlassCard style={styles.card}>
-              <View style={styles.cardRow}>
-                <ShieldCheck color={colors.primary} size={22} style={{ marginTop: 2 }} />
-                <Text style={styles.cardText}>
-                  Your password is never stored on external servers. It is encrypted strictly on this device and used only to fetch your academic records.
-                </Text>
-              </View>
-            </GlassCard>
+            <View style={styles.verifiedRow}>
+              <View style={styles.pulseDot} />
+              <Text style={styles.verifiedText}>Official Student Portal • Live Sync</Text>
+            </View>
 
+            <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+              StudyOS securely connects to your {selectedUni.shortName} portal to automatically organize Attendance, Timetable, Marks & Campus Services directly on your device.
+            </Text>
+
+            {/* Feature Highlights Card */}
+            <View style={styles.featuresCard}>
+              <View style={styles.featureItem}>
+                <View style={[styles.featureIconPod, { backgroundColor: `${colors.primary}18` }]}>
+                  <Calendar size={18} color={colors.primary} />
+                </View>
+                <View style={styles.featureTextCol}>
+                  <Text style={[styles.featureTitle, { color: colors.text }]}>Smart Attendance & Bunk Planner</Text>
+                  <Text style={[styles.featureDesc, { color: colors.textMuted }]}>Automated safe bunk calculations for 75% criteria</Text>
+                </View>
+              </View>
+
+              <View style={[styles.featureDivider, { backgroundColor: colors.border }]} />
+
+              <View style={styles.featureItem}>
+                <View style={[styles.featureIconPod, { backgroundColor: `${colors.primary}18` }]}>
+                  <BarChart3 size={18} color={colors.primary} />
+                </View>
+                <View style={styles.featureTextCol}>
+                  <Text style={[styles.featureTitle, { color: colors.text }]}>Marks & Sessional Analytics</Text>
+                  <Text style={[styles.featureDesc, { color: colors.textMuted }]}>Real-time MSTs, assignments & predicted CGPA</Text>
+                </View>
+              </View>
+
+              <View style={[styles.featureDivider, { backgroundColor: colors.border }]} />
+
+              <View style={styles.featureItem}>
+                <View style={[styles.featureIconPod, { backgroundColor: '#10b98118' }]}>
+                  <ShieldCheck size={18} color="#10b981" />
+                </View>
+                <View style={styles.featureTextCol}>
+                  <Text style={[styles.featureTitle, { color: colors.text }]}>100% On-Device Encryption</Text>
+                  <Text style={[styles.featureDesc, { color: colors.textMuted }]}>Your password never touches external servers. Encrypted locally.</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Connect Action Button */}
             <TouchableOpacity 
               style={[styles.connectButton, { backgroundColor: colors.primary }]}
               activeOpacity={0.82}
@@ -175,7 +220,7 @@ export default function ConnectScreen() {
               <Text style={styles.connectButtonText}>Connect {selectedUni.shortName} Portal</Text>
               <ChevronRight color="#ffffff" size={20} />
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         ) : (
           <View style={styles.listContainer}>
             <View style={styles.listHeaderRow}>
@@ -291,7 +336,7 @@ export default function ConnectScreen() {
   );
 }
 
-const useStyles = (colors: any, isDark: boolean) => StyleSheet.create({
+const useStyles = (colors: any, isDark: boolean, theme?: string) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -504,51 +549,136 @@ const useStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
 
   // Selected State
-  selectedContainer: {
+  selectedScrollView: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: Spacing.xl,
-    paddingHorizontal: Spacing.sm,
+    width: '100%',
   },
-  selectedGlowPod: {
+  selectedContainer: {
+    alignItems: 'center',
+    paddingBottom: Spacing.xxl,
+    paddingHorizontal: Spacing.sm,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+  },
+  selectedEmblemWrapper: {
     width: 96,
     height: 96,
-    borderRadius: 30,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderColor: isDark ? 'rgba(255,255,255,0.12)' : (theme === 'cream' ? '#d1c4b2' : theme === 'emerald' ? '#9DDABA' : 'rgba(0,0,0,0.08)'),
+    backgroundColor: isDark ? '#121217' : (theme === 'cream' ? '#f3f0e6' : theme === 'emerald' ? '#D5F5E3' : '#ffffff'),
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.35 : 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  selectedGlowPod: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emblemBadge: {
+    position: 'absolute',
+    bottom: -6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  emblemBadgeText: {
+    color: '#ffffff',
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 0.5,
   },
   title: {
     fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 22,
     lineHeight: 28,
     textAlign: 'center',
-    marginBottom: Spacing.sm,
+    marginBottom: 6,
+  },
+  verifiedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#10b98118',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: '#10b98130',
+  },
+  verifiedText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: '#10b981',
   },
   subtitle: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 13.5,
+    lineHeight: 20,
     textAlign: 'center',
     marginBottom: Spacing.xl,
     maxWidth: 440,
   },
-  card: {
-    marginBottom: Spacing.xl,
-    padding: Spacing.lg,
+  featuresCard: {
     width: '100%',
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    borderColor: isDark ? 'rgba(255,255,255,0.08)' : (theme === 'cream' ? '#d1c4b2' : theme === 'emerald' ? '#9DDABA' : 'rgba(0,0,0,0.08)'),
+    backgroundColor: isDark ? 'rgba(255,255,255,0.035)' : (theme === 'cream' ? '#f3f0e6' : theme === 'emerald' ? '#D5F5E3' : '#ffffff'),
+    padding: Spacing.lg,
+    marginBottom: Spacing.xl,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: isDark ? 0.2 : 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  cardRow: {
+  featureItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
+    alignItems: 'center',
+    gap: 14,
   },
-  cardText: {
+  featureIconPod: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureTextCol: {
     flex: 1,
+  },
+  featureTitle: {
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+    fontSize: 13.5,
+    lineHeight: 18,
+    marginBottom: 2,
+  },
+  featureDesc: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  featureDivider: {
+    height: 1,
+    marginVertical: 12,
+    opacity: 0.6,
   },
   connectButton: {
     flexDirection: 'row',

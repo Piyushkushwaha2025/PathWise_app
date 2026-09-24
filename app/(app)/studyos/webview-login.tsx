@@ -42,7 +42,9 @@ export default function WebViewLoginScreen() {
   const { uniId, isReconnect } = useLocalSearchParams<{ uniId: string, isReconnect?: string }>();
   const activeUni = UNIVERSITIES[uniId || 'cu'];
   const colors = useThemeStore((s) => s.colors);
-  const styles = useStyles(colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black';
+  const styles = useStyles(colors, isDark, theme);
   const router = useRouter();
   const webViewRef = useRef<WebView>(null);
   const shouldAutoFillRef = useRef(false);
@@ -417,6 +419,15 @@ export default function WebViewLoginScreen() {
       <View style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.formContainer} keyboardShouldPersistTaps="handled">
           
+          <View style={styles.uniBadgeHeader}>
+            <View style={styles.uniBadgePod}>
+              <Ionicons name="school" size={32} color={colors.primary} />
+            </View>
+            <View style={styles.uniBadgeTag}>
+              <Text style={styles.uniBadgeTagText}>{activeUni.shortName}</Text>
+            </View>
+          </View>
+
           <Text style={styles.formTitle}>Welcome to {activeUni.shortName}</Text>
           <Text style={styles.formSubtitle}>Sign in securely to sync your Attendance, Timetable, Marks & Profile directly to your device.</Text>
 
@@ -453,14 +464,14 @@ export default function WebViewLoginScreen() {
               {pwdError ? <Text style={styles.fieldError}>{pwdError}</Text> : null}
               
               <View style={styles.privacyContainer}>
-                <Ionicons name="shield-checkmark" size={14} color={colors.textDim} style={{ marginTop: 2 }} />
+                <Ionicons name="shield-checkmark" size={14} color={colors.textMuted} style={{ marginTop: 2 }} />
                 <Text style={styles.privacyText}>
                   We never store your password on our servers. It is securely encrypted and saved only on your device.
                 </Text>
               </View>
 
               <TouchableOpacity style={styles.checkboxContainer} onPress={() => { setConsent(!consent); setConsentError(''); }} activeOpacity={0.8}>
-                <Ionicons name={consent ? "checkbox" : "square-outline"} size={22} color={consent ? colors.primary : colors.textDim} />
+                <Ionicons name={consent ? "checkbox" : "square-outline"} size={22} color={consent ? colors.primary : colors.textMuted} />
                 <Text style={styles.checkboxText}>
                   I agree to securely save my credentials on this device for faster logins. I acknowledge that maintaining my device's security is my responsibility.
                 </Text>
@@ -541,7 +552,7 @@ export default function WebViewLoginScreen() {
   );
 }
 
-const useStyles = (colors: any) => StyleSheet.create({
+const useStyles = (colors: any, isDark: boolean, theme?: string) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',
@@ -557,7 +568,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   closeBtn: { padding: 8, marginLeft: -12 },
   headerTitle: { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4, fontSize: 22, color: colors.text },
   clearBtn: { padding: 8, marginRight: 8 },
-  proceedBtn: { padding: 8, marginRight: -8, backgroundColor: `\${colors.primary}20`, borderRadius: 8 },
+  proceedBtn: { padding: 8, marginRight: -8, backgroundColor: `${colors.primary}20`, borderRadius: 8 },
   proceedText: { ...Typography.body, color: colors.primary, fontFamily: 'Inter_600SemiBold' },
   
   hiddenWebview: { opacity: 0, position: 'absolute', top: -9999, height: 0, width: 0 },
@@ -576,6 +587,38 @@ const useStyles = (colors: any) => StyleSheet.create({
     justifyContent: 'center',
     paddingBottom: 120, // Push it slightly above the middle for better keyboard visibility
   },
+  uniBadgeHeader: {
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  uniBadgePod: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: isDark ? 'rgba(255,255,255,0.12)' : (theme === 'cream' ? '#d1c4b2' : theme === 'emerald' ? '#9DDABA' : colors.border),
+    backgroundColor: isDark ? '#14141a' : (theme === 'cream' ? '#f3f0e6' : theme === 'emerald' ? '#D5F5E3' : '#ffffff'),
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: isDark ? 0.3 : 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  uniBadgeTag: {
+    marginTop: -8,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  uniBadgeTagText: {
+    color: '#ffffff',
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 10.5,
+    letterSpacing: 0.5,
+  },
   formTitle: {
     ...Typography.h1,
     color: colors.text,
@@ -584,8 +627,8 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   formSubtitle: {
     ...Typography.body,
-    color: colors.textDim,
-    marginBottom: Spacing.xl * 2,
+    color: colors.textMuted,
+    marginBottom: Spacing.xl * 1.5,
     textAlign: 'center',
   },
   inputGroup: {
@@ -637,7 +680,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   privacyText: {
     ...Typography.body,
     fontSize: 12,
-    color: colors.textDim,
+    color: colors.textMuted,
     flex: 1,
     lineHeight: 18,
   },
@@ -678,7 +721,7 @@ const useStyles = (colors: any) => StyleSheet.create({
     marginTop: Spacing.lg,
   },
   primaryBtnText: {
-    color: colors.background,
+    color: '#ffffff',
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
   },

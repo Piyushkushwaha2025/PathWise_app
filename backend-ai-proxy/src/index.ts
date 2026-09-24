@@ -626,7 +626,7 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 								body: JSON.stringify({
 									model: gModel,
 									messages: openAIMessages,
-									max_tokens: 2048,
+									max_tokens: 4096,
 									temperature: 0.2 // Strict academic precision & formula fidelity
 								}),
 								signal: AbortSignal.timeout(6000) // Fast failover if queue gets backed up
@@ -670,7 +670,7 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 								body: JSON.stringify({
 									model: mModel,
 									messages: openAIMessages,
-									max_tokens: 2048,
+									max_tokens: 4096,
 									temperature: 0.2
 								}),
 								signal: AbortSignal.timeout(6000)
@@ -709,7 +709,7 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 								body: JSON.stringify({
 									model: nvModel,
 									messages: openAIMessages,
-									max_tokens: 2048,
+									max_tokens: 4096,
 									temperature: 0.2
 								}),
 								signal: AbortSignal.timeout(6000)
@@ -755,7 +755,7 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 							const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${gKey}`, {
 								method: 'POST',
 								headers: { 'Content-Type': 'application/json', 'X-goog-api-key': gKey },
-								body: JSON.stringify({ contents: geminiContents, generationConfig: { maxOutputTokens: 3072, temperature: 0.2 } }),
+								body: JSON.stringify({ contents: geminiContents, generationConfig: { maxOutputTokens: 8192, temperature: 0.2 } }),
 								signal: AbortSignal.timeout(8000)
 							});
 
@@ -763,6 +763,41 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 								errors.push(`Gemini ${gModel}: ${response.status}`);
 								continue;
 							}
+
+							const data = await response.json() as any;
+							const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+							if (text) {
+								return makeSuccessResponse(text);
+							}
+						} catch (gErr: any) {
+							errors.push(`Gemini ${gModel}: ${gErr.message}`);
+						}
+					}
+				}
+			}
+
+			// TIER 5: OpenRouter Free Models (Final Fallback)
+			if (shuffledOpenRouterKeys.length > 0) {
+				const orModels = [
+					'google/gemini-2.0-flash-lite-preview-02-05:free',
+					'meta-llama/llama-3.3-70b-instruct:free',
+					'qwen/qwen-2.5-72b-instruct:free'
+				];
+
+				for (const orKey of shuffledOpenRouterKeys) {
+					for (const orModel of orModels) {
+						try {
+							const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+								method: 'POST',
+								headers: {
+									'Content-Type': 'application/json',
+									'Authorization': `Bearer ${orKey}`,
+									'HTTP-Referer': 'https://studyos.app',
+									'X-Title': 'Quirren AI'
+								},
+								body: JSON.stringify({ model: orModel, messages: openAIMessages, max_tokens: 4096 }),
+								signal: AbortSignal.timeout(10000)
+							});
 
 							const data = await response.json() as any;
 							const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
