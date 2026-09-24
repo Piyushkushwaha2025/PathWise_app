@@ -1305,7 +1305,12 @@ export default function StudyOSDashboard() {
                     >
                       <Ionicons name={item.icon} size={22} color={item.color} />
                     </LinearGradient>
-                    <Text style={[styles.facilityLabel, { color: colors.text }]} numberOfLines={1}>
+                    <Text 
+                      style={[styles.facilityLabel, { color: colors.text }]} 
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.70}
+                    >
                       {item.name}
                     </Text>
                   </TouchableOpacity>
@@ -1793,6 +1798,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   facilityItem: {
     width: '25%',
     alignItems: 'center',
+    paddingHorizontal: 2,
   },
   facilityIconPod: {
     width: 50,
@@ -1809,8 +1815,10 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   facilityLabel: {
     fontFamily: 'SpaceGrotesk_600SemiBold',
-    fontSize: 11.5,
+    fontSize: 11,
+    lineHeight: 14,
     marginTop: 6,
     textAlign: 'center',
+    paddingHorizontal: 1,
   },
 });

@@ -1,16 +1,20 @@
 import { useThemeStore } from '../../../store/useThemeStore';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, BackHandler, Modal, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
-import { GraduationCap, ChevronRight, ChevronLeft, Search, X, ShieldAlert } from 'lucide-react-native';
+import { GraduationCap, ChevronRight, ChevronLeft, Search, X, ShieldAlert, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { GlassCard } from '../../../components/ui/GlassCard';
 import { UNIVERSITIES, UniversityConfig } from '../../../constants/universities';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 
 export default function ConnectScreen() {
   const colors = useThemeStore((s) => s.colors);
-  const styles = useStyles(colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black' || theme === 'emerald';
+  const styles = useStyles(colors, isDark);
   const router = useRouter();
   const { reset, error } = useLocalSearchParams<{ reset?: string; error?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
@@ -65,7 +69,7 @@ export default function ConnectScreen() {
   );
 
   const filteredUniversities = useMemo(() => {
-    const query = searchQuery.toLowerCase();
+    const query = searchQuery.toLowerCase().trim();
     return Object.values(UNIVERSITIES).filter(
       (uni) => uni.name.toLowerCase().includes(query) || uni.shortName.toLowerCase().includes(query)
     );
@@ -73,39 +77,62 @@ export default function ConnectScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Top Header */}
       <View style={styles.header}>
-        <View style={styles.headerTitleContainer}>
-          {selectedUni && (
-            <TouchableOpacity 
-              style={{ marginRight: 8, padding: 4 }} 
-              onPress={() => setSelectedUni(null)}
-              activeOpacity={0.7}
+        <View style={styles.headerInner}>
+          <View style={styles.headerTitleContainer}>
+            {selectedUni && (
+              <TouchableOpacity 
+                style={styles.backBtn} 
+                onPress={() => {
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  setSelectedUni(null);
+                }}
+                activeOpacity={0.7}
+              >
+                <ChevronLeft color={colors.text} size={28} />
+              </TouchableOpacity>
+            )}
+            <LinearGradient
+              colors={[colors.primary, colors.accent || colors.primary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.iconContainer}
             >
-              <ChevronLeft color={colors.text} size={32} />
-            </TouchableOpacity>
-          )}
-          <View style={styles.iconContainer}>
-            <GraduationCap color={colors.background} size={22} />
+              <GraduationCap color="#ffffff" size={24} />
+            </LinearGradient>
+            <View>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                Study<Text style={{ color: colors.primary }}>O</Text>S
+              </Text>
+              <Text style={styles.headerSubtitle} numberOfLines={1}>
+                {selectedUni ? 'Connect your university portal' : 'Select your university to sync'}
+              </Text>
+            </View>
           </View>
-          <Text style={styles.headerTitle}>Study<Text style={{ color: colors.primary }}>O</Text>S</Text>
         </View>
-        <Text style={styles.headerSubtitle}>{selectedUni ? 'Connect your university portal' : 'Search & select your university'}</Text>
       </View>
       
+      {/* Main Content Area — Tablet Optimized Container */}
       <View style={styles.content}>
         {!selectedUni && (
           <View style={styles.searchContainer}>
             <Search color={colors.textDim} size={20} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search your college..."
+              placeholder="Search your college or campus..."
               placeholderTextColor={colors.textDim}
               value={searchQuery}
               onChangeText={(text) => setSearchQuery(text)}
+              autoCorrect={false}
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearIcon}>
-                <X color={colors.textDim} size={20} />
+              <TouchableOpacity 
+                onPress={() => setSearchQuery('')} 
+                style={styles.clearIcon}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <X color={colors.textDim} size={18} />
               </TouchableOpacity>
             )}
           </View>
@@ -113,32 +140,55 @@ export default function ConnectScreen() {
         
         {selectedUni ? (
           <View style={styles.selectedContainer}>
-            <GraduationCap size={60} color={colors.primary} style={styles.icon} />
-            <Text style={styles.title}>{selectedUni.name}</Text>
+            <LinearGradient
+              colors={[colors.primary + '28', colors.primary + '08']}
+              style={styles.selectedGlowPod}
+            >
+              <GraduationCap size={56} color={colors.primary} />
+            </LinearGradient>
+
+            <Text style={styles.title} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>
+              {selectedUni.name}
+            </Text>
+
             <Text style={styles.subtitle}>
-              StudyOS needs to securely connect to your University Portal to fetch your subjects, attendance, timetable, and marks.
+              StudyOS securely connects to your University Portal to fetch and organize your Attendance, Timetable, Marks, and Campus Services directly on your device.
             </Text>
             
             <GlassCard style={styles.card}>
-              <Text style={styles.cardText}>
-                🔒 We never store your password. We only use it once to generate secure session tokens which are stored safely on your device.
-              </Text>
+              <View style={styles.cardRow}>
+                <ShieldCheck color={colors.primary} size={22} style={{ marginTop: 2 }} />
+                <Text style={styles.cardText}>
+                  Your password is never stored on external servers. It is encrypted strictly on this device and used only to fetch your academic records.
+                </Text>
+              </View>
             </GlassCard>
 
             <TouchableOpacity 
-              style={styles.connectButton}
-              activeOpacity={0.8}
-              onPress={() => router.push({ pathname: '/(app)/studyos/webview-login', params: { uniId: selectedUni.id } })}
+              style={[styles.connectButton, { backgroundColor: colors.primary }]}
+              activeOpacity={0.82}
+              onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+                router.push({ pathname: '/(app)/studyos/webview-login', params: { uniId: selectedUni.id } });
+              }}
             >
-              <Text style={styles.connectButtonText}>Connect {selectedUni.shortName} Account</Text>
-              <ChevronRight color={colors.background} size={20} />
+              <Text style={styles.connectButtonText}>Connect {selectedUni.shortName} Portal</Text>
+              <ChevronRight color="#ffffff" size={20} />
             </TouchableOpacity>
-
-
           </View>
         ) : (
           <View style={styles.listContainer}>
-            <Text style={styles.listTitle}>{searchQuery.length > 0 ? 'Search Results:' : 'Select from below:'}</Text>
+            <View style={styles.listHeaderRow}>
+              <Text style={styles.listTitle}>
+                {searchQuery.length > 0 ? 'Search Results' : 'Supported Universities'}
+              </Text>
+              <View style={styles.portalCountPill}>
+                <Text style={[styles.portalCountText, { color: colors.primary }]}>
+                  {filteredUniversities.length} {filteredUniversities.length === 1 ? 'Campus' : 'Campuses'}
+                </Text>
+              </View>
+            </View>
+
             <FlatList
               data={filteredUniversities}
               keyExtractor={(item) => item.id}
@@ -146,19 +196,66 @@ export default function ConnectScreen() {
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.listContent}
               ListEmptyComponent={() => (
-                <Text style={{ color: colors.textDim, textAlign: 'center', marginTop: 20 }}>No university found</Text>
+                <View style={styles.emptyContainer}>
+                  <GraduationCap size={44} color={colors.textDim} style={{ opacity: 0.5, marginBottom: 12 }} />
+                  <Text style={[styles.emptyText, { color: colors.textDim }]}>
+                    No university found matching "{searchQuery}"
+                  </Text>
+                </View>
               )}
               renderItem={({ item: uni }) => (
                 <TouchableOpacity 
-                  style={styles.uniListItem}
-                  activeOpacity={0.7}
-                  onPress={() => setSelectedUni(uni)}
+                  style={[
+                    styles.uniCard,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.035)' : '#ffffff',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                    }
+                  ]}
+                  activeOpacity={0.75}
+                  onPress={() => {
+                    try { Haptics.selectionAsync(); } catch {}
+                    setSelectedUni(uni);
+                  }}
                 >
-                  <View>
-                    <Text style={styles.uniName}>{uni.name}</Text>
-                    <Text style={styles.uniSub}>{uni.shortName}</Text>
+                  <View style={styles.uniCardContent}>
+                    {/* Monogram Badge */}
+                    <LinearGradient
+                      colors={[`${colors.primary}22`, `${colors.primary}0a`]}
+                      style={[styles.uniAvatarPod, { borderColor: `${colors.primary}40` }]}
+                    >
+                      <Text style={[styles.uniInitials, { color: colors.primary }]}>
+                        {uni.shortName || uni.name.slice(0, 2).toUpperCase()}
+                      </Text>
+                    </LinearGradient>
+
+                    {/* Details Column */}
+                    <View style={styles.uniInfoCol}>
+                      <Text 
+                        style={[styles.uniName, { color: colors.text }]} 
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.88}
+                      >
+                        {uni.name}
+                      </Text>
+                      
+                      <View style={styles.uniBadgeRow}>
+                        <View style={styles.liveIndicatorRow}>
+                          <View style={styles.pulseDot} />
+                          <Text style={styles.liveBadgeText}>Live Portal Sync</Text>
+                        </View>
+                        <Text style={[styles.uniFeatureTag, { color: colors.textDim }]}>
+                          • Attendance & Marks
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Chevron Button */}
+                    <View style={[styles.chevronActionBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+                      <ChevronRight color={colors.primary} size={18} />
+                    </View>
                   </View>
-                  <ChevronRight color={colors.border} size={20} />
                 </TouchableOpacity>
               )}
             />
@@ -166,20 +263,18 @@ export default function ConnectScreen() {
         )}
       </View>
 
-      
-        {/* Custom Account Already Linked Modal */}
-
+      {/* Account Already Linked Modal */}
       <Modal visible={showErrorModal} transparent animationType="fade" onRequestClose={() => setShowErrorModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <ShieldAlert color="#ef4444" size={48} style={styles.modalIcon} />
+              <ShieldAlert color="#ef4444" size={44} style={styles.modalIcon} />
               <Text style={styles.modalTitle}>Account Already Linked</Text>
               <Text style={styles.modalDesc}>
-                This PathWise account is already linked with a different university profile.
+                This PathWise account is already bound to a different university profile.
               </Text>
-              <Text style={[styles.modalDesc, { marginTop: 12, color: colors.text }]}>
-                For maximum security and academic privacy, each university ID can only be bound to a single profile. Please log in using your original account or create a brand new PathWise profile.
+              <Text style={[styles.modalDesc, { marginTop: 10, color: colors.text }]}>
+                For academic security and privacy, each university ID can only be bound to a single PathWise account.
               </Text>
             </View>
             <TouchableOpacity 
@@ -196,91 +291,79 @@ export default function ConnectScreen() {
   );
 }
 
-const useStyles = (colors: any) => StyleSheet.create({
+const useStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
   header: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: 20,
-    paddingBottom: 12,
+    paddingTop: Platform.OS === 'ios' ? 16 : 14,
+    paddingBottom: 16,
     backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  headerInner: {
+    maxWidth: 680,
+    width: '100%',
+    alignSelf: 'center',
   },
   headerTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginBottom: 4,
+  },
+  backBtn: {
+    padding: 6,
+    marginLeft: -8,
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 6,
   },
   headerTitle: {
     color: colors.text,
-    fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4,
-    fontSize: 32,
-    letterSpacing: -1,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    paddingRight: 4,
+    fontSize: 26,
+    lineHeight: 30,
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
     fontFamily: 'Inter_400Regular',
-    fontSize: 16,
+    fontSize: 13,
+    lineHeight: 18,
     color: colors.textDim,
-    marginTop: 4,
+    marginTop: 2,
   },
   content: {
     flex: 1,
-    padding: Spacing.xl,
-    justifyContent: 'flex-start',
-    alignItems: 'stretch',
-  },
-  icon: {
-    marginBottom: Spacing.xl,
-  },
-  title: {
-    ...Typography.h2,
-    color: colors.text,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  subtitle: {
-    ...Typography.body,
-    color: colors.textDim,
-    textAlign: 'center',
-    marginBottom: Spacing.xl,
-    lineHeight: 24,
-  },
-  card: {
-    marginBottom: Spacing.xxl,
-    padding: Spacing.lg,
-  },
-  cardText: {
-    ...Typography.body,
-    color: colors.text,
-    fontSize: 14,
-    lineHeight: 20,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    maxWidth: 680,
+    width: '100%',
+    alignSelf: 'center',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: Radius.full,
+    borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
-    height: 50,
-    marginTop: 20,
-    marginBottom: Spacing.xl,
+    height: 48,
+    marginTop: 8,
+    marginBottom: Spacing.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
     width: '100%',
   },
   searchIcon: {
@@ -288,71 +371,208 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    ...Typography.body,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    lineHeight: 20,
     color: colors.text,
     height: '100%',
   },
   clearIcon: {
     padding: Spacing.xs,
   },
+  listContainer: {
+    flex: 1,
+    width: '100%',
+  },
+  listHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.md,
+  },
+  listTitle: {
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+    fontSize: 15,
+    lineHeight: 20,
+    color: colors.text,
+  },
+  portalCountPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: colors.primary + '18',
+  },
+  portalCountText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  listContent: {
+    gap: 12,
+    paddingBottom: Spacing.xxl,
+  },
+  uniCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: isDark ? 0.25 : 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  uniCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  uniAvatarPod: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    marginRight: 12,
+  },
+  uniInitials: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 16,
+    lineHeight: 20,
+    letterSpacing: 0.5,
+  },
+  uniInfoCol: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  uniName: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 15.5,
+    lineHeight: 20,
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  uniBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  liveIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#10b98118',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  pulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10b981',
+  },
+  liveBadgeText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 10.5,
+    lineHeight: 13,
+    color: '#10b981',
+  },
+  uniFeatureTag: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  chevronActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+
+  // Selected State
   selectedContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingBottom: Spacing.xl,
+    paddingHorizontal: Spacing.sm,
   },
-  listContainer: {
-    flex: 1,
+  selectedGlowPod: {
+    width: 96,
+    height: 96,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
+  title: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 22,
+    lineHeight: 28,
+    textAlign: 'center',
+    marginBottom: Spacing.sm,
+  },
+  subtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
+    maxWidth: 440,
+  },
+  card: {
+    marginBottom: Spacing.xl,
+    padding: Spacing.lg,
     width: '100%',
   },
-  listTitle: {
-    ...Typography.h3,
-    color: colors.text,
-    marginBottom: Spacing.md,
-  },
-  listContent: {
-    gap: Spacing.md,
-    paddingBottom: Spacing.xl,
-  },
-  uniListItem: {
+  cardRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    paddingVertical: 20,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    minHeight: 80,
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  cardText: {
+    flex: 1,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13,
+    lineHeight: 19,
   },
   connectButton: {
-    backgroundColor: colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: Spacing.md,
+    paddingVertical: 14,
     paddingHorizontal: Spacing.xl,
     borderRadius: Radius.full,
     width: '100%',
-    marginBottom: Spacing.md,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   connectButtonText: {
-    ...Typography.h3,
-    color: colors.background,
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#ffffff',
     marginRight: Spacing.sm,
   },
 
-  uniName: {
-    ...Typography.h3,
-    color: colors.text,
-    marginBottom: 4,
-  },
-  uniSub: {
-    ...Typography.body,
-    color: colors.textDim,
-    fontSize: 14,
-  },
+  // Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -362,6 +582,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   modalCard: {
     width: '100%',
+    maxWidth: 420,
     padding: Spacing.xl,
     borderRadius: Radius.xl,
     backgroundColor: colors.surfaceHigh || colors.surface || '#1e293b',
@@ -382,17 +603,19 @@ const useStyles = (colors: any) => StyleSheet.create({
     marginBottom: Spacing.md,
   },
   modalTitle: {
-    ...Typography.h2,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 20,
+    lineHeight: 26,
     color: '#ef4444',
     textAlign: 'center',
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   modalDesc: {
-    ...Typography.body,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 13.5,
+    lineHeight: 20,
     color: colors.textDim,
     textAlign: 'center',
-    fontSize: 14,
-    lineHeight: 20,
   },
   modalBtn: {
     backgroundColor: '#ef4444',
@@ -403,7 +626,9 @@ const useStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
   },
   modalBtnText: {
-    ...Typography.h3,
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+    fontSize: 15,
+    lineHeight: 20,
     color: '#ffffff',
   },
 });

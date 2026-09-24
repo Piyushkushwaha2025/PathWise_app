@@ -239,7 +239,12 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                      <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
                    )}
                  </View>
-                 <Text style={[styles.label, isFocused && styles.labelActive]}>
+                 <Text 
+                   style={[styles.label, isFocused && styles.labelActive]}
+                   numberOfLines={1}
+                   adjustsFontSizeToFit
+                   minimumFontScale={0.78}
+                 >
                    {tab.label}
                  </Text>
                </View>
@@ -266,7 +271,12 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                   <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
                 )}
               </View>
-              <Text style={[styles.label, isFocused && styles.labelActive]}>
+              <Text 
+                style={[styles.label, isFocused && styles.labelActive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.78}
+              >
                 {tab.label}
               </Text>
             </TouchableOpacity>
@@ -338,7 +348,12 @@ function CenterTabButton({ tab, isFocused, onPress, accessibilityLabel, colors, 
           </View>
         </Animated.View>
       </TouchableOpacity>
-      <Text style={[styles.centerLabel, isFocused && styles.centerLabelActive]}>
+      <Text 
+        style={[styles.centerLabel, isFocused && styles.centerLabelActive]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.78}
+      >
         {tab.label}
       </Text>
     </View>
@@ -427,7 +442,7 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     justifyContent: 'center',
   },
   centerButtonWrapper: {
-    marginBottom: 16,
+    marginBottom: 4,
     shadowColor: colors.primary,
     shadowRadius: 14,
     shadowOpacity: 0.55,
@@ -466,10 +481,10 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     fontSize: 10,
     fontFamily: "Inter_600SemiBold",
     color: colors.textDim,
-    position: "absolute",
-    bottom: -3,
     paddingHorizontal: 2,
     letterSpacing: 0.1,
+    marginTop: 2,
+    textAlign: 'center',
   },
   centerLabelActive: {
     color: colors.primary,

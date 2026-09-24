@@ -1,7 +1,7 @@
 import "react-native-gesture-handler";
 import "react-native-reanimated";
 import React, { useEffect, useState, useRef } from "react";
-import { View, StyleSheet, LogBox, Image, Animated, useColorScheme } from "react-native";
+import { View, StyleSheet, LogBox, Image, Animated, useColorScheme, Text, TextInput } from "react-native";
 import { Stack } from "expo-router";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import { GlobalPaywallModal } from "../components/ui/GlobalPaywallModal";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
+  SpaceGrotesk_500Medium,
   SpaceGrotesk_600SemiBold,
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
@@ -25,6 +26,17 @@ import {
   Inter_600SemiBold,
 } from "@expo-google-fonts/inter";
 import { JetBrainsMono_400Regular } from "@expo-google-fonts/jetbrains-mono";
+
+// Global font scaling safeguard: ensures text never blows up, clips, or vanishes on devices with custom Android display/font sizes
+if ((Text as any).defaultProps == null) {
+  (Text as any).defaultProps = {};
+}
+(Text as any).defaultProps.maxFontSizeMultiplier = 1.15;
+
+if ((TextInput as any).defaultProps == null) {
+  (TextInput as any).defaultProps = {};
+}
+(TextInput as any).defaultProps.maxFontSizeMultiplier = 1.15;
 import { tokenCache } from "../lib/clerk";
 import { Colors } from "../constants/theme";
 import * as Notifications from "expo-notifications";
@@ -321,6 +333,7 @@ function RootLayoutInner() {
 export default function RootLayout() {
   const [, fontError] = useFonts({
     SpaceGrotesk_400Regular,
+    SpaceGrotesk_500Medium,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
     Inter_400Regular, Inter_500Medium, Inter_700Bold,

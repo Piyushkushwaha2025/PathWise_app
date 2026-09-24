@@ -89,13 +89,13 @@ export const Themes: Record<"black" | "white" | "cream" | "emerald", ThemeColors
 export const Colors = Themes.black;
 
 export const Typography = {
-  h1:    { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4,    fontSize: 32, letterSpacing: -0.5 },
-  h2:    { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 24 },
-  h3:    { fontFamily: 'SpaceGrotesk_500Medium',  fontSize: 18 },
-  body:  { fontFamily: 'Inter_400Regular',        fontSize: 15, lineHeight: 24 },
-  small: { fontFamily: 'Inter_400Regular',        fontSize: 13 },
-  label: { fontFamily: 'Inter_500Medium',         fontSize: 12, letterSpacing: 0.5 },
-  mono:  { fontFamily: 'JetBrainsMono_400Regular', fontSize: 13 },
+  h1:    { fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4,    fontSize: 32, lineHeight: 38, letterSpacing: -0.5 },
+  h2:    { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 4, fontSize: 24, lineHeight: 30 },
+  h3:    { fontFamily: 'SpaceGrotesk_600SemiBold', paddingRight: 2, fontSize: 18, lineHeight: 24 },
+  body:  { fontFamily: 'Inter_400Regular',        fontSize: 15, lineHeight: 22 },
+  small: { fontFamily: 'Inter_400Regular',        fontSize: 13, lineHeight: 18 },
+  label: { fontFamily: 'Inter_500Medium',         fontSize: 12, lineHeight: 16, letterSpacing: 0.5 },
+  mono:  { fontFamily: 'JetBrainsMono_400Regular', fontSize: 13, lineHeight: 18 },
 } as const;
 
 export const Spacing = {
