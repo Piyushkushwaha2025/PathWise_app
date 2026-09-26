@@ -279,8 +279,7 @@ export default function ConnectScreen() {
                       <Text 
                         style={[styles.uniName, { color: colors.text }]} 
                         numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.88}
+                        textBreakStrategy="simple"
                       >
                         {uni.name}
                       </Text>

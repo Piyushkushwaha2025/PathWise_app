@@ -68,7 +68,26 @@ export function useSubscription() {
       };
     }
 
-    let isSubscribed = !!user.unsafeMetadata?.isSubscribed;
+    const now = new Date();
+
+    // Server-verified authoritative check for paid subscriptions
+    const serverPaidActive = Boolean(rewardStatus?.is_paid_active);
+    const serverExpiry = rewardStatus?.premium_expires_at;
+
+    let isSubscribed = false;
+    let subscriptionDaysLeft = 0;
+
+    if (serverPaidActive && serverExpiry && serverExpiry > now.getTime()) {
+      isSubscribed = true;
+      subscriptionDaysLeft = Math.max(0, Math.ceil((serverExpiry - now.getTime()) / MS_PER_DAY));
+    } else if (rewardStatus === undefined && user.unsafeMetadata?.isSubscribed) {
+      // Offline fallback: only while rewardStatus is loading on cold start
+      const expiry = user.unsafeMetadata?.subscriptionExpiry as number;
+      if (expiry && !isNaN(expiry) && expiry > now.getTime()) {
+        isSubscribed = true;
+        subscriptionDaysLeft = Math.max(0, Math.ceil((expiry - now.getTime()) / MS_PER_DAY));
+      }
+    }
     
     // Priority: Server response -> Clerk metadata (cached in session) -> Local AsyncStorage/Memory -> Fallback
     const effectiveTrialStartStr =
@@ -81,34 +100,17 @@ export function useSubscription() {
       ? new Date(effectiveTrialStartStr)
       : new Date(user.createdAt || Date.now());
 
-    const now = new Date();
     const diffMs = now.getTime() - trialStartedAt.getTime();
     const daysSinceTrialStart = Math.floor(diffMs / MS_PER_DAY);
     const trialDaysLeft = Math.max(0, TRIAL_DAYS - daysSinceTrialStart);
 
-    let subscriptionDaysLeft = 0;
-    const rawPlan = (user.unsafeMetadata?.plan as string) || (isSubscribed ? 'pro' : null);
-
-    if (isSubscribed) {
-      const expiry = user.unsafeMetadata?.subscriptionExpiry as number;
-      if (expiry && !isNaN(expiry)) {
-        const diffSubMs = expiry - now.getTime();
-        subscriptionDaysLeft = Math.max(0, Math.ceil(diffSubMs / MS_PER_DAY));
-        if (diffSubMs <= 0) {
-          isSubscribed = false;
-        }
-      } else {
-        // Fallback for active subscriptions without explicit expiry saved yet
-        const planDays = rawPlan === 'yearly' ? 365 : rawPlan === 'semester' ? 180 : 30;
-        subscriptionDaysLeft = planDays;
-      }
-    }
+    const rawPlan = (rewardStatus?.subscription_plan as string) || (user.unsafeMetadata?.plan as string) || (isSubscribed ? 'pro' : null);
 
     const rewardExpiry = rewardStatus?.premium_expires_at;
-    const rewardDaysLeft = (rewardExpiry && rewardExpiry > now.getTime())
+    const rewardDaysLeft = (!isSubscribed && rewardExpiry && rewardExpiry > now.getTime())
       ? Math.max(0, Math.ceil((rewardExpiry - now.getTime()) / MS_PER_DAY))
       : 0;
-    const isRewardPro = (!!rewardStatus?.is_reward_premium_active && rewardDaysLeft > 0) || rewardDaysLeft > 0;
+    const isRewardPro = !isSubscribed && ((!!rewardStatus?.is_reward_premium_active && rewardDaysLeft > 0) || rewardDaysLeft > 0);
 
     // Strict Status Hierarchy:
     // 1. Paid Subscription (highest tier)

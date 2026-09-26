@@ -214,30 +214,46 @@ const getClerkId = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader ? authHeader.split(' ')[1] : req.headers['x-clerk-token'];
   
-  // TRANSITION PERIOD: Fallback to insecure header if token not sent
-  // (Remove this once frontend is fully migrated to use getToken())
-  if (!token) {
-    const fallbackId = req.headers['x-clerk-user-id'] || req.body.clerkUserId;
-    if (fallbackId) {
-      console.warn(`⚠️ SECURITY WARNING: Request using deprecated x-clerk-user-id without JWT! Path: ${req.path}`);
-      req.clerkUserId = fallbackId;
+  if (token) {
+    try {
+      const secretKey = process.env.CLERK_SECRET_KEY;
+      if (!secretKey) throw new Error('CLERK_SECRET_KEY is missing in env');
+      
+      // Verify the Clerk JWT cryptographically
+      const verified = await verifyToken(token, { secretKey });
+      req.clerkUserId = verified.sub; // Authenticated User ID
       return next();
+    } catch (error) {
+      console.error("JWT Verification failed:", error.message);
+      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
     }
-    return res.status(401).json({ error: 'Unauthorized: Missing JWT token' });
   }
 
-  try {
-    const secretKey = process.env.CLERK_SECRET_KEY;
-    if (!secretKey) throw new Error('CLERK_SECRET_KEY is missing in env');
-    
-    // Verify the Clerk JWT
-    const verified = await verifyToken(token, { secretKey });
-    req.clerkUserId = verified.sub; // The user's ID
-    next();
-  } catch (error) {
-    console.error("JWT Verification failed:", error.message);
-    res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  // Sensitive & state-mutating paths strictly require a verified JWT
+  const path = req.path || '';
+  const isSensitivePath = 
+    path.startsWith('/api/payment') ||
+    path.startsWith('/api/rewards/redeem') ||
+    path.startsWith('/api/rewards/watch-ad') ||
+    path.startsWith('/api/rewards/daily-bonus') ||
+    path.startsWith('/api/assignments') ||
+    path.startsWith('/api/notifications') ||
+    path.startsWith('/api/saturday-override') ||
+    (path === '/api/user' && req.method === 'DELETE') ||
+    path === '/api/user/subscription';
+
+  if (isSensitivePath) {
+    return res.status(401).json({ error: 'Unauthorized: Verified JWT token required for this action' });
   }
+
+  // Fallback only for non-sensitive read/sync operations during client token bootstrap
+  const fallbackId = req.headers['x-clerk-user-id'] || req.body.clerkUserId;
+  if (fallbackId) {
+    req.clerkUserId = fallbackId;
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Unauthorized: Missing JWT token' });
 };
 
 const requireCR = async (req, res, next) => {
@@ -1064,7 +1080,8 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
       await user.save();
     }
 
-    const isPremiumActive = user.premium_expires_at && user.premium_expires_at > Date.now();
+    const isPremiumActive = Boolean(user.premium_expires_at && user.premium_expires_at > Date.now());
+    const isPaidActive = Boolean(user.is_premium && user.subscription_plan && user.subscription_plan !== 'free' && user.subscription_plan !== 'reward' && isPremiumActive);
 
     res.json({
       token_balance: user.token_balance || 0,
@@ -1075,7 +1092,10 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
       max_ads_per_day: MAX_ADS_PER_DAY,
       tokens_per_ad: 10,
       premium_expires_at: user.premium_expires_at || null,
-      is_reward_premium_active: !!isPremiumActive,
+      is_premium: Boolean(user.is_premium && isPremiumActive),
+      subscription_plan: user.subscription_plan || 'free',
+      is_paid_active: isPaidActive,
+      is_reward_premium_active: Boolean(isPremiumActive && user.subscription_plan === 'reward'),
       trial_started_at: user.trial_started_at || user.app_first_opened_date || user.createdAt || null,
       plans: REDEMPTION_PLANS,
     });
@@ -1148,8 +1168,25 @@ app.post('/api/rewards/watch-ad', getClerkId, rewardRateLimiter, async (req, res
 
     const adType = req.body.ad_type;
     let tokensToCredit = 5; // default 10sec
-    if (adType === '30sec') tokensToCredit = 10;
-    if (adType === '60sec') tokensToCredit = 20;
+    let minSecondsRequired = 8;
+    if (adType === '30sec') {
+      tokensToCredit = 10;
+      minSecondsRequired = 24;
+    } else if (adType === '60sec') {
+      tokensToCredit = 20;
+      minSecondsRequired = 48;
+    }
+
+    // Anti-cheat: Throttling check against last watch time
+    if (user.last_ad_watch_time) {
+      const elapsedSeconds = (Date.now() - new Date(user.last_ad_watch_time).getTime()) / 1000;
+      if (elapsedSeconds < minSecondsRequired) {
+        return res.status(429).json({ 
+          error: 'AD_CLAIM_TOO_FAST', 
+          message: `Please watch the entire ad before claiming rewards. Please wait ${Math.ceil(minSecondsRequired - elapsedSeconds)}s.` 
+        });
+      }
+    }
 
     user.token_balance = Math.min((user.token_balance || 0) + tokensToCredit, 9999);
     user.ads_watched_today += 1;

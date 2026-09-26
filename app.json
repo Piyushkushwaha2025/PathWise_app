@@ -23,6 +23,11 @@
       },
       "package": "com.pathwise.app",
       "versionCode": 9,
+      "permissions": [
+        "NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",

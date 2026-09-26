@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Themes, ThemeColors } from "../constants/theme";
 
@@ -18,14 +19,17 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   primaryColor: undefined,
   colors: Themes.black,
   setTheme: (theme) => {
-    const pColor = get().primaryColor;
-    const newColors = { ...Themes[theme], ...(pColor ? { primary: pColor } : {}) };
+    // Dual storage for 100% persistence reliability on all devices
+    AsyncStorage.setItem("app_theme", theme).catch(() => {});
+    AsyncStorage.removeItem("app_primary_color").catch(() => {});
     SecureStore.setItemAsync("app_theme", theme).catch(() => {});
-    set({ theme, colors: newColors });
+    SecureStore.deleteItemAsync("app_primary_color").catch(() => {});
+    set({ theme, primaryColor: undefined, colors: Themes[theme] });
   },
   setPrimaryColor: (color) => {
     const t = get().theme;
     const newColors = { ...Themes[t], primary: color };
+    AsyncStorage.setItem("app_primary_color", color).catch(() => {});
     SecureStore.setItemAsync("app_primary_color", color).catch(() => {});
     set({ primaryColor: color, colors: newColors });
   },
@@ -37,8 +41,16 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 
 export const loadTheme = async () => {
   try {
-    const savedTheme = await SecureStore.getItemAsync("app_theme");
-    const savedColor = await SecureStore.getItemAsync("app_primary_color");
+    // Check AsyncStorage first (fast, synchronous in memory), fallback to SecureStore
+    let savedTheme = await AsyncStorage.getItem("app_theme");
+    let savedColor = await AsyncStorage.getItem("app_primary_color");
+
+    if (!savedTheme) {
+      savedTheme = await SecureStore.getItemAsync("app_theme");
+    }
+    if (!savedColor) {
+      savedColor = await SecureStore.getItemAsync("app_primary_color");
+    }
     
     let t: ThemeType = "black";
     if (savedTheme && (savedTheme === "black" || savedTheme === "white" || savedTheme === "cream" || savedTheme === "emerald")) {

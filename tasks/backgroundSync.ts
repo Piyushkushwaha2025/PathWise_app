@@ -3,14 +3,22 @@ import * as BackgroundFetch from 'expo-background-fetch';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
+import { setupAndroidChannels } from '../lib/notifications';
 
 const BACKGROUND_SYNC_TASK = 'BACKGROUND_SYNC_TASK';
 
 TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
   try {
-    let cookies = await SecureStore.getItemAsync('culko_cookies');
+    await setupAndroidChannels().catch(() => {});
+
+    let cookies: string | null = null;
+    try {
+      cookies = await SecureStore.getItemAsync('culko_cookies');
+    } catch (_) {}
     if (!cookies) {
-      cookies = await AsyncStorage.getItem('culko_cookies');
+      try {
+        cookies = await AsyncStorage.getItem('culko_cookies');
+      } catch (_) {}
     }
     if (!cookies) return BackgroundFetch.BackgroundFetchResult.NoData;
 
@@ -123,9 +131,11 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                       body: `Marked Present in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
                       sound: true,
                       color: '#10b981',
-                    },
+                      channelId: 'pathwise-default-v2',
+                    } as any,
                     trigger: {
                       channelId: 'pathwise-default-v2',
+                      seconds: 1,
                     } as any,
                   });
                   notificationsSent++;
@@ -138,9 +148,11 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                       body: `Marked Absent in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
                       sound: true,
                       color: '#ef4444',
-                    },
+                      channelId: 'pathwise-streak-v2',
+                    } as any,
                     trigger: {
                       channelId: 'pathwise-streak-v2',
+                      seconds: 1,
                     } as any,
                   });
                   notificationsSent++;
@@ -253,13 +265,16 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                if (!hadExam && (!oldM || oldM.subjectName === '20' || oldM.mstMarks !== `${ex.obtained}/${ex.max}`)) {
                  await Notifications.scheduleNotificationAsync({
                    content: {
-                     title: '📝 Marks Uploaded!',
-                     body: `New marks for ${nm.subjectName.substring(0, 25)}: ${ex.name} - ${ex.obtained}/${ex.max}`,
-                     sound: true,
-                   },
-                   trigger: {
-                     channelId: 'pathwise-default-v2',
-                   } as any,
+                      title: '📊 New Marks Released!',
+                      body: `New marks for ${nm.subjectName.substring(0, 25)}: ${ex.name} - ${ex.obtained}/${ex.max}`,
+                      sound: true,
+                      color: '#f59e0b',
+                      channelId: 'pathwise-coin-v2',
+                    } as any,
+                    trigger: {
+                      channelId: 'pathwise-coin-v2',
+                      seconds: 1,
+                    } as any,
                  });
                  notificationsSent++;
                }
@@ -291,9 +306,11 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                     body: newest.message?.length > 100 ? `${newest.message.substring(0, 97)}...` : newest.message,
                     sound: true,
                     color: '#3b82f6',
-                  },
+                    channelId: 'pathwise-default-v2',
+                  } as any,
                   trigger: {
                     channelId: 'pathwise-default-v2',
+                    seconds: 1,
                   } as any,
                 });
                 notificationsSent++;
@@ -318,9 +335,11 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                     body: `${newestAsgn.subject} — Due: ${new Date(newestAsgn.dueDate).toLocaleDateString()}`,
                     sound: true,
                     color: '#3b82f6',
-                  },
+                    channelId: 'pathwise-default-v2',
+                  } as any,
                   trigger: {
                     channelId: 'pathwise-default-v2',
+                    seconds: 1,
                   } as any,
                 });
                 notificationsSent++;
@@ -345,12 +364,30 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
 });
 
 export async function registerBackgroundSync() {
-  const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK);
-  if (!isRegistered) {
-    await BackgroundFetch.registerTaskAsync(BACKGROUND_SYNC_TASK, {
-      minimumInterval: 15 * 60, // 15 minutes
-      stopOnTerminate: false, // android only,
-      startOnBoot: true, // android only
-    });
+  try {
+    await setupAndroidChannels().catch(() => {});
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK);
+    if (!isRegistered) {
+      await BackgroundFetch.registerTaskAsync(BACKGROUND_SYNC_TASK, {
+        minimumInterval: 15 * 60, // 15 minutes
+        stopOnTerminate: false, // android only: keep active when app is killed/closed
+        startOnBoot: true, // android only: restart after phone reboot
+      });
+      console.log('[BackgroundSync] Registered successfully');
+    }
+  } catch (err) {
+    console.warn('[BackgroundSync] Registration error:', err);
+  }
+}
+
+export async function unregisterBackgroundSync() {
+  try {
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_SYNC_TASK);
+    if (isRegistered) {
+      await BackgroundFetch.unregisterTaskAsync(BACKGROUND_SYNC_TASK);
+      console.log('[BackgroundSync] Unregistered successfully');
+    }
+  } catch (err) {
+    console.warn('[BackgroundSync] Unregistration error:', err);
   }
 }

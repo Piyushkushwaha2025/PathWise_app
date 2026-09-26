@@ -108,7 +108,6 @@ export default function ProfileScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [firstName, setFirstName] = useState(user?.firstName || "");
   const [lastName, setLastName] = useState(user?.lastName || "");
-  const [selectedTheme, setSelectedTheme] = useState<ThemeType>(currentTheme);
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const [isNotificationsVisible, setNotificationsVisible] = useState(false);
@@ -296,12 +295,12 @@ export default function ProfileScreen() {
 
   const handleThemeSelect = (t: ThemeType) => {
     // SUBSCRIPTION DISABLED \u2014 themes are free for now
-    setSelectedTheme(t);
     setTheme(t);
     user?.update({
       unsafeMetadata: {
         ...user.unsafeMetadata,
-        theme: t
+        theme: t,
+        primaryColor: undefined,
       }
     }).catch(() => {});
   };
@@ -452,7 +451,6 @@ export default function ProfileScreen() {
               onPress={() => {
                 setFirstName(user?.firstName || "");
                 setLastName(user?.lastName || "");
-                setSelectedTheme(currentTheme);
                 setSettingsVisible(true);
               }}
             >
@@ -679,25 +677,25 @@ export default function ProfileScreen() {
             {(["black", "white", "cream", "emerald"] as ThemeType[]).map((t) => (
               <MotiView
                 key={t}
-                animate={{ scale: selectedTheme === t ? 1.05 : 1 }}
+                animate={{ scale: currentTheme === t ? 1.05 : 1 }}
                 transition={{ type: "spring", damping: 12, stiffness: 200 }}
               >
                 <TouchableOpacity
                   style={[
                     styles.themeBtn,
-                    selectedTheme === t && styles.themeBtnActive,
+                    currentTheme === t && styles.themeBtnActive,
                   ]}
                   onPress={() => handleThemeSelect(t)}
                 >
                   <Ionicons
                     name={t === "black" ? "moon" : t === "white" ? "sunny" : t === "cream" ? "leaf" : "sparkles"}
                     size={20}
-                    color={selectedTheme === t ? colors.primary : colors.textMuted}
+                    color={currentTheme === t ? colors.primary : colors.textMuted}
                   />
                   <Text
                     style={[
                       styles.themeBtnText,
-                      selectedTheme === t && { color: colors.primary, fontWeight: "bold" },
+                      currentTheme === t && { color: colors.primary, fontWeight: "bold" },
                     ]}
                   >
                     {t.charAt(0).toUpperCase() + t.slice(1)}

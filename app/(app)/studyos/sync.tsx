@@ -7,6 +7,7 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import { useStudyOSStore } from '../../../store/studyosStore';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { syncUserWithDB } from '../../../lib/db';
 import timetableData from './timetableData.json';
@@ -585,7 +586,10 @@ export default function SyncScreen() {
 
       if (userId && newData.profile?.uid) {
         try {
-          await syncUserWithDB(userId, section || undefined, newData.profile.uid);
+          await Promise.race([
+            syncUserWithDB(userId, section || undefined, newData.profile.uid),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 3000))
+          ]);
         } catch (e: any) {
           if (e?.code === 'UID_ALREADY_LINKED' || e?.code === 'ACCOUNT_ALREADY_BOUND') {
             await SecureStore.deleteItemAsync('culko_cookies').catch(() => {});
@@ -599,7 +603,7 @@ export default function SyncScreen() {
             );
             return;
           } else {
-            console.error('Failed to sync user with DB:', e);
+            console.warn('[Sync] Non-fatal user DB sync notice:', e?.message);
           }
         }
       }
@@ -608,6 +612,7 @@ export default function SyncScreen() {
 
       if (cookieRef.current) {
         await SecureStore.setItemAsync('culko_cookies', cookieRef.current).catch(() => {});
+        await AsyncStorage.setItem('culko_cookies', cookieRef.current).catch(() => {});
       }
 
       setTimeout(() => {
@@ -665,6 +670,7 @@ export default function SyncScreen() {
         if (data.data) {
           cookieRef.current = data.data;
           await SecureStore.setItemAsync('culko_cookies', data.data).catch(() => {});
+          await AsyncStorage.setItem('culko_cookies', data.data).catch(() => {});
         }
       } else if (data.type === 'DEBUG_HTML') {
         console.log('========= DEBUG HTML FOR STEP:', data.step, '=========');
@@ -705,14 +711,59 @@ export default function SyncScreen() {
     }
   }, [currentStepIndex]);
 
-  // Per-step safety net: if a step's page hangs for more than 8 seconds, skip it.
+  // Immediate DOM poller script so scraping completes within 200-400ms without waiting for slow images/assets
+  const fastScrapeScript = `
+    (function() {
+      var hasScraped = false;
+      function checkAndRun() {
+        if (hasScraped) return;
+        try {
+          var c = document.cookie;
+          if (c) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOKIES', data: c }));
+        } catch(e) {}
+
+        var hasDomContent = document.body && (
+          document.querySelector('table') || 
+          document.querySelector('#SortTable') || 
+          document.querySelector('#ContentPlaceHolder1_gvMyCourses') ||
+          document.querySelector('#accordion') ||
+          document.querySelectorAll('td, span').length > 10
+        );
+
+        if (hasDomContent) {
+          hasScraped = true;
+          try {
+            ${currentStep?.script || ''}
+          } catch(err) {}
+        }
+      }
+
+      checkAndRun();
+      var poller = setInterval(function() {
+        if (hasScraped) { clearInterval(poller); return; }
+        checkAndRun();
+      }, 150);
+
+      setTimeout(function() {
+        if (!hasScraped) {
+          clearInterval(poller);
+          try {
+            ${currentStep?.script || ''}
+          } catch(err) {}
+        }
+      }, 2000);
+    })();
+    true;
+  `;
+
+  // Per-step safety net: if a step's page hangs for more than 3.8 seconds, advance immediately
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!finishedRef.current && currentStep) {
          console.log('Step timeout:', currentStep.id);
          handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
       }
-    }, 8000);
+    }, 3800);
     return () => clearTimeout(timer);
   }, [currentStepIndex]);
 
@@ -740,10 +791,16 @@ export default function SyncScreen() {
       {currentStep && (
         <View style={styles.hiddenWebviewContainer}>
           <WebView
+            key={currentStep.id}
             ref={webViewRef}
             source={{ uri: currentStep.url, headers: cookieRef.current ? { Cookie: cookieRef.current } : undefined }}
             onNavigationStateChange={handleNavigationStateChange}
             onMessage={handleMessage}
+            injectedJavaScript={fastScrapeScript}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+            sharedCookiesEnabled={true}
+            cacheEnabled={true}
             onError={(e) => {
               console.log('WebView Error on step:', currentStep.id, e.nativeEvent.description);
               handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
@@ -752,9 +809,6 @@ export default function SyncScreen() {
               console.log('WebView HTTP Error on step:', currentStep.id, e.nativeEvent.statusCode);
               handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
             }}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            sharedCookiesEnabled={true}
           />
         </View>
       )}

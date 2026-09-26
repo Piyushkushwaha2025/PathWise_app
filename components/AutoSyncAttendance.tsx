@@ -502,13 +502,17 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
         thirdPartyCookiesEnabled={true}
         onNavigationStateChange={(navState) => {
           if (!navState.loading) {
-            // Redirected to login = session expired
-            if (
-              navState.url.includes('Login') ||
-              navState.url.includes('login') ||
-              navState.url.includes('Default.aspx') ||
-              navState.url.includes('error.html')
-            ) {
+            const url = (navState.url || '').toLowerCase();
+
+            // Portal server error / rate limiting is NOT session expiration — finish gracefully
+            if (url.includes('error.html') || url.includes('servererror')) {
+              console.log('[AutoSync] Transient portal error.html encountered — finishing safely without expiring session');
+              finish(false);
+              return;
+            }
+
+            // Redirected to actual login page = session expired
+            if (url.includes('login.aspx') || url.includes('/login')) {
               console.log('[AutoSync] Session expired — redirected to login');
               sessionExpired();
               return;

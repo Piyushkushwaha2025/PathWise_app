@@ -10,6 +10,7 @@ import { useThemeStore } from '../../../../store/useThemeStore';
 import { useStudyOSStore } from '../../../../store/studyosStore';
 import { useStudySessionStore } from '../../../../store/studySessionStore';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
@@ -53,63 +54,24 @@ function buildSemesterList(raw: RawSemester[], studentSemStr?: string): Semester
     }
   }
 
-  // If student's current semester is known from portal profile (e.g. Semester 3)
-  if (studentCurrentSem > 0) {
-    const list: SemesterItem[] = [];
-    for (let i = 1; i <= studentCurrentSem; i++) {
-      const isCurrent = (i === studentCurrentSem);
-      const rawOpt = sorted[i - 1];
+  const list: SemesterItem[] = [];
 
-      if (isCurrent) {
-        list.push({
-          label: `Semester ${i} (Current)`,
-          value: rawOpt ? rawOpt.value : null,
-          originalText: rawOpt ? rawOpt.text : 'Current Session',
-        });
-      } else {
-        list.push({
-          label: `Semester ${i}`,
-          value: rawOpt ? rawOpt.value : `sem_${i}`,
-          originalText: rawOpt ? rawOpt.text : `Semester ${i} Session`,
-        });
-      }
-    }
-    return list;
-  }
-
-  // Fallback if profile semester is not available:
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // 1-12
-
-  const list: SemesterItem[] = sorted.map((opt, i) => {
-    const sess = parseSession(opt.text);
-    const isOngoing = (sess.year === currentYear && ((sess.month >= 7 && currentMonth >= 7) || (sess.month <= 6 && currentMonth <= 6)));
-    const isLast = i === sorted.length - 1;
-    
-    if (isLast && isOngoing) {
-      return {
-        label: `Semester ${i + 1} (Current)`,
-        value: opt.value,
-        originalText: opt.text,
-      };
-    }
-
-    return {
-      label: `Semester ${i + 1}`,
+  // 1. Add all completed sessions that have declared results on the portal
+  sorted.forEach((opt, idx) => {
+    list.push({
+      label: `Semester ${idx + 1}`,
       value: opt.value,
       originalText: opt.text,
-    };
+    });
   });
 
-  const hasCurrent = list.some(item => item.label.includes('(Current)'));
-  if (!hasCurrent) {
-    list.push({
-      label: `Semester ${list.length + 1} (Current)`,
-      value: null,
-      originalText: 'Current Session',
-    });
-  }
+  // 2. Add current ongoing semester (for internal marks)
+  const currentNum = Math.max(list.length + 1, studentCurrentSem > 0 ? studentCurrentSem : 1);
+  list.push({
+    label: `Semester ${currentNum} (Current)`,
+    value: 'CURRENT_INTERNAL',
+    originalText: 'Current Ongoing Session',
+  });
 
   return list;
 }
@@ -120,7 +82,7 @@ export default function MarksScreen() {
   const isDark = theme === 'black';
   const styles = useStyles(colors, isDark);
   const { marks, subjects, semesterOptionsCache, resultCache, setScrapedData, profile } = useStudyOSStore();
-  const { clearSession } = useStudySessionStore();
+  const { clearSession, isSessionDisconnected } = useStudySessionStore();
   const router = useRouter();
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
@@ -148,9 +110,11 @@ export default function MarksScreen() {
   const selectedSemLabel = selectedSemIdx >= 0 ? derivedSemesters[selectedSemIdx].label : undefined;
 
   // True when user is on the latest/current semester
-  const isCurrentSemester = !selectedSemester || selectedSemIdx === derivedSemesters.length - 1;
-
-  // (Removed auto-select so it defaults to the empty 'Result' state for current semester)
+  const isCurrentSemester =
+    !selectedSemester ||
+    selectedSemester === 'CURRENT_INTERNAL' ||
+    selectedSemester.includes('(Current)') ||
+    (selectedSemIdx >= 0 && derivedSemesters[selectedSemIdx]?.label.includes('(Current)'));
 
   useFocusEffect(
     React.useCallback(() => {
@@ -158,11 +122,6 @@ export default function MarksScreen() {
         didMountRef.current = true;
         return;
       }
-
-      // Returning to marks tab — just snap to the latest (Current) semester silently.
-      const currentOptions = useStudyOSStore.getState().semesterOptionsCache || [];
-      
-      setResultData(null);
       setIsLoading(false); 
       setRefreshing(false);
     }, [])
@@ -170,29 +129,59 @@ export default function MarksScreen() {
 
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [rawCookie, setRawCookie] = useState<string | null>(null);
+  const [cookieScript, setCookieScript] = useState<string | null>(null);
   
-  const cookieScript = useRef<string>('');
+  const cookieScriptRef = useRef<string>('');
   const injectAndScrapeRef = useRef<() => void>(() => {});
   const injectAndScrapeMarksRef = useRef<() => void>(() => {});
   const marksWebViewRef = useRef<WebView>(null);
   const didMountRef = useRef(false);
 
-  // Load saved cookies once on mount
-  useEffect(() => {
-    SecureStore.getItemAsync('culko_cookies').then((cookies) => {
-      if (cookies) {
-        const parts = cookies.split(';').map((c: string) => c.trim()).filter(Boolean);
-        const lines = parts.map((c: string) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
-        cookieScript.current = lines + '\ntrue;';
-      }
-    });
+  // Load saved cookies from SecureStore with AsyncStorage fallback
+  const loadCookies = useCallback(async () => {
+    let c = await SecureStore.getItemAsync('culko_cookies').catch(() => null);
+    if (!c) {
+      c = await AsyncStorage.getItem('culko_cookies').catch(() => null);
+    }
+    if (c) {
+      setRawCookie(c);
+      const parts = c.split(';').map((p: string) => p.trim()).filter(Boolean);
+      const script = parts.map((p: string) => `document.cookie = ${JSON.stringify(p + '; path=/')};`).join('\n') + '\ntrue;';
+      setCookieScript(script);
+      cookieScriptRef.current = script;
+      return c;
+    }
+    return null;
   }, []);
 
-  const onRefresh = useCallback(() => {
+  useEffect(() => {
+    loadCookies();
+  }, [loadCookies]);
+
+  // Re-fetch cookies and remount WebViews when user reconnects
+  const wasDisconnected = useRef(isSessionDisconnected);
+  useEffect(() => {
+    if (wasDisconnected.current && !isSessionDisconnected) {
+      loadCookies().then((fresh) => {
+        if (fresh) {
+          setRefreshKey((k) => k + 1);
+        }
+      });
+    }
+    wasDisconnected.current = isSessionDisconnected;
+  }, [isSessionDisconnected, loadCookies]);
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    webViewRef.current?.reload();
-    marksWebViewRef.current?.reload();
-  }, []);
+    const freshCookie = await loadCookies();
+    if (freshCookie) {
+      setRefreshKey((k) => k + 1);
+    } else {
+      setRefreshing(false);
+    }
+  }, [loadCookies]);
 
   // Grade → approximate percentage for radar (based on CU grading scale)
   const GRADE_TO_PCT: Record<string, number> = {
@@ -407,18 +396,22 @@ export default function MarksScreen() {
             sgpa = (totalPoints / totalCredits).toFixed(2);
          }
       }
-      
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'RESULT_DATA',
-          options: options,
-          sgpa: sgpa,
-          subjects: subjects,
-          selected: ddl ? ddl.value : '',
-          debugSgpa: sgpaDebug,
-          debugRows: debugRows
-        }));
-        } // CLOSE ELSE BLOCK FOR RESULT TYPE
-      } // CLOSE ELSE BLOCK FOR LOGIN
+
+      var semEl = document.querySelector('span[id*="lblSem"]');
+      var semNum = semEl ? semEl.innerText.trim() : '';
+
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'RESULT_DATA',
+        options: options,
+        sgpa: sgpa,
+        subjects: subjects,
+        selected: ddl ? ddl.value : '',
+        semesterNumber: semNum,
+        debugSgpa: sgpaDebug,
+        debugRows: debugRows
+      }));
+      } // CLOSE ELSE BLOCK FOR RESULT TYPE
+    } // CLOSE ELSE BLOCK FOR LOGIN
     } catch(e) {
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'RESULT_DATA',
@@ -545,8 +538,8 @@ export default function MarksScreen() {
   `;
 
   injectAndScrapeMarksRef.current = () => {
-    if (cookieScript.current) {
-      marksWebViewRef.current?.injectJavaScript(cookieScript.current);
+    if (cookieScriptRef.current) {
+      marksWebViewRef.current?.injectJavaScript(cookieScriptRef.current);
       setTimeout(() => marksWebViewRef.current?.injectJavaScript(extractMarksScript), 500);
     } else {
       marksWebViewRef.current?.injectJavaScript(extractMarksScript);
@@ -554,8 +547,8 @@ export default function MarksScreen() {
   };
 
   injectAndScrapeRef.current = () => {
-    if (cookieScript.current) {
-      webViewRef.current?.injectJavaScript(cookieScript.current);
+    if (cookieScriptRef.current) {
+      webViewRef.current?.injectJavaScript(cookieScriptRef.current);
       setTimeout(() => webViewRef.current?.injectJavaScript(extractScript), 500);
     } else {
       webViewRef.current?.injectJavaScript(extractScript);
@@ -570,18 +563,6 @@ export default function MarksScreen() {
            return; // wait for reload
         }
         if (data.error === 'SESSION_EXPIRED') {
-           Alert.alert(
-             'Session Expired',
-             'Your college portal session has expired. Logout and re-login to view marks.',
-             [
-               { text: 'Later', style: 'cancel' },
-               {
-                 text: 'Logout & Re-login',
-                 style: 'destructive',
-                 onPress: async () => { await clearSession(true); router.replace('/(app)' as any); }
-               }
-             ]
-           );
            setIsLoading(false);
            setRefreshing(false);
            return;
@@ -603,14 +584,15 @@ export default function MarksScreen() {
         if (data.subjects && data.subjects.length > 0) {
            const currentSelected = data.selected || selectedSemester;
            setResultData({ sgpa: data.sgpa, subjects: data.subjects });
-           if (currentSelected) {
-               setScrapedData({ 
-                 resultCache: { 
-                   ...(resultCache || {}), 
-                   [currentSelected]: { sgpa: data.sgpa, subjects: data.subjects } 
-                 } 
-               });
+           
+           const newCache = { ...(resultCache || {}) };
+           if (currentSelected) newCache[currentSelected] = { sgpa: data.sgpa, subjects: data.subjects };
+           if (selectedSemester) newCache[selectedSemester] = { sgpa: data.sgpa, subjects: data.subjects };
+           if (data.semesterNumber) {
+             newCache[`Semester ${data.semesterNumber}`] = { sgpa: data.sgpa, subjects: data.subjects };
+             newCache[`sem_${data.semesterNumber}`] = { sgpa: data.sgpa, subjects: data.subjects };
            }
+           setScrapedData({ resultCache: newCache });
         } else {
            setResultData(null);
         }
@@ -630,36 +612,46 @@ export default function MarksScreen() {
   };
 
   const handleNavigationStateChange = (navState: WebViewNavigation) => {
-    console.log("MARKS WEBVIEW NAV:", navState.url, navState.loading);
+    console.log("MARKS RESULT WEBVIEW NAV:", navState.url, navState.loading);
     if (!navState.loading) {
-      if (navState.url.includes('Login') || navState.url.includes('login')) {
+      const url = (navState.url || '').toLowerCase();
+      if (url.includes('error.html') || url.includes('servererror')) {
+        setIsLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      if (url.includes('login.aspx') || url.includes('/login')) {
+        setIsLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      setTimeout(() => injectAndScrapeRef.current(), 1500);
+    }
+  };
+
+  const handleMarksNavigationStateChange = (navState: WebViewNavigation) => {
+    console.log("MARKS INTERNAL WEBVIEW NAV:", navState.url, navState.loading);
+    if (!navState.loading) {
+      const url = (navState.url || '').toLowerCase();
+      if (url.includes('error.html') || url.includes('servererror')) {
+        setIsLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      if (url.includes('login.aspx') || url.includes('/login')) {
+        console.log('[Marks] frmStudentMarksView redirected to login — session expired');
         setIsLoading(false);
         setRefreshing(false);
         useStudySessionStore.getState().setSessionExpired(true);
         return;
       }
-      setTimeout(() => injectAndScrapeRef.current(), 2000);
+      setTimeout(() => injectAndScrapeMarksRef.current(), 1500);
     }
   };
-
-  const handleMarksNavigationStateChange = (navState: WebViewNavigation) => {
-    if (!navState.loading) {
-      setTimeout(() => injectAndScrapeMarksRef.current(), 2000);
-    }
-  };
-
-  
-  useFocusEffect(
-    React.useCallback(() => {
-      // Reset to default internal marks / result button when returning to tab
-      setSelectedSemester('');
-      setResultData(null);
-    }, [])
-  );
 
   const selectSemester = (item: SemesterItem) => {
     // Current ongoing semester uses internal marks & radar — no portal postback needed
-    if (item.value === null || item.label.includes('(Current)')) {
+    if (item.value === null || item.value === 'CURRENT_INTERNAL' || item.label.includes('(Current)')) {
       setIsModalVisible(false);
       setSelectedSemester(item.label);
       setResultData(null);
@@ -679,9 +671,16 @@ export default function MarksScreen() {
     setIsModalVisible(false);
     setSelectedSemester(value);
     
-    // Instant cache hit
-    if (resultCache && resultCache[value]) {
-       setResultData(resultCache[value]);
+    // Instant cache hit: check by value, label, or semester number
+    const semNum = item.label.replace(/\D/g, '');
+    const cached = resultCache && (
+      resultCache[value] ||
+      resultCache[item.label] ||
+      (semNum ? resultCache[`Semester ${semNum}`] : null) ||
+      (semNum ? resultCache[`sem_${semNum}`] : null)
+    );
+    if (cached) {
+       setResultData(cached);
        setIsLoading(false);
     } else {
        setIsLoading(true);
@@ -693,25 +692,23 @@ export default function MarksScreen() {
         var ddl = document.querySelector('select[name*="ddlSession"]') || document.querySelector('select[name*="Session"]');
         if (ddl) {
           ddl.value = '${value}';
-          // Trigger the form submit button instead of just changing the dropdown!
-          var btn = document.querySelector('input[type="submit"][name*="btnShowResult"], input[type="submit"][value*="Show Result"]');
-          if (btn) {
-             btn.click();
-          } else {
-             if (typeof __doPostBack === 'function') {
-                __doPostBack(ddl.name, '');
-             }
+          if (typeof ddl.onchange === 'function') {
+             ddl.onchange();
           }
+          if (typeof __doPostBack === 'function') {
+             __doPostBack(ddl.name, '');
+          } else {
+             var btn = document.querySelector('input[type="submit"][name*="btnShowResult"], input[type="submit"][value*="Show Result"], input[type="submit"]');
+             if (btn) btn.click();
+          }
+          ddl.dispatchEvent(new Event('change', { bubbles: true }));
         }
       } catch(e) {}
-        true;
+      true;
     `);
 
-    // Re-scrape the result table after the postback updates the DOM.
-    // AJAX/__doPostBack updates often do NOT trigger onNavigationStateChange,
-    // so without this the new semester's result would only appear after a
-    // manual pull-to-refresh. We run the extract script after a short delay.
-    if (!resultCache || !resultCache[value]) {
+    // Re-scrape the result table after postback updates DOM
+    if (!cached) {
       setTimeout(() => injectAndScrapeRef.current(), 2500);
     }
   };
@@ -994,6 +991,30 @@ export default function MarksScreen() {
           </View>
         )}
 
+        {/* Empty state for past semester when no result data found */}
+        {!isCurrentSemester && !isLoading && (!resultData || !resultData.subjects || resultData.subjects.length === 0) && (
+          <View style={styles.listContainer}>
+            <View style={styles.emptyInternalCard}>
+              <LinearGradient
+                colors={
+                  isDark
+                    ? ['rgba(255, 255, 255, 0.06)', 'rgba(255, 255, 255, 0.01)']
+                    : ['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.82)']
+                }
+                style={styles.emptyInternalGradient}
+              >
+                <View style={[styles.emptyIconCircle, { backgroundColor: colors.primary + '18' }]}>
+                  <Ionicons name="document-text-outline" size={32} color={colors.primary} />
+                </View>
+                <Text style={[styles.emptyInternalTitle, { color: colors.text }]}>No Transcripts Found</Text>
+                <Text style={styles.emptyInternalDesc}>
+                  No finalized exam results were published for this semester on the university portal yet.
+                </Text>
+              </LinearGradient>
+            </View>
+          </View>
+        )}
+
         {/* Current Semester: Internal Marks List */}
         {isCurrentSemester && (
           <View style={styles.listContainer}>
@@ -1142,30 +1163,44 @@ export default function MarksScreen() {
       </Modal>
 
       {/* Hidden WebViews for Scraping */}
-      <View style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: -1000 }}>
-         <WebView
-           ref={webViewRef}
-           source={{ uri: 'https://student.culko.in/result.aspx' }}
-           onNavigationStateChange={handleNavigationStateChange}
-           onMessage={handleMessage}
-           onError={(e) => console.log('WEBVIEW ERROR:', e.nativeEvent.description)}
-           onHttpError={(e) => console.log('WEBVIEW HTTP ERROR:', e.nativeEvent.statusCode)}
-           javaScriptEnabled={true}
-           domStorageEnabled={true}
-           sharedCookiesEnabled={true}
-         />
-         <WebView
-           ref={marksWebViewRef}
-           source={{ uri: 'https://student.culko.in/frmStudentMarksView.aspx' }}
-           onNavigationStateChange={handleMarksNavigationStateChange}
-           onMessage={handleMessage}
-           onError={(e) => console.log('MARKS WEBVIEW ERROR:', e.nativeEvent.description)}
-           onHttpError={(e) => console.log('MARKS WEBVIEW HTTP ERROR:', e.nativeEvent.statusCode)}
-           javaScriptEnabled={true}
-           domStorageEnabled={true}
-           sharedCookiesEnabled={true}
-         />
-      </View>
+      {rawCookie && (
+        <View style={{ width: 1, height: 1, opacity: 0, position: 'absolute', left: -1000 }}>
+           <WebView
+             key={`result_wv_${refreshKey}`}
+             ref={webViewRef}
+             source={{ 
+               uri: 'https://student.culko.in/result.aspx',
+               headers: { Cookie: rawCookie }
+             }}
+             injectedJavaScriptBeforeContentLoaded={cookieScript || undefined}
+             onNavigationStateChange={handleNavigationStateChange}
+             onMessage={handleMessage}
+             onError={(e) => console.log('WEBVIEW ERROR:', e.nativeEvent.description)}
+             onHttpError={(e) => console.log('WEBVIEW HTTP ERROR:', e.nativeEvent.statusCode)}
+             javaScriptEnabled={true}
+             domStorageEnabled={true}
+             sharedCookiesEnabled={true}
+             thirdPartyCookiesEnabled={true}
+           />
+           <WebView
+             key={`marks_wv_${refreshKey}`}
+             ref={marksWebViewRef}
+             source={{ 
+               uri: 'https://student.culko.in/frmStudentMarksView.aspx',
+               headers: { Cookie: rawCookie }
+             }}
+             injectedJavaScriptBeforeContentLoaded={cookieScript || undefined}
+             onNavigationStateChange={handleMarksNavigationStateChange}
+             onMessage={handleMessage}
+             onError={(e) => console.log('MARKS WEBVIEW ERROR:', e.nativeEvent.description)}
+             onHttpError={(e) => console.log('MARKS WEBVIEW HTTP ERROR:', e.nativeEvent.statusCode)}
+             javaScriptEnabled={true}
+             domStorageEnabled={true}
+             sharedCookiesEnabled={true}
+             thirdPartyCookiesEnabled={true}
+           />
+        </View>
+      )}
     </View>
   );
 }

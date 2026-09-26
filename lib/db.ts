@@ -44,6 +44,36 @@ async function safeJsonParse(res: Response): Promise<any> {
   }
 }
 
+// ─── Global Auth Token Bridge ────────────────────────────────────────────────
+let _authTokenGetter: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenGetter(getter: () => Promise<string | null>) {
+  _authTokenGetter = getter;
+}
+
+export async function getAuthToken(): Promise<string | null> {
+  if (_authTokenGetter) {
+    try {
+      return await _authTokenGetter();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function getAuthHeaders(clerkId: string, explicitToken?: string | null): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-clerk-user-id': clerkId,
+  };
+  const token = explicitToken || await getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export async function syncUserWithDB(
   clerkId: string,
   section_code?: string,
@@ -51,14 +81,15 @@ export async function syncUserWithDB(
   expoPushToken?: string
 ): Promise<UserData> {
   try {
+    const headers = await getAuthHeaders(clerkId);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
     const res = await fetch(`${API_URL}/user/sync`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-clerk-user-id': clerkId
-      },
-      body: JSON.stringify({ section_code, uid, expoPushToken })
-    });
+      headers,
+      body: JSON.stringify({ section_code, uid, expoPushToken }),
+      signal: controller.signal
+    }).finally(() => clearTimeout(timeout));
     
     const data = await safeJsonParse(res);
 
@@ -86,12 +117,10 @@ export async function verifyUidWithDB(
   uid: string
 ): Promise<{ allowed: boolean; boundUid: string | null }> {
   try {
+    const headers = await getAuthHeaders(clerkId);
     const res = await fetch(`${API_URL}/user/verify-uid`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-clerk-user-id': clerkId
-      },
+      headers,
       body: JSON.stringify({ uid })
     });
 
@@ -121,12 +150,10 @@ export async function verifyUidWithDB(
 
 export async function savePushToken(clerkId: string, expoPushToken: string): Promise<boolean> {
   try {
+    const headers = await getAuthHeaders(clerkId);
     const res = await fetch(`${API_URL}/user/push-token`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-clerk-user-id': clerkId
-      },
+      headers,
       body: JSON.stringify({ expoPushToken })
     });
     return res.ok;
@@ -137,20 +164,19 @@ export async function savePushToken(clerkId: string, expoPushToken: string): Pro
 }
 
 export async function deleteUserFromDB(clerkId: string): Promise<void> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/user`, {
     method: 'DELETE',
-    headers: { 'x-clerk-user-id': clerkId }
+    headers
   });
   if (!res.ok) throw new Error('Failed to delete user from DB');
 }
 
 export async function updateUserSubscription(clerkId: string, is_premium: boolean, plan?: string): Promise<UserData> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/user/subscription`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-clerk-user-id': clerkId
-    },
+    headers,
     body: JSON.stringify({ is_premium, plan })
   });
   
@@ -160,12 +186,10 @@ export async function updateUserSubscription(clerkId: string, is_premium: boolea
 }
 
 export async function setFreeAISubject(clerkId: string, subjectId: string): Promise<UserData> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/user/set-free-subject`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-clerk-user-id': clerkId
-    },
+    headers,
     body: JSON.stringify({ subjectId })
   });
   
@@ -175,9 +199,7 @@ export async function setFreeAISubject(clerkId: string, subjectId: string): Prom
 }
 
 export async function createRazorpayOrder(clerkId: string, planId: string, token?: string | null): Promise<any> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  else headers['x-clerk-user-id'] = clerkId;
+  const headers = await getAuthHeaders(clerkId, token);
 
   const res = await fetch(`${API_URL}/payment/create-order`, {
     method: 'POST',
@@ -512,6 +534,9 @@ export interface RewardStatus {
   max_ads_per_day: number;
   tokens_per_ad: number;
   premium_expires_at: number | null;
+  is_premium?: boolean;
+  subscription_plan?: string;
+  is_paid_active?: boolean;
   is_reward_premium_active: boolean;
   trial_started_at: string | null; // ISO date from server
   plans: {
@@ -531,6 +556,9 @@ export const DEFAULT_REWARD_STATUS: RewardStatus = {
   max_ads_per_day: 5,
   tokens_per_ad: 10,
   premium_expires_at: null,
+  is_premium: false,
+  subscription_plan: 'free',
+  is_paid_active: false,
   is_reward_premium_active: false,
   trial_started_at: null,
   plans: {
@@ -542,23 +570,13 @@ export const DEFAULT_REWARD_STATUS: RewardStatus = {
 };
 
 export async function getRewardStatus(clerkId: string, token?: string | null): Promise<RewardStatus> {
-  const headers: Record<string, string> = { 'x-clerk-user-id': clerkId };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = await getAuthHeaders(clerkId, token);
 
   try {
     let res = await fetch(`${API_URL}/rewards/status`, {
       method: 'GET',
       headers,
     });
-
-    // If 401 (e.g. backend CLERK_SECRET_KEY missing/mismatched), retry using x-clerk-user-id
-    if (res.status === 401 && headers['Authorization']) {
-      delete headers['Authorization'];
-      res = await fetch(`${API_URL}/rewards/status`, {
-        method: 'GET',
-        headers,
-      });
-    }
 
     // If user profile not initialized yet in DB, auto-sync and retry once
     if (res.status === 404) {
@@ -597,26 +615,13 @@ export async function claimDailyBonus(clerkId: string, token?: string | null): P
   ads_watched_today: number;
   ads_remaining_today: number;
 }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'x-clerk-user-id': clerkId,
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = await getAuthHeaders(clerkId, token);
 
   let res = await fetch(`${API_URL}/rewards/daily-bonus`, {
     method: 'POST',
     headers,
     body: JSON.stringify({}),
   });
-
-  if (res.status === 401 && headers['Authorization']) {
-    delete headers['Authorization'];
-    res = await fetch(`${API_URL}/rewards/daily-bonus`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({}),
-    });
-  }
 
   if (res.status === 404) {
     try {
@@ -641,26 +646,13 @@ export async function claimAdReward(clerkId: string, adType: string, token?: str
   ads_watched_today: number;
   ads_remaining_today: number;
 }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'x-clerk-user-id': clerkId,
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = await getAuthHeaders(clerkId, token);
 
   let res = await fetch(`${API_URL}/rewards/watch-ad`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ ad_type: adType }),
   });
-
-  if (res.status === 401 && headers['Authorization']) {
-    delete headers['Authorization'];
-    res = await fetch(`${API_URL}/rewards/watch-ad`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ad_type: adType }),
-    });
-  }
 
   if (res.status === 404) {
     try {
@@ -686,26 +678,13 @@ export async function redeemTokensForPremium(clerkId: string, plan: 'one_day' | 
   premium_expires_at: number;
   message: string;
 }> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'x-clerk-user-id': clerkId,
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers = await getAuthHeaders(clerkId, token);
 
   let res = await fetch(`${API_URL}/rewards/redeem`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ plan_key: plan }),
   });
-
-  if (res.status === 401 && headers['Authorization']) {
-    delete headers['Authorization'];
-    res = await fetch(`${API_URL}/rewards/redeem`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ plan_key: plan }),
-    });
-  }
 
   if (res.status === 404) {
     try {
@@ -719,6 +698,6 @@ export async function redeemTokensForPremium(clerkId: string, plan: 'one_day' | 
   }
 
   const data = await safeJsonParse(res);
-  if (!res.ok || !data) throw Object.assign(new Error(data?.message || 'Redemption temporarily unavailable.'), { code: data?.error });
+  if (!res.ok || !data) throw Object.assign(new Error(data?.message || 'Redemption failed.'), { code: data?.error });
   return data;
 }

@@ -174,31 +174,32 @@ export default function WebViewLoginScreen() {
     if (activeUni.id === 'cu') setIsOnLms(isCulkoLoggedIn);
     else setIsOnLms(urlLower.includes(activeUni.lmsDomain.toLowerCase()));
 
-    if (navState.loading) return;
-
+    // Fast-path: Trigger immediately when navigated to success page (do NOT wait 10s for heavy images/banners to finish loading)
     if ((isSuccessPath || isCulkoLoggedIn) && loadingMsg !== 'Login successful. Preparing to sync data...') {
       setIsProcessing(true);
       setLoadingMsg('Login successful. Preparing to sync data...');
       
       // Save credentials for auto-login later
       if (uid && pwd) {
-        await SecureStore.setItemAsync('culko_u', uid);
-        await SecureStore.setItemAsync('culko_p', pwd);
+        SecureStore.setItemAsync('culko_u', uid).catch(() => {});
+        SecureStore.setItemAsync('culko_p', pwd).catch(() => {});
       }
       
       setTimeout(() => {
-        
         if (isReconnect === 'true') {
           useStudySessionStore.getState().setSessionDisconnected(false);
           router.replace('/(app)/studyos/dashboard');
         } else {
           router.replace('/(app)/studyos/sync');
         }
-      }, 100);
-    } else if (!navState.loading) {
-      // Re-inject the polling script on every page load to ensure we catch CAPTCHA after postback
-      webViewRef.current?.injectJavaScript(injectedJs);
+      }, 50);
+      return;
     }
+
+    if (navState.loading) return;
+
+    // Re-inject the polling script on every page load to ensure we catch CAPTCHA after postback
+    webViewRef.current?.injectJavaScript(injectedJs);
   };
 
   const handleMessage = async (event: any) => {
@@ -214,6 +215,23 @@ export default function WebViewLoginScreen() {
         }
         setStep(2);
         setIsProcessing(false);
+      } else if (data.type === 'LOGIN_SUCCESS') {
+        if (loadingMsg !== 'Login successful. Preparing to sync data...') {
+          setIsProcessing(true);
+          setLoadingMsg('Login successful. Preparing to sync data...');
+          if (uid && pwd) {
+            SecureStore.setItemAsync('culko_u', uid).catch(() => {});
+            SecureStore.setItemAsync('culko_p', pwd).catch(() => {});
+          }
+          setTimeout(() => {
+            if (isReconnect === 'true') {
+              useStudySessionStore.getState().setSessionDisconnected(false);
+              router.replace('/(app)/studyos/dashboard');
+            } else {
+              router.replace('/(app)/studyos/sync');
+            }
+          }, 50);
+        }
       } else if (data.type === 'ERROR') {
         const cleanMsg = sanitizeUserFacingError(data.msg, '');
         if (cleanMsg) {
@@ -363,6 +381,13 @@ export default function WebViewLoginScreen() {
 
       setInterval(function() {
         try {
+          var currentUrl = (window.location.href || '').toLowerCase();
+          if ((currentUrl.includes('student.culko.in') || currentUrl.includes('home') || currentUrl.includes('profile')) &&
+              !currentUrl.includes('login') && !currentUrl.includes('logout')) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'LOGIN_SUCCESS', url: currentUrl }));
+            return;
+          }
+
           var errorLbl = document.getElementById('lblMessage') || document.getElementById('lblMsg') || document.getElementById('lblError');
           if (errorLbl && errorLbl.innerText && errorLbl.innerText.trim() !== '' && errorLbl.innerText.trim() !== lastError) {
              lastError = errorLbl.innerText.trim();

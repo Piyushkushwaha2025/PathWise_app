@@ -550,6 +550,7 @@ export function DetailedAttendanceModal({
   const colors = useThemeStore((s) => s.colors);
   const webViewRef = useRef<WebView>(null);
   const [cookieInjectScript, setCookieInjectScript] = useState<string | null>(null);
+  const [rawCookie, setRawCookie] = useState<string | null>(null);
 
   const detailedCache = useStudyOSStore((s) => s.detailedAttendanceCache);
   const setScrapedData = useStudyOSStore((s) => s.setScrapedData);
@@ -721,6 +722,7 @@ export function DetailedAttendanceModal({
         setLoading(false);
         return;
       }
+      setRawCookie(cookies);
       const parts = cookies.split(';').map((c) => c.trim()).filter(Boolean);
       const lines = parts.map((c) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
       setCookieInjectScript(lines + '\ntrue;');
@@ -1329,7 +1331,11 @@ export function DetailedAttendanceModal({
           <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' }}>
             <WebView
               ref={webViewRef}
-              source={{ uri: ATTENDANCE_URL }}
+              source={{ 
+                uri: ATTENDANCE_URL,
+                ...(rawCookie ? { headers: { Cookie: rawCookie } } : {})
+              }}
+              injectedJavaScriptBeforeContentLoaded={cookieInjectScript || undefined}
               javaScriptEnabled={true}
               domStorageEnabled={true}
               sharedCookiesEnabled={true}
@@ -1338,11 +1344,13 @@ export function DetailedAttendanceModal({
                 console.log('[DetailModal] Nav:', navState.url, 'loading:', navState.loading);
                 if (cacheHit.current) return;
                 if (!navState.loading) {
-                  if (
-                    navState.url.includes('Login') ||
-                    navState.url.includes('login') ||
-                    navState.url.includes('Default.aspx')
-                  ) {
+                  const url = (navState.url || '').toLowerCase();
+                  if (url.includes('error.html') || url.includes('servererror')) {
+                    console.log('[DetailModal] Transient server error page — ignoring');
+                    setLoading(false);
+                    return;
+                  }
+                  if (url.includes('login.aspx') || url.includes('/login')) {
                     console.log('[DetailModal] Session expired — redirected to login');
                     setLoading(false);
                     setSessionExpired(true);

@@ -3,6 +3,7 @@ import { Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Ima
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { Clock } from 'lucide-react-native';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UNIVERSITIES } from '../../constants/universities';
 import { Radius, Spacing } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -53,7 +54,17 @@ export const SilentReconnectModal = ({ visible, onClose, colors, onLeave, onSucc
     const isSuccess = url.includes('studenthome') || url.includes('dashboard') || (url.includes('student.culko.in') && !url.includes('login') && !url.includes('logout'));
     
     if (isSuccess && step !== 'expired') {
-       onSuccess();
+       // Request fresh cookies from the WebView session
+       webViewRef.current?.injectJavaScript(`
+         try {
+           var c = document.cookie;
+           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RECONNECT_COOKIES', cookie: c }));
+         } catch(e) {}
+         true;
+       `);
+       setTimeout(() => {
+         onSuccess();
+       }, 500);
     }
   };
   
@@ -71,10 +82,17 @@ export const SilentReconnectModal = ({ visible, onClose, colors, onLeave, onSucc
     }
   };
 
-  const handleMessage = (event: any) => {
+  const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'CAPTCHA_SRC') {
+      if (data.type === 'RECONNECT_COOKIES') {
+        if (data.cookie) {
+          await SecureStore.setItemAsync('culko_cookies', data.cookie).catch(() => {});
+          await AsyncStorage.setItem('culko_cookies', data.cookie).catch(() => {});
+          await SecureStore.setItemAsync('session_saved_at', Date.now().toString()).catch(() => {});
+        }
+        onSuccess();
+      } else if (data.type === 'CAPTCHA_SRC') {
          setCaptchaBase64(data.src);
          setStep('captcha');
       } else if (data.type === 'ERROR') {

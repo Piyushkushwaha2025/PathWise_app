@@ -213,6 +213,25 @@ export default {
 				return new Response('NO_GROQ_KEY', { status: 404 });
 			}
 
+			if (action === 'test-groq-chat') {
+				const models = ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'allam-2-7b'];
+				const results: any[] = [];
+				for (const m of models) {
+					try {
+						const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+							method: 'POST',
+							headers: { 'Authorization': `Bearer ${groqKeys[0]}`, 'Content-Type': 'application/json' },
+							body: JSON.stringify({ model: m, messages: [{ role: 'user', content: 'hi' }] })
+						});
+						const d = await res.json() as any;
+						results.push({ model: m, status: res.status, ok: res.ok, content: d?.choices?.[0]?.message?.content, error: d.error });
+					} catch (e: any) {
+						results.push({ model: m, error: e.message });
+					}
+				}
+				return new Response(JSON.stringify(results, null, 2), { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+			}
+
 			// --- REFLECT API (Student Learning Profile) ---
 			if (action === 'reflect') {
 				try {
@@ -340,7 +359,8 @@ Do NOT output anything else except the bulleted list.`;
 			// Only run RAG for course subjects, completely skip for Universal Doubt Solver
 			if (!isDoubtSolver && env.PINECONE_HOST && env.PINECONE_API_KEY && messages && messages.length > 0) {
 				try {
-					let lastMsg = messages[messages.length - 1]?.parts?.[0]?.text || '';
+					const lastM = messages[messages.length - 1];
+					let lastMsg = lastM?.parts?.[0]?.text ?? (typeof lastM?.content === 'string' ? lastM.content : (lastM?.text || ''));
 					
 					let requestedFiles: string[] = [];
 					const markers = ['[TOPIC FOCUS: ', '[USER INSTRUCTION: ONLY focus your answer strictly on the following files: '];
@@ -536,7 +556,8 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 						{ role: 'model', parts: [{ text: ackText }] },
 						...messages.map((m: any, idx: number) => {
 							const parts: any[] = [];
-							if (idx === lastMsgIdx && m.role !== 'model' && hasImage) {
+							const msgText = m.parts?.[0]?.text ?? (typeof m.content === 'string' ? m.content : (m.text || ''));
+							if (idx === lastMsgIdx && m.role !== 'model' && m.role !== 'assistant' && hasImage) {
 								parts.push({
 									inlineData: {
 										mimeType: imageAttachment.mimeType || 'image/jpeg',
@@ -544,9 +565,9 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 									}
 								});
 							}
-							parts.push({ text: m.parts[0].text });
+							parts.push({ text: msgText });
 							return {
-								role: m.role === 'model' ? 'model' : 'user',
+								role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
 								parts
 							};
 						})
@@ -595,28 +616,30 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 			const openAIMessages = [
 				{ role: 'system', content: systemContext },
 				...messages.map((m: any, idx: number) => {
-					const isLast = idx === lastMsgIdx && m.role !== 'model';
+					const msgText = m.parts?.[0]?.text ?? (typeof m.content === 'string' ? m.content : (m.text || ''));
+					const isLast = idx === lastMsgIdx && m.role !== 'model' && m.role !== 'assistant';
 					if (isLast && hasImage) {
 						return {
 							role: 'user',
 							content: [
-								{ type: 'text', text: m.parts[0].text },
+								{ type: 'text', text: msgText },
 								{ type: 'image_url', image_url: { url: `data:${imageAttachment.mimeType || 'image/jpeg'};base64,${imageAttachment.base64}` } }
 							]
 						};
 					}
-					return { role: m.role === 'model' ? 'assistant' : 'user', content: m.parts[0].text };
+					return { role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user', content: msgText };
 				})
 			];
 
-			// TIER 1: Groq Ultra-Fast LPUs (~400-500 tokens/sec, ~1.8-2.2s latency)
-			// Models: qwen/qwen3.8-27b (world-class academic math/coding precision), openai/gpt-oss-120b, openai/gpt-oss-20b
+			// TIER 1: Groq Ultra-Fast LPUs (~400-500 tokens/sec, ~1.0-1.8s latency)
+			// Models: llama-3.3-70b-versatile (world-class academic math/coding precision), llama-3.1-8b-instant, gemma2-9b-it
 			if (shuffledGroqKeys.length > 0 && !hasImage) {
-				const groqModels = ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
+				const groqModels = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
 
 				for (const qKey of shuffledGroqKeys) {
 					for (const gModel of groqModels) {
 						try {
+							const maxTokens = gModel.includes('qwen') ? 800 : 4096;
 							const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
 								method: 'POST',
 								headers: {
@@ -626,10 +649,10 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 								body: JSON.stringify({
 									model: gModel,
 									messages: openAIMessages,
-									max_tokens: 4096,
+									max_tokens: maxTokens,
 									temperature: 0.2 // Strict academic precision & formula fidelity
 								}),
-								signal: AbortSignal.timeout(6000) // Fast failover if queue gets backed up
+								signal: AbortSignal.timeout(15000)
 							});
 
 							if (response.status === 429) {
@@ -673,7 +696,7 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 									max_tokens: 4096,
 									temperature: 0.2
 								}),
-								signal: AbortSignal.timeout(6000)
+								signal: AbortSignal.timeout(15000)
 							});
 
 							if (response.status === 429) {
@@ -712,7 +735,7 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 									max_tokens: 4096,
 									temperature: 0.2
 								}),
-								signal: AbortSignal.timeout(6000)
+								signal: AbortSignal.timeout(15000)
 							});
 
 							if (response.status === 429) {
@@ -742,8 +765,8 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 					{ role: 'user', parts: [{ text: systemContext }] },
 					{ role: 'model', parts: [{ text: ackText }] },
 					...messages.map((m: any) => ({
-						role: m.role === 'model' ? 'model' : 'user',
-						parts: [{ text: m.parts[0].text }]
+						role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
+						parts: [{ text: m.parts?.[0]?.text ?? (typeof m.content === 'string' ? m.content : (m.text || '')) }]
 					}))
 				];
 
@@ -756,7 +779,7 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 								method: 'POST',
 								headers: { 'Content-Type': 'application/json', 'X-goog-api-key': gKey },
 								body: JSON.stringify({ contents: geminiContents, generationConfig: { maxOutputTokens: 8192, temperature: 0.2 } }),
-								signal: AbortSignal.timeout(8000)
+								signal: AbortSignal.timeout(20000)
 							});
 
 							if (response.status === 429 || response.status === 503) {
@@ -796,41 +819,6 @@ Explain algorithms, core definitions, internal mechanics, and time/space complex
 									'X-Title': 'Quirren AI'
 								},
 								body: JSON.stringify({ model: orModel, messages: openAIMessages, max_tokens: 4096 }),
-								signal: AbortSignal.timeout(10000)
-							});
-
-							const data = await response.json() as any;
-							const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-							if (response.ok && text) {
-								return makeSuccessResponse(text);
-							}
-						} catch (gErr: any) {
-							errors.push(`Gemini ${gModel}: ${gErr.message}`);
-						}
-					}
-				}
-			}
-
-			// TIER 5: OpenRouter Free Models (Final Fallback)
-			if (shuffledOpenRouterKeys.length > 0) {
-				const orModels = [
-					'google/gemini-2.0-flash-lite-preview-02-05:free',
-					'meta-llama/llama-3.3-70b-instruct:free',
-					'qwen/qwen-2.5-72b-instruct:free'
-				];
-
-				for (const orKey of shuffledOpenRouterKeys) {
-					for (const orModel of orModels) {
-						try {
-							const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-								method: 'POST',
-								headers: {
-									'Content-Type': 'application/json',
-									'Authorization': `Bearer ${orKey}`,
-									'HTTP-Referer': 'https://studyos.app',
-									'X-Title': 'Quirren AI'
-								},
-								body: JSON.stringify({ model: orModel, messages: openAIMessages, max_tokens: 2048 }),
 								signal: AbortSignal.timeout(10000)
 							});
 

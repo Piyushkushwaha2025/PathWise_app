@@ -41,7 +41,7 @@ function getAttendancePrediction(total: number, attended: number) {
   } else {
     const needToAttend = Math.ceil(3 * total - 4 * attended);
     return {
-      text: `Attend ${needToAttend} classes for 75%`,
+      text: `Attend ${needToAttend} for 75%`,
       type: 'danger'
     };
   }
@@ -440,6 +440,8 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
   let attendPctNum = 0;
   let missPctNum = 0;
   let currentPctNum = 0;
+  let attendDelta = '';
+  let missDelta = '';
   if (matchedSubject && typeof matchedSubject.attendedClasses === 'number' && typeof matchedSubject.totalClasses === 'number') {
     const A = matchedSubject.attendedClasses;
     const T = matchedSubject.totalClasses;
@@ -448,6 +450,10 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
     missPctNum = ((A / (T + 1)) * 100);
     whatIfAttend = attendPctNum.toFixed(1) + '%';
     whatIfMiss = missPctNum.toFixed(1) + '%';
+    const gain = Math.max(0, attendPctNum - currentPctNum);
+    const loss = Math.max(0, currentPctNum - missPctNum);
+    attendDelta = `+${gain.toFixed(1)}%`;
+    missDelta = `-${loss.toFixed(1)}%`;
   }
 
   // Border and accent colors based on attendance status
@@ -457,11 +463,11 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
     isOngoing ? '#22c55e' : colors.primary;
 
   return (
-    <View style={{ marginBottom: 16 }}>
+    <View style={{ marginBottom: 10 }}>
       {/* Section Header */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 4 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, marginTop: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_600SemiBold' }}>
             {isOngoing ? 'Ongoing Class' : 'Upcoming Class'}
           </Text>
           
@@ -470,23 +476,23 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
             flexDirection: 'row',
             alignItems: 'center',
             backgroundColor: isOngoing ? '#22c55e20' : colors.primary + '20',
-            paddingHorizontal: 8,
-            paddingVertical: 3,
+            paddingHorizontal: 7,
+            paddingVertical: 2,
             borderRadius: Radius.full,
             borderWidth: 1,
             borderColor: isOngoing ? '#22c55e40' : colors.primary + '40',
           }}>
             {isOngoing && (
               <Animated.View style={{
-                width: 6,
-                height: 6,
-                borderRadius: 3,
+                width: 5,
+                height: 5,
+                borderRadius: 2.5,
                 backgroundColor: '#22c55e',
                 opacity: pulseAnim,
-                marginRight: 5
+                marginRight: 4
               }} />
             )}
-            <Text style={{ color: isOngoing ? '#22c55e' : colors.primary, fontSize: 10, fontFamily: 'Inter_700Bold' }}>
+            <Text style={{ color: isOngoing ? '#22c55e' : colors.primary, fontSize: 9.5, fontFamily: 'Inter_700Bold' }}>
               {isOngoing ? 'LIVE NOW' : 'SCHEDULED'}
             </Text>
           </View>
@@ -494,24 +500,24 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
 
         {/* Live Attendance Status Pill in Header */}
         {attendanceStatus === 'present' ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#10b98122', paddingHorizontal: 9, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: '#10b98150' }}>
-            <Ionicons name="checkmark-circle" size={13} color="#10b981" />
-            <Text style={{ color: '#10b981', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>PRESENT</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5, backgroundColor: '#10b98122', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full, borderWidth: 1, borderColor: '#10b98150' }}>
+            <Ionicons name="checkmark-circle" size={11} color="#10b981" />
+            <Text style={{ color: '#10b981', fontSize: 9.5, fontFamily: 'SpaceGrotesk_700Bold' }}>PRESENT</Text>
           </View>
         ) : attendanceStatus === 'absent' ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ef444422', paddingHorizontal: 9, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: '#ef444450' }}>
-            <Ionicons name="close-circle" size={13} color="#ef4444" />
-            <Text style={{ color: '#ef4444', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>ABSENT</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5, backgroundColor: '#ef444422', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full, borderWidth: 1, borderColor: '#ef444450' }}>
+            <Ionicons name="close-circle" size={11} color="#ef4444" />
+            <Text style={{ color: '#ef4444', fontSize: 9.5, fontFamily: 'SpaceGrotesk_700Bold' }}>ABSENT</Text>
           </View>
         ) : attendanceStatus === 'leave' ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f59e0b22', paddingHorizontal: 9, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: '#f59e0b50' }}>
-            <Ionicons name="document-text" size={13} color="#f59e0b" />
-            <Text style={{ color: '#f59e0b', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>LEAVE</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5, backgroundColor: '#f59e0b22', paddingHorizontal: 7, paddingVertical: 2, borderRadius: Radius.full, borderWidth: 1, borderColor: '#f59e0b50' }}>
+            <Ionicons name="document-text" size={11} color="#f59e0b" />
+            <Text style={{ color: '#f59e0b', fontSize: 9.5, fontFamily: 'SpaceGrotesk_700Bold' }}>LEAVE</Text>
           </View>
         ) : (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full, borderWidth: 1, borderColor: colors.border }}>
-            <Ionicons name="time-outline" size={12} color={colors.textMuted} />
-            <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_600SemiBold' }}>PENDING</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 6.5, paddingVertical: 2, borderRadius: Radius.full, borderWidth: 1, borderColor: colors.border }}>
+            <Ionicons name="time-outline" size={11} color={colors.textMuted} />
+            <Text style={{ color: colors.textMuted, fontSize: 9, fontFamily: 'Inter_600SemiBold' }}>PENDING</Text>
           </View>
         )}
       </View>
@@ -519,8 +525,8 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
       {/* Main Glass Card */}
       <View style={{
         backgroundColor: colors.surfaceHigh,
-        borderRadius: Radius.lg,
-        borderLeftWidth: 4,
+        borderRadius: 12,
+        borderLeftWidth: 3.5,
         borderColor: cardBorderColor,
         borderWidth: 1,
         borderTopColor: colors.border,
@@ -528,10 +534,10 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
         borderBottomColor: colors.border,
         overflow: 'hidden',
         shadowColor: cardBorderColor,
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: isDark ? 0.25 : 0.08,
-        shadowRadius: 6,
-        elevation: 3,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: isDark ? 0.2 : 0.06,
+        shadowRadius: 4,
+        elevation: 2,
       }}>
         {/* Absolute Progress Background for ongoing class */}
         {isOngoing && (
@@ -542,46 +548,44 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
             right: 0,
             bottom: 0,
             backgroundColor: attendanceStatus === 'present' ? '#10b98112' : attendanceStatus === 'absent' ? '#ef444410' : '#22c55e12',
-            borderTopRightRadius: Radius.lg,
-            borderBottomRightRadius: Radius.lg,
+            borderTopRightRadius: 12,
+            borderBottomRightRadius: 12,
             transformOrigin: 'left',
             transform: [{ scaleX: progressAnim }]
           }} />
         )}
 
         {/* Card Main Info */}
-        <View style={{ paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center' }}>
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
-              <Text style={{ color: colors.text, fontSize: 15, fontFamily: 'SpaceGrotesk_700Bold', flex: 1 }}>
-                {fullNameToDisplay}
-              </Text>
-            </View>
+        <View style={{ paddingHorizontal: 10, paddingVertical: 7, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flex: 1, paddingRight: 6 }}>
+            <Text style={{ color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_700Bold', lineHeight: 18 }} numberOfLines={1}>
+              {fullNameToDisplay}
+            </Text>
             
             {!!matchedSubject && (
-              <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium', marginBottom: 6 }}>
+              <Text style={{ color: colors.textMuted, fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 1, marginBottom: 4 }} numberOfLines={1}>
                 {rawSubjectName}
               </Text>
             )}
             
             {/* Metadata Chips (Time, Room, Faculty) */}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                <Ionicons name="time-outline" size={12} color={colors.textMuted} style={{ marginRight: 4 }} />
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>{displayClass.time}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>
+                <Ionicons name="time-outline" size={11} color={colors.textMuted} style={{ marginRight: 3.5 }} />
+                <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium' }}>{displayClass.time}</Text>
               </View>
 
               {!!displayClass.room && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                  <Ionicons name="location-outline" size={12} color={colors.primary} style={{ marginRight: 4 }} />
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>{displayClass.room}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 }}>
+                  <Ionicons name="location-outline" size={11} color={colors.primary} style={{ marginRight: 3.5 }} />
+                  <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium' }} numberOfLines={1}>{displayClass.room}</Text>
                 </View>
               )}
 
               {!!displayClass.teacher && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                  <Ionicons name="person-outline" size={12} color={colors.textMuted} style={{ marginRight: 4 }} />
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }} numberOfLines={1}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, maxWidth: 130 }}>
+                  <Ionicons name="person-outline" size={11} color={colors.textMuted} style={{ marginRight: 3.5 }} />
+                  <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium' }} numberOfLines={1}>
                     {displayClass.teacher}
                   </Text>
                 </View>
@@ -590,20 +594,21 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
           </View>
 
           {/* Right Circular Attendance Meter */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 12, borderLeftWidth: 1, borderLeftColor: colors.border + '80', marginLeft: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 6, borderLeftWidth: 1, borderLeftColor: colors.border + '50' }}>
             {matchedSubject && typeof matchedSubject.attendancePercentage === 'number' ? (
               <View style={{ alignItems: 'center', justifyContent: 'center' }}>
                 <CircularProgress 
                    value={matchedSubject.attendancePercentage} 
                    color={matchedSubject.attendancePercentage < 75 ? '#ef4444' : '#22c55e'} 
+                   size={46}
                 />
-                <Text style={{ color: colors.text, fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 3, minWidth: 55, textAlign: 'center' }}>
+                <Text style={{ color: colors.text, fontSize: 10, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 1, minWidth: 46, textAlign: 'center' }}>
                   {matchedSubject.attendedClasses}/{matchedSubject.totalClasses}
                 </Text>
               </View>
             ) : (
-              <View style={{ padding: 10 }}>
-                 <Ionicons name="school-outline" size={26} color={colors.textMuted} />
+              <View style={{ padding: 6 }}>
+                 <Ionicons name="school-outline" size={22} color={colors.textMuted} />
               </View>
             )}
           </View>
@@ -616,27 +621,25 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingHorizontal: 14,
-            paddingVertical: 10,
+            paddingHorizontal: 10,
+            paddingVertical: 4.5,
             backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.08)',
             borderTopWidth: 1,
             borderTopColor: 'rgba(16, 185, 129, 0.25)',
           }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-              <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#10b98125', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="checkmark-sharp" size={15} color="#10b981" />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#10b98125', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="checkmark-sharp" size={12} color="#10b981" />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#10b981', fontSize: 12.5, fontFamily: 'SpaceGrotesk_700Bold' }}>
-                  Marked Present Today!
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
-                  Counted in your {currentPctNum.toFixed(1)}% score
-                </Text>
-              </View>
+              <Text style={{ color: '#10b981', fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold' }}>
+                Marked Present Today!
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium' }}>
+                · {currentPctNum.toFixed(1)}% score
+              </Text>
             </View>
-            <View style={{ backgroundColor: '#10b98120', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: '#10b98140' }}>
-              <Text style={{ color: '#10b981', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>+1 Attended</Text>
+            <View style={{ backgroundColor: '#10b98120', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 5, borderWidth: 1, borderColor: '#10b98140' }}>
+              <Text style={{ color: '#10b981', fontSize: 9.5, fontFamily: 'SpaceGrotesk_700Bold' }}>+1 Attended</Text>
             </View>
           </View>
         ) : attendanceStatus === 'absent' ? (
@@ -645,27 +648,25 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingHorizontal: 14,
-            paddingVertical: 10,
+            paddingHorizontal: 10,
+            paddingVertical: 4.5,
             backgroundColor: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
             borderTopWidth: 1,
             borderTopColor: 'rgba(239, 68, 68, 0.25)',
           }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-              <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#ef444425', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="close" size={15} color="#ef4444" />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#ef444425', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="close" size={12} color="#ef4444" />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: '#ef4444', fontSize: 12.5, fontFamily: 'SpaceGrotesk_700Bold' }}>
-                  Marked Absent Today
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontFamily: 'Inter_500Medium' }}>
-                  Class missed · Total: {currentPctNum.toFixed(1)}%
-                </Text>
-              </View>
+              <Text style={{ color: '#ef4444', fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold' }}>
+                Marked Absent Today
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 10, fontFamily: 'Inter_500Medium' }}>
+                · {currentPctNum.toFixed(1)}% score
+              </Text>
             </View>
-            <View style={{ backgroundColor: '#ef444420', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: '#ef444440' }}>
-              <Text style={{ color: '#ef4444', fontSize: 10.5, fontFamily: 'SpaceGrotesk_700Bold' }}>Missed</Text>
+            <View style={{ backgroundColor: '#ef444420', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 5, borderWidth: 1, borderColor: '#ef444440' }}>
+              <Text style={{ color: '#ef4444', fontSize: 9.5, fontFamily: 'SpaceGrotesk_700Bold' }}>Missed</Text>
             </View>
           </View>
         ) : attendanceStatus === 'leave' ? (
@@ -673,57 +674,80 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
           <View style={{
             flexDirection: 'row',
             alignItems: 'center',
-            paddingHorizontal: 14,
-            paddingVertical: 10,
+            paddingHorizontal: 10,
+            paddingVertical: 5,
             backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(245, 158, 11, 0.08)',
             borderTopWidth: 1,
             borderTopColor: 'rgba(245, 158, 11, 0.25)',
           }}>
-            <Ionicons name="document-text" size={16} color="#f59e0b" style={{ marginRight: 8 }} />
-            <Text style={{ color: '#f59e0b', fontSize: 12.5, fontFamily: 'SpaceGrotesk_700Bold' }}>
+            <Ionicons name="document-text" size={13} color="#f59e0b" style={{ marginRight: 6 }} />
+            <Text style={{ color: '#f59e0b', fontSize: 11, fontFamily: 'SpaceGrotesk_700Bold' }}>
               Official Duty / Medical Leave Recorded
             </Text>
           </View>
-        ) : (
-          /* WHAT-IF PREDICTION STRIP (Only shown when attendance is pending / not yet marked!) */
-          matchedSubject && whatIfAttend && whatIfMiss && (
-            <View style={{ flexDirection: 'row', padding: 12, backgroundColor: colors.surfaceHigh, borderTopWidth: 1, borderTopColor: colors.border + '50' }}>
-              
-              {/* If Attend Block */}
-              <View style={{ flex: 1, paddingRight: 12, borderRightWidth: 1, borderRightColor: colors.border + '50' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="checkmark-circle" size={14} color="#22c55e" style={{ marginRight: 4 }} />
-                    <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>If Attend</Text>
-                  </View>
-                  <Text style={{ fontSize: 13.5, color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold' }}>{whatIfAttend}</Text>
-                </View>
-                {/* Visual Bar */}
-                <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
-                  <View style={{ height: '100%', width: `${Math.min(currentPctNum, 100)}%`, backgroundColor: '#22c55e', opacity: 0.4 }} />
-                  <View style={{ height: '100%', width: `${Math.max(0, attendPctNum - currentPctNum)}%`, backgroundColor: '#22c55e' }} />
+        ) : matchedSubject && whatIfAttend && whatIfMiss ? (
+          /* WHAT-IF PREDICTION STRIP (Ultra-Compact Visual Impact Pods) */
+          <View style={{ 
+            flexDirection: 'row', 
+            gap: 6, 
+            paddingHorizontal: 8, 
+            paddingVertical: 4.5, 
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.02)', 
+            borderTopWidth: 1, 
+            borderTopColor: colors.border + '30' 
+          }}>
+            {/* Attend Compact Pod */}
+            <View style={{ 
+              flex: 1, 
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: isDark ? 'rgba(34, 197, 94, 0.09)' : 'rgba(34, 197, 94, 0.07)', 
+              borderRadius: 6, 
+              paddingHorizontal: 7, 
+              paddingVertical: 3.5, 
+              borderWidth: 1, 
+              borderColor: isDark ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.28)' 
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5 }}>
+                <Ionicons name="trending-up" size={11} color="#22c55e" />
+                <Text style={{ fontSize: 10, color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold' }}>Attend</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5 }}>
+                <Text style={{ fontSize: 11.5, color: colors.text, fontFamily: 'SpaceGrotesk_700Bold' }}>{whatIfAttend}</Text>
+                <View style={{ backgroundColor: '#22c55e22', paddingHorizontal: 3.5, paddingVertical: 0.5, borderRadius: 3 }}>
+                  <Text style={{ fontSize: 8.5, color: '#22c55e', fontFamily: 'SpaceGrotesk_700Bold' }}>{attendDelta}</Text>
                 </View>
               </View>
-
-              {/* If Miss Block */}
-              <View style={{ flex: 1, paddingLeft: 12 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="close-circle" size={14} color="#ef4444" style={{ marginRight: 4 }} />
-                    <Text style={{ fontSize: 10.5, color: colors.textMuted, fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase' }}>If Miss</Text>
-                  </View>
-                  <Text style={{ fontSize: 13.5, color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold' }}>{whatIfMiss}</Text>
-                </View>
-                {/* Visual Bar */}
-                <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden', flexDirection: 'row' }}>
-                  <View style={{ height: '100%', width: `${Math.min(missPctNum, 100)}%`, backgroundColor: '#ef4444' }} />
-                  <View style={{ height: '100%', width: `${Math.max(0, currentPctNum - missPctNum)}%`, backgroundColor: '#ef4444', opacity: 0.3 }} />
-                </View>
-              </View>
-
             </View>
-          )
-        )}
+
+            {/* Miss Compact Pod */}
+            <View style={{ 
+              flex: 1, 
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.09)' : 'rgba(239, 68, 68, 0.07)', 
+              borderRadius: 6, 
+              paddingHorizontal: 7, 
+              paddingVertical: 3.5, 
+              borderWidth: 1, 
+              borderColor: isDark ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.28)' 
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5 }}>
+                <Ionicons name="trending-down" size={11} color="#ef4444" />
+                <Text style={{ fontSize: 10, color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold' }}>Miss</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5 }}>
+                <Text style={{ fontSize: 11.5, color: colors.text, fontFamily: 'SpaceGrotesk_700Bold' }}>{whatIfMiss}</Text>
+                <View style={{ backgroundColor: '#ef444422', paddingHorizontal: 3.5, paddingVertical: 0.5, borderRadius: 3 }}>
+                  <Text style={{ fontSize: 8.5, color: '#ef4444', fontFamily: 'SpaceGrotesk_700Bold' }}>{missDelta}</Text>
+                </View>
+              </View>
+            </View>
+
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -920,11 +944,17 @@ export default function StudyOSDashboard() {
     }, 3800);
   };
 
-  const triggerSync = (force = true) => {
+  const triggerSync = (force = false) => {
     const now = Date.now();
-    // Debounce: tab-focus AND app-foreground both fire; ignore a second call
-    // within 3s so we don't spin up two WebViews back-to-back (the time lag).
-    if (now - lastSyncTime.current < 3000) return;
+    // If a sync is already actively executing, avoid unmounting and colliding with it
+    if (refreshing && !force) {
+      return;
+    }
+    // Rate limit: ignore rapid pulls within 3.5s to prevent portal WAF / error.html throttling
+    if (now - lastSyncTime.current < 3500) {
+      setRefreshing(false);
+      return;
+    }
     
     // Wipe previous per-subject "just updated" badges so the indicator from the
     // last refresh never carries over / repeats on this pull-to-refresh.
@@ -974,8 +1004,8 @@ export default function StudyOSDashboard() {
   }, []);
 
   const onRefresh = React.useCallback(() => {
-    triggerSync(true);
-  }, []);
+    triggerSync(false);
+  }, [refreshing]);
 
   const handleSyncFinish = async (updated: boolean, changes?: { code?: string, subjectName: string, status: string, diffAtt?: number, diffTotal?: number, percentage?: number }[]) => {
     setRefreshing(false);
@@ -1266,10 +1296,14 @@ export default function StudyOSDashboard() {
               ]}
             >
               <View style={styles.facilitiesHeaderRow}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
                   <View style={[styles.facilityDot, { backgroundColor: colors.primary }]} />
-                  <Text style={[styles.facilitiesHeaderTitle, { color: colors.text }]}>
-                    CAMPUS SERVICES
+                  <Text 
+                    style={[styles.facilitiesHeaderTitle, { color: colors.text }]}
+                    numberOfLines={1}
+                    textBreakStrategy="simple"
+                  >
+                    {'CAMPUS SERVICES '}
                   </Text>
                 </View>
                 <View style={[styles.facilityCountBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
@@ -1352,11 +1386,22 @@ export default function StudyOSDashboard() {
             <Text style={styles.filterText}>{subjects?.length || 0} subjects total</Text>
           </View>
           <TouchableOpacity 
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: showFilters ? colors.primary + '20' : colors.surfaceHigh, paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, borderWidth: 1, borderColor: showFilters ? colors.primary : colors.border }}
+            style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              gap: 6, 
+              backgroundColor: showFilters ? colors.primary + '20' : colors.surfaceHigh, 
+              paddingHorizontal: 13, 
+              paddingVertical: 6, 
+              borderRadius: Radius.full, 
+              borderWidth: 1, 
+              borderColor: showFilters ? colors.primary : colors.border,
+              flexShrink: 0,
+            }}
             onPress={() => setShowFilters(!showFilters)}
           >
             <Ionicons name="filter-outline" size={14} color={showFilters ? colors.primary : colors.text} />
-            <Text style={{ color: showFilters ? colors.primary : colors.text, fontSize: 13, fontFamily: 'Inter_600SemiBold' }}>Filter</Text>
+            <Text style={{ color: showFilters ? colors.primary : colors.text, fontSize: 13, fontFamily: 'Inter_600SemiBold', paddingRight: 2 }}>Filter </Text>
           </TouchableOpacity>
         </View>
 
@@ -1612,29 +1657,33 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
   );
 }
 
-function CircularProgress({ value, color }: { value: number, color: string }) {
+function CircularProgress({ value, color, size = 56 }: { value: number, color: string, size?: number }) {
   const colors = useThemeStore((s) => s.colors);
   const roundAttendancePercentage = useStudyOSStore(s => s.roundAttendancePercentage);
-  const radius = 24;
-  const strokeWidth = 5;
+  const strokeWidth = size < 50 ? 4 : 5;
+  const radius = (size - strokeWidth * 2) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (value / 100) * circumference;
   
   // Format the display value based on the setting
   const displayValue = roundAttendancePercentage 
     ? Math.round(value) 
-    : (value % 1 !== 0 ? value.toFixed(2) : value);
+    : (value % 1 !== 0 ? value.toFixed(size < 50 ? 1 : 2) : value);
   
   // If showing decimals, we might need smaller font so it fits in the circle
-  const fontSize = !roundAttendancePercentage && value % 1 !== 0 ? 12 : 16;
+  const fontSize = size < 50 
+    ? (!roundAttendancePercentage && value % 1 !== 0 ? 10 : 12.5) 
+    : (!roundAttendancePercentage && value % 1 !== 0 ? 12 : 16);
   
+  const center = size / 2;
+
   return (
-    <View style={{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width="56" height="56" viewBox="0 0 60 60">
-        <Circle cx="30" cy="30" r={radius} stroke={colors.border} strokeWidth={strokeWidth} fill="none" />
-        <Circle cx="30" cy="30" r={radius} stroke={color} strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" transform="rotate(-90 30 30)" />
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <Circle cx={center} cy={center} r={radius} stroke={colors.border} strokeWidth={strokeWidth} fill="none" />
+        <Circle cx={center} cy={center} r={radius} stroke={color} strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" transform={`rotate(-90 ${center} ${center})`} />
       </Svg>
-      <Text style={{ position: 'absolute', color: colors.text, fontSize, fontFamily: 'SpaceGrotesk_700Bold',  }}>{displayValue}</Text>
+      <Text style={{ position: 'absolute', color: colors.text, fontSize, fontFamily: 'SpaceGrotesk_700Bold' }}>{displayValue}</Text>
     </View>
   );
 }
@@ -1681,8 +1730,8 @@ const useStyles = (colors: any) => StyleSheet.create({
   subjectCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center' },
   subCardTitle: { color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 2 },
   subCardMeta: { color: colors.textDim, fontSize: 11.5, marginBottom: 6 },
-  subCardStatusPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.full, alignSelf: 'flex-start', gap: 4 },
-  subCardStatusText: { fontSize: 10.5, fontFamily: 'Inter_600SemiBold' },
+  subCardStatusPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.full, alignSelf: 'flex-start', gap: 4, maxWidth: '100%' },
+  subCardStatusText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', paddingRight: 2 },
   subCardFraction: { color: colors.textMuted, fontSize: 11, marginTop: 2, fontFamily: 'Inter_500Medium', minWidth: 60, textAlign: 'center', paddingHorizontal: 4 },
 
   roadmapCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, width: 250, marginRight: Spacing.md, borderWidth: 1, borderColor: colors.primary + '40' },
@@ -1778,8 +1827,9 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   facilitiesHeaderTitle: {
     fontFamily: 'SpaceGrotesk_700Bold',
-    fontSize: 11.5,
-    letterSpacing: 0.8,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    paddingRight: 4,
   },
   facilityCountBadge: {
     paddingHorizontal: 8,
@@ -1815,10 +1865,12 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   facilityLabel: {
     fontFamily: 'SpaceGrotesk_600SemiBold',
-    fontSize: 11,
+    fontSize: 10.5,
     lineHeight: 14,
     marginTop: 6,
     textAlign: 'center',
-    paddingHorizontal: 1,
+    letterSpacing: -0.2,
+    paddingHorizontal: 0,
+    paddingRight: 1,
   },
 });

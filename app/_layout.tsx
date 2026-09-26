@@ -12,6 +12,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import NewAssignmentNotification from "../components/studyos/NewAssignmentNotification";
 import { GlobalPaywallModal } from "../components/ui/GlobalPaywallModal";
 import {
@@ -31,12 +32,13 @@ import { JetBrainsMono_400Regular } from "@expo-google-fonts/jetbrains-mono";
 if ((Text as any).defaultProps == null) {
   (Text as any).defaultProps = {};
 }
-(Text as any).defaultProps.maxFontSizeMultiplier = 1.15;
+(Text as any).defaultProps.maxFontSizeMultiplier = 1.0;
+(Text as any).defaultProps.textBreakStrategy = 'simple';
 
 if ((TextInput as any).defaultProps == null) {
   (TextInput as any).defaultProps = {};
 }
-(TextInput as any).defaultProps.maxFontSizeMultiplier = 1.15;
+(TextInput as any).defaultProps.maxFontSizeMultiplier = 1.0;
 import { tokenCache } from "../lib/clerk";
 import { Colors } from "../constants/theme";
 import * as Notifications from "expo-notifications";
@@ -54,41 +56,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Setup Android notification channel once, deferred so it doesn't block startup
-function setupAndroidChannels() {
-  if (Platform.OS !== "android") return;
-  // Delete old channels with wrong sound settings
-  Notifications.deleteNotificationChannelAsync("pathwise-default");
-  Notifications.deleteNotificationChannelAsync("pathwise-coin");
-  Notifications.deleteNotificationChannelAsync("pathwise-streak");
-
-  Notifications.setNotificationChannelAsync("pathwise-default-v2", {
-    name: "PathWise Notifications",
-    importance: Notifications.AndroidImportance.HIGH,
-    sound: "ting.mp3",
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: "#3b82f6",
-    showBadge: true,
-  });
-
-  Notifications.setNotificationChannelAsync("pathwise-coin-v2", {
-    name: "PathWise — Achievements",
-    importance: Notifications.AndroidImportance.HIGH,
-    sound: "mario_coin.mp3",
-    vibrationPattern: [0, 100, 100, 100],
-    lightColor: "#f59e0b",
-    showBadge: true,
-  });
-
-  Notifications.setNotificationChannelAsync("pathwise-streak-v2", {
-    name: "PathWise — Streak Alerts",
-    importance: Notifications.AndroidImportance.HIGH,
-    sound: "mario_death.mp3",
-    vibrationPattern: [0, 500, 200, 500],
-    lightColor: "#ef4444",
-    showBadge: true,
-  });
-}
+import { setupAndroidChannels } from "../lib/notifications";
 
 import { useThemeStore, loadTheme, ThemeType } from "../store/useThemeStore";
 import { useUser } from "@clerk/clerk-expo";
@@ -97,7 +65,7 @@ import { registerBackgroundSync } from "../tasks/backgroundSync";
 import { useStudySessionStore } from "../store/studySessionStore";
 import { useStudyOSStore } from "../store/studyosStore";
 import { useSubscription } from "../hooks/useSubscription";
-import { savePushToken } from "../lib/db";
+import { savePushToken, setAuthTokenGetter } from "../lib/db";
 
 if (LogBox) {
   LogBox.ignoreLogs([
@@ -124,8 +92,15 @@ const queryClient = new QueryClient({
 const CLERK_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 
 function RootLayoutInner() {
-  const { isLoaded } = useAuth();
+  const { isLoaded, getToken } = useAuth();
   const { user } = useUser();
+
+  // Register Clerk JWT token getter with global db client for authenticated requests
+  useEffect(() => {
+    if (getToken) {
+      setAuthTokenGetter(getToken);
+    }
+  }, [getToken]);
   const colors = useThemeStore((state) => state.colors);
   const initTheme = useThemeStore((state) => state.initTheme);
   const theme = useThemeStore((state) => state.theme);
@@ -300,14 +275,28 @@ function RootLayoutInner() {
     return () => clearTimeout(timer);
   }, [user?.id]);
 
+  // Ensure user's selected theme and Android notification channels are loaded immediately on startup
   useEffect(() => {
-    if (user?.unsafeMetadata?.theme || user?.unsafeMetadata?.primaryColor) {
-      initTheme(
-        (user.unsafeMetadata.theme as ThemeType) || "black",
-        user.unsafeMetadata.primaryColor as string | undefined
-      );
-    }
-  }, [user?.unsafeMetadata?.theme, user?.unsafeMetadata?.primaryColor]);
+    loadTheme();
+    setupAndroidChannels();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const savedTheme = (await AsyncStorage.getItem("app_theme")) || (await SecureStore.getItemAsync("app_theme"));
+        // Only use Clerk metadata on initial setup if the device does NOT already have a local preference saved!
+        // This prevents Clerk re-renders or background updates from reverting the user's selected theme.
+        if (!savedTheme && user.unsafeMetadata?.theme) {
+          const t = user.unsafeMetadata.theme as ThemeType;
+          if (t === "black" || t === "white" || t === "cream" || t === "emerald") {
+            initTheme(t, user.unsafeMetadata.primaryColor as string | undefined);
+          }
+        }
+      } catch {}
+    })();
+  }, [user?.id]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

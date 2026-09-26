@@ -192,44 +192,75 @@ async function callCloudPool(
     throw new Error('DAILY_LIMIT_REACHED');
   }
 
-  try {
-    const response = await fetch(proxyUrl, {
-       method: 'POST',
-       headers: { 'Content-Type': 'application/json' },
-       body: JSON.stringify({
-          messages,
-          syllabusText,
-          courseName,
-          courseCode,
-          userLearningProfile,
-          imageAttachment
-       }),
-       signal: AbortSignal.timeout(35000)
-    });
+  const maxRetries = 2;
+  let lastError: any = null;
 
-    const rawText = await response.text();
-    let data: any = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      if (rawText && !rawText.trim().startsWith('<')) {
-        data = JSON.parse(rawText);
+      if (attempt > 0) {
+        // Backoff delay (1.2s, 2.4s) before retry
+        await new Promise(resolve => setTimeout(resolve, 1200 * attempt));
       }
-    } catch {}
 
-    if (!response.ok || !data) {
-       console.error("[aiManager] Proxy returned error:", data || rawText);
-       if (data?.error === 'ALL_POOL_KEYS_EXHAUSTED' || data?.error === 'NO_POOL_KEYS') {
-           throw new Error('ALL_POOL_KEYS_EXHAUSTED');
-       }
-       throw new Error(data?.message || data?.error || 'AI service temporarily unavailable. Please try again.');
+      const response = await fetch(proxyUrl, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+            messages,
+            syllabusText,
+            courseName,
+            courseCode,
+            userLearningProfile,
+            imageAttachment
+         }),
+         signal: AbortSignal.timeout(35000)
+      });
+
+      const rawText = await response.text();
+      let data: any = null;
+      try {
+        if (rawText && !rawText.trim().startsWith('<')) {
+          data = JSON.parse(rawText);
+        }
+      } catch {}
+
+      if (!response.ok || !data) {
+         console.error(`[aiManager] Proxy error (attempt ${attempt + 1}/${maxRetries + 1}):`, data || rawText);
+         if (data?.error === 'ALL_POOL_KEYS_EXHAUSTED' || data?.error === 'NO_POOL_KEYS') {
+             if (attempt < maxRetries) {
+                 lastError = new Error('ALL_POOL_KEYS_EXHAUSTED');
+                 continue;
+             }
+             throw new Error('ALL_POOL_KEYS_EXHAUSTED');
+         }
+
+         if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+             lastError = new Error(data?.message || data?.error || `Server status ${response.status}`);
+             continue;
+         }
+
+         throw new Error(data?.message || data?.error || 'AI service temporarily unavailable. Please try again.');
+      }
+
+      usage.count += 1;
+      await AsyncStorage.setItem('ai_daily_usage', JSON.stringify(usage));
+      return validateAndSanitizeOutput(data.text);
+    } catch (error: any) {
+      lastError = error;
+      if (error.message === 'DAILY_LIMIT_REACHED') {
+        throw error;
+      }
+      if (error.message === 'ALL_POOL_KEYS_EXHAUSTED' && attempt === maxRetries) {
+        throw error;
+      }
+      if (attempt === maxRetries) {
+        console.error("[aiManager] Cloud Pool exhausted retries:", error);
+        throw lastError;
+      }
     }
-
-    usage.count += 1;
-    await AsyncStorage.setItem('ai_daily_usage', JSON.stringify(usage));
-    return validateAndSanitizeOutput(data.text);
-  } catch (error: any) {
-    console.error("[aiManager] Cloud Pool error:", error);
-    throw error;
   }
+
+  throw lastError || new Error('AI service temporarily unavailable. Please try again.');
 }
 
 export async function generateAiResponse(

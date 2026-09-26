@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useThemeStore } from '../../../../../store/useThemeStore';
 import { CenterPopModal } from '../../../../../components/ui/CenterPopModal';
 import Markdown from 'react-native-markdown-display';
-import { generateAiResponse, reflectAndLearn } from '../../../../../lib/aiManager';
+import { generateAiResponse, reflectAndLearn, getDailyAiUsage } from '../../../../../lib/aiManager';
 import { useAuth } from '@clerk/clerk-expo';
 import { useSubscription } from '../../../../../hooks/useSubscription';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
@@ -173,6 +173,7 @@ export default function AITutorChatScreen() {
   }
   const [connectedModels, setConnectedModels] = useState<ConnectedModel[]>([]);
   const [activeProvider, setActiveProvider] = useState<string>('gemini');
+  const [dailyUsage, setDailyUsage] = useState<{ used: number; limit: number; remaining: number }>({ used: 0, limit: 50, remaining: 50 });
   const [showModelSwitcherModal, setShowModelSwitcherModal] = useState(false);
   const [syllabusScraped, setSyllabusScraped] = useState(false);
   const [syllabusText, setSyllabusText] = useState('');
@@ -289,6 +290,7 @@ export default function AITutorChatScreen() {
     loadApiKey();
     loadSessions();
     fetchAvailableFiles();
+    getDailyAiUsage().then(setDailyUsage).catch(() => {});
   }, [id, name, sessionId, mode]);
 
   useEffect(() => {
@@ -343,16 +345,16 @@ export default function AITutorChatScreen() {
           body: JSON.stringify({ action: 'list-files', courseCode: courseCode, _t: Date.now() })
        });
        
-       if (!res.ok) {
-          throw new Error(`HTTP Error: ${res.status} ${res.statusText}`);
-       }
-       
        const textData = await res.text();
-       let data;
+       let data: any = null;
        try {
-           data = JSON.parse(textData);
-       } catch(err) {
-           throw new Error(`JSON Parse Error: ${textData.substring(0, 50)}...`);
+           if (textData && !textData.trim().startsWith('<')) {
+               data = JSON.parse(textData);
+           }
+       } catch {}
+
+       if (!res.ok || !data) {
+          throw new Error('Course materials temporarily unavailable.');
        }
 
        if (data.success && data.data) {
@@ -660,6 +662,230 @@ export default function AITutorChatScreen() {
      // WebView removed, so no-op here if ever called
   };
 
+  function getFriendlyErrorMessage(error: any): { message: string; showSettings?: boolean; showContextModal?: boolean } {
+    const raw = String(error?.message || error || '');
+    const isTimeout = error?.name === 'TimeoutError' || raw.includes('timeout') || raw.includes('aborted');
+    const isNetFail = raw.includes('Network request failed') || raw.includes('Failed to fetch') || raw.includes('Network Error');
+
+    if (isTimeout) {
+      return {
+        message: "⚠️ **Connection Timeout**\n\nThe AI server took too long to respond due to network latency. Please tap retry below."
+      };
+    }
+    if (isNetFail) {
+      return {
+        message: "⚠️ **Network Connection Failed**\n\nUnable to reach PathWise AI servers. Please check your internet connection and tap retry."
+      };
+    }
+    if (raw.includes('DAILY_LIMIT_REACHED')) {
+      return {
+        message: "⚠️ **Daily Limit Reached (50 msgs/day)**\n\nYou've used your 50 free PathWise AI queries for today. Limit resets tomorrow at midnight, or connect your free personal Gemini or Groq key in Settings for unlimited queries!",
+        showSettings: true
+      };
+    }
+    if (raw.includes('ALL_POOL_KEYS_EXHAUSTED') || raw.includes('NO_POOL_KEYS')) {
+      return {
+        message: "⚠️ **AI Pool High Traffic**\n\nAll shared AI servers are currently processing heavy student requests. Tap retry in a few moments, or connect your free Gemini/Groq key in Settings.",
+        showSettings: true
+      };
+    }
+    if (raw.includes('OVERLOADED') || raw.includes('503')) {
+      return {
+        message: "⚠️ **AI Service Overloaded**\n\nThe AI model is temporarily experiencing peak global demand. Please tap retry in 10-15 seconds."
+      };
+    }
+    if (raw.includes('Rate Limit Exceeded') || raw.includes('429') || raw.includes('Quota exceeded') || raw.includes('RESOURCE_EXHAUSTED')) {
+      return {
+        message: "⚠️ **Rate Limit Reached**\n\nRate limit reached on this provider. Please wait a few moments and tap retry, or switch providers in Settings.",
+        showSettings: true
+      };
+    }
+    if (raw.includes('Payload Too Large') || raw.includes('413')) {
+      return {
+        message: "⚠️ **Input Too Large**\n\nThe question or attached photo is too large for memory. We've shortened recent history—please tap retry or ask a shorter question.",
+        showContextModal: true
+      };
+    }
+    if (raw.includes('must be a string') || raw.includes('does not support image')) {
+      return {
+        message: "⚠️ **Image Not Supported**\n\nThe selected provider model does not support image analysis. Please switch to PathWise AI (Cloud Pool) or Gemini in Settings to analyze photos.",
+        showSettings: true
+      };
+    }
+    if (raw.includes('<') || raw.includes('SyntaxError') || raw.includes('JSON Parse') || raw.includes('502') || raw.includes('504') || raw.includes('PROXY_ERROR')) {
+      return {
+        message: "⚠️ **Server Gateway Blip**\n\nThe connection was momentarily interrupted by the cloud gateway. Please tap retry to regenerate."
+      };
+    }
+    if (raw.includes('AI Provider Error')) {
+      return {
+        message: "⚠️ **Provider Error**\n\nYour personal API key or model returned an error. Please verify your key in Settings or switch to the free Cloud Pool.",
+        showSettings: true
+      };
+    }
+    return {
+      message: "⚠️ **Service Busy**\n\nPathWise AI could not generate a response right now. Please tap retry to try again."
+    };
+  }
+
+  const executeAiRequest = async (currentText: string, imagePayload?: { base64: string; mimeType: string }) => {
+    // Instant offline check: Don't hang or wait 35s when disconnected
+    const currentNet = getNetworkState();
+    if (!currentNet.isOnline) {
+      const offlineMsg: Message = {
+        id: Date.now().toString() + 'err',
+        role: 'model',
+        text: "⚠️ **No Internet Connection**\n\nYou are currently offline. Please reconnect to Wi-Fi or mobile data to chat with Quirren.",
+      };
+      setSessions(prevSessions => {
+        const updated = prevSessions.map(s => {
+          if (s.id === currentSessionId) {
+            return { ...s, messages: [...s.messages, offlineMsg], updatedAt: Date.now() };
+          }
+          return s;
+        });
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+      setIsTyping(false);
+      return;
+    }
+
+    const reqStartTime = Date.now();
+    try {
+      const latestSession = sessions.find(s => s.id === currentSessionId) ||
+                            JSON.parse(await AsyncStorage.getItem(STORAGE_KEY) || '[]').find((s: ChatSession) => s.id === currentSessionId);
+      
+      // Filter out any error bubbles (ends with 'err' or starts with ⚠️)
+      const validMessages = (latestSession?.messages.slice(1) || []).filter(
+        (msg: Message) => !msg.id.endsWith('err') && msg.text && !msg.text.startsWith('⚠️')
+      );
+      // Sliding context window: last 10 messages max
+      const slidingHistory = validMessages.slice(-10);
+      const history = slidingHistory.map((msg: Message) => ({
+         role: msg.role === 'user' ? 'user' : 'model',
+         parts: [{ text: msg.text }]
+      }));
+
+      // Ensure the latest message is in the history if not already there
+      const lastHistoryMsg = history[history.length - 1];
+      if (!lastHistoryMsg || lastHistoryMsg.role !== 'user' || lastHistoryMsg.parts[0]?.text !== currentText) {
+         history.push({ role: 'user', parts: [{ text: currentText }] });
+      }
+
+      const learningProfile = await AsyncStorage.getItem('ai_learning_profile') || undefined;
+
+      const aiText = await generateAiResponse(
+         history, 
+         isDoubtSolver ? '' : syllabusText, 
+         isDoubtSolver ? 'Snap & Solve (AI Vision)' : (name as string), 
+         isDoubtSolver ? 'DOUBT_SOLVER' : (id as string), 
+         learningProfile, 
+         activeProvider,
+         imagePayload
+      );
+
+      reportNetworkSuccess(Date.now() - reqStartTime);
+      getDailyAiUsage().then(setDailyUsage).catch(() => {});
+
+      // Trigger self-learning in the background (non-blocking)
+      if (apiKey) {
+         const fullHistory = [...history, { role: 'model' as const, parts: [{ text: aiText }] }];
+         reflectAndLearn(fullHistory, learningProfile || "").then(newProfile => {
+             if (newProfile && newProfile.length > 5) {
+                 AsyncStorage.setItem('ai_learning_profile', newProfile);
+             }
+         }).catch(() => {/* silent */});
+      }
+
+      // Save AI msg to state & local storage
+      let newAiMsgIndex = -1;
+      setSessions(prevSessions => {
+        const updated = prevSessions.map(s => {
+           if (s.id === currentSessionId) {
+              newAiMsgIndex = s.messages.length;
+              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'ai', role: 'model' as const, text: aiText }], updatedAt: Date.now() };
+           }
+           return s;
+        });
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+
+      // Smoothly scroll to the START of the new AI reply so user reads from the beginning!
+      shouldScrollToEndRef.current = false;
+      if (newAiMsgIndex >= 0) {
+        setTimeout(() => {
+          try {
+            scrollViewRef.current?.scrollToIndex({
+              index: newAiMsgIndex,
+              viewPosition: 0,
+              animated: true,
+            });
+          } catch {}
+        }, 120);
+      }
+
+    } catch (error: any) {
+      console.error("AI Generation Error:", error);
+      const friendly = getFriendlyErrorMessage(error);
+
+      if (error.name === 'TimeoutError' || error.message?.includes('timeout') || error.message?.includes('aborted') || error.message?.includes('Network')) {
+         reportNetworkError();
+      }
+
+      if (friendly.showSettings) {
+         setShowSettings(true);
+      }
+      if (friendly.showContextModal) {
+         setShowContextLimitModal(true);
+      }
+      
+      setSessions(prevSessions => {
+        const updated = prevSessions.map(s => {
+           if (s.id === currentSessionId) {
+              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'err', role: 'model' as const, text: friendly.message }], updatedAt: Date.now() };
+           }
+           return s;
+        });
+        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const retryLastMessage = async () => {
+    if (isTyping || !currentSessionId) return;
+
+    const currentSession = sessions.find(s => s.id === currentSessionId);
+    if (!currentSession) return;
+
+    // Find the last user message in the session
+    const lastUserMsg = [...currentSession.messages].reverse().find(m => m.role === 'user');
+    if (!lastUserMsg) return;
+
+    // Clean any trailing error bubbles
+    setSessions(prevSessions => {
+      const updated = prevSessions.map(s => {
+        if (s.id === currentSessionId) {
+          return { ...s, messages: s.messages.filter(m => !m.id.endsWith('err')) };
+        }
+        return s;
+      });
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+
+    setIsTyping(true);
+    shouldScrollToEndRef.current = true;
+    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+
+    // Call execution directly
+    executeAiRequest(lastUserMsg.text, undefined);
+  };
+
   const sendMessage = async () => {
     if ((!inputText.trim() && !attachedPhoto) || !currentSessionId) return;
 
@@ -705,149 +931,12 @@ export default function AITutorChatScreen() {
       return updated;
     });
 
-    // Instant offline check: Don't hang or wait 35s when disconnected
-    const currentNet = getNetworkState();
-    if (!currentNet.isOnline) {
-      const offlineMsg: Message = {
-        id: Date.now().toString() + 'err',
-        role: 'model',
-        text: "⚠️ **No Internet Connection**\n\nYou are currently offline. Please reconnect to Wi-Fi or mobile data to chat with Quirren.",
-      };
-      setSessions(prevSessions => {
-        const updated = prevSessions.map(s => {
-          if (s.id === currentSessionId) {
-            return { ...s, messages: [...s.messages, offlineMsg], updatedAt: Date.now() };
-          }
-          return s;
-        });
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        return updated;
-      });
-      setIsTyping(false);
-      return;
-    }
+    const imagePayload = currentPhoto?.base64 ? {
+       base64: currentPhoto.base64,
+       mimeType: currentPhoto.mimeType || 'image/jpeg',
+    } : undefined;
 
-    const reqStartTime = Date.now();
-    try {
-      // Use a ref to avoid stale closure on sessions state
-      const latestSession = sessions.find(s => s.id === currentSessionId) ||
-                            JSON.parse(await AsyncStorage.getItem(STORAGE_KEY) || '[]').find((s: ChatSession) => s.id === currentSessionId);
-      const history = (latestSession?.messages.slice(1) || []).map((msg: Message) => ({
-         role: msg.role === 'user' ? 'user' : 'model',
-         parts: [{ text: msg.text }]
-      }));
-      history.push({ role: 'user', parts: [{ text: newUserMsg.text }] });
-
-      const learningProfile = await AsyncStorage.getItem('ai_learning_profile') || undefined;
-      const imagePayload = currentPhoto?.base64 ? {
-         base64: currentPhoto.base64,
-         mimeType: currentPhoto.mimeType || 'image/jpeg',
-      } : undefined;
-
-      const aiText = await generateAiResponse(
-         history, 
-         isDoubtSolver ? '' : syllabusText, 
-         isDoubtSolver ? 'Snap & Solve (AI Vision)' : (name as string), 
-         isDoubtSolver ? 'DOUBT_SOLVER' : (id as string), 
-         learningProfile, 
-         activeProvider,
-         imagePayload
-      );
-
-      reportNetworkSuccess(Date.now() - reqStartTime);
-
-
-
-      // Trigger self-learning in the background (non-blocking)
-      if (apiKey) {
-         const fullHistory = [...history, { role: 'model' as const, parts: [{ text: aiText }] }];
-         reflectAndLearn(fullHistory, learningProfile || "").then(newProfile => {
-             if (newProfile && newProfile.length > 5) {
-                 AsyncStorage.setItem('ai_learning_profile', newProfile);
-             }
-         }).catch(() => {/* silent */});
-      }
-
-      // Save AI msg to state & local storage
-      let newAiMsgIndex = -1;
-      setSessions(prevSessions => {
-        const updated = prevSessions.map(s => {
-           if (s.id === currentSessionId) {
-              newAiMsgIndex = s.messages.length;
-              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'ai', role: 'model' as const, text: aiText }], updatedAt: Date.now() };
-           }
-           return s;
-        });
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        return updated;
-      });
-
-      // Smoothly scroll to the START of the new AI reply so user reads from the beginning!
-      shouldScrollToEndRef.current = false;
-      if (newAiMsgIndex >= 0) {
-        setTimeout(() => {
-          try {
-            scrollViewRef.current?.scrollToIndex({
-              index: newAiMsgIndex,
-              viewPosition: 0,
-              animated: true,
-            });
-          } catch {}
-        }, 120);
-      }
-
-    } catch (error: any) {
-      console.error("AI Generation Error:", error);
-      let errMsg = "Failed to get a response. Please try again.";
-
-      const isTimeout = error.name === 'TimeoutError' || error.message?.includes('timeout') || error.message?.includes('aborted');
-      const isNetFail = error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch') || error.message?.includes('Network Error');
-
-      if (isTimeout || isNetFail) {
-         reportNetworkError();
-      }
-
-      if (isTimeout) {
-         errMsg = "⚠️ **Connection Timeout**\n\nQuirren took too long to respond due to a slow or unstable network. Please check your connection and tap retry.";
-      } else if (isNetFail) {
-         errMsg = "⚠️ **Network Connection Failed**\n\nUnable to reach Quirren. Please check your internet connection and try again.";
-      } else if (error.message?.includes('DAILY_LIMIT_REACHED')) {
-         errMsg = "You've reached today's free PathWise limit (50 messages/day). To continue asking unlimited questions, save your own free personal API Key in Settings!";
-         setShowSettings(true);
-      } else if (error.message?.includes('ALL_POOL_KEYS_EXHAUSTED') || error.message?.includes('NO_POOL_KEYS')) {
-         errMsg = "The PathWise Cloud AI pool is experiencing high traffic. Please try again in 15 seconds, or add your own free Gemini/Groq key in Settings.";
-      } else if (error.message?.includes('OVERLOADED')) {
-         errMsg = "Google Gemini is currently facing very high global demand and is overloaded. Please try again in 15 seconds, or switch to Groq in Settings for a faster experience.";
-      } else if (error.message?.includes('Rate Limit Exceeded') || error.message?.includes('429') || error.message?.includes('Quota exceeded')) {
-         errMsg = "Rate Limit Exceeded on this API key. Falling back to PathWise Cloud Pool, or try again in a few moments.";
-         setShowContextLimitModal(true);
-      } else if (error.message?.includes('Payload Too Large') || error.message?.includes('413')) {
-         errMsg = "The image or document you attached is too large. Try asking a shorter question or use a more capable API Key.";
-         setShowContextLimitModal(true);
-      } else if (error.message?.includes('PROXY_ERROR') || error.message?.includes('NO_PROXY_URL')) {
-         errMsg = "Network error communicating with PathWise AI. Please check your internet connection or enter your personal API Key in Settings.";
-      } else if (error.message?.includes('AI Provider Error')) {
-         errMsg = error.message;
-         if (error.message?.includes('must be a string')) {
-            errMsg = "The selected provider model does not support image inputs. Please switch to Gemini or Groq in Settings.";
-         }
-      } else if (error.message) {
-         errMsg = error.message;
-      }
-      
-      setSessions(prevSessions => {
-        const updated = prevSessions.map(s => {
-           if (s.id === currentSessionId) {
-              return { ...s, messages: [...s.messages, { id: Date.now().toString() + 'err', role: 'model' as const, text: errMsg }], updatedAt: Date.now() };
-           }
-           return s;
-        });
-        AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        return updated;
-      });
-    } finally {
-      setIsTyping(false);
-    }
+    executeAiRequest(currentText, imagePayload);
   };
 
   const styles = useMemo(() => StyleSheet.create({
@@ -1352,7 +1441,7 @@ export default function AITutorChatScreen() {
             >
               <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>
                 {activeProvider === 'pool' 
-                  ? '⚡ PathWise AI' 
+                  ? `⚡ PathWise AI (${dailyUsage.remaining}/50)` 
                   : `${connectedModels.find(m => m.id === activeProvider)?.icon || '🤖'} ${connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}`}
               </Text>
               <Ionicons name="chevron-down" size={14} color={colors.primary} />
@@ -1572,22 +1661,71 @@ export default function AITutorChatScreen() {
                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                                <LinearGradient
-                                  colors={[colors.primary, colors.accent || '#8b5cf6']}
+                                  colors={msg.id.endsWith('err') ? ['#ef4444', '#dc2626'] : [colors.primary, colors.accent || '#8b5cf6']}
                                   start={{ x: 0, y: 0 }}
                                   end={{ x: 1, y: 1 }}
                                   style={{ width: 24, height: 24, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }}
                                >
-                                  <Ionicons name="sparkles" size={13} color="#ffffff" />
+                                  <Ionicons name={msg.id.endsWith('err') ? "warning" : "sparkles"} size={13} color="#ffffff" />
                                </LinearGradient>
                                <Text style={{ fontSize: 13.5, fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, letterSpacing: 0.2 }}>Quirren</Text>
-                               <View style={{ backgroundColor: colors.primary + '16', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: colors.primary + '30' }}>
-                                  <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: colors.primary }}>Exam Verified</Text>
+                               <View style={{ 
+                                  backgroundColor: msg.id.endsWith('err') ? (colors.error || '#ef4444') + '18' : colors.primary + '16', 
+                                  paddingHorizontal: 7, 
+                                  paddingVertical: 2, 
+                                  borderRadius: 8, 
+                                  borderWidth: 1, 
+                                  borderColor: msg.id.endsWith('err') ? (colors.error || '#ef4444') + '35' : colors.primary + '30' 
+                               }}>
+                                  <Text style={{ fontSize: 10, fontFamily: 'Inter_700Bold', color: msg.id.endsWith('err') ? colors.error || '#ef4444' : colors.primary }}>
+                                     {msg.id.endsWith('err') ? 'Notice' : 'Exam Verified'}
+                                  </Text>
                                </View>
                             </View>
                          </View>
                          <Markdown style={markdownStyles} rules={markdownRules}>
                             {msg.text}
                          </Markdown>
+
+                         {msg.id.endsWith('err') && (
+                            <View style={{ marginTop: 12, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                               <TouchableOpacity
+                                  onPress={() => retryLastMessage()}
+                                  activeOpacity={0.7}
+                                  style={{
+                                     flexDirection: 'row',
+                                     alignItems: 'center',
+                                     gap: 6,
+                                     backgroundColor: colors.primary,
+                                     paddingHorizontal: 13,
+                                     paddingVertical: 8,
+                                     borderRadius: 8,
+                                  }}
+                               >
+                                  <Ionicons name="refresh" size={14} color="#ffffff" />
+                                  <Text style={{ color: '#ffffff', fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>Tap to Retry</Text>
+                               </TouchableOpacity>
+
+                               <TouchableOpacity
+                                  onPress={() => setShowSettings(true)}
+                                  activeOpacity={0.7}
+                                  style={{
+                                     flexDirection: 'row',
+                                     alignItems: 'center',
+                                     gap: 6,
+                                     backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                                     paddingHorizontal: 12,
+                                     paddingVertical: 8,
+                                     borderRadius: 8,
+                                     borderWidth: 1,
+                                     borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                                  }}
+                               >
+                                  <Ionicons name="key-outline" size={14} color={colors.text} />
+                                  <Text style={{ color: colors.text, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Settings / Key</Text>
+                               </TouchableOpacity>
+                            </View>
+                         )}
                       </View>
                    )}
                 </View>
@@ -1891,8 +2029,8 @@ export default function AITutorChatScreen() {
                         <Text style={{ color: activeProvider === 'pool' ? colors.primary : colors.text, fontSize: 16, fontFamily: activeProvider === 'pool' ? 'SpaceGrotesk_700Bold' : 'Inter_500Medium' }}>
                            PathWise Cloud AI
                         </Text>
-                        <Text style={{ color: colors.success, fontSize: 11, fontFamily: 'Inter_600SemiBold', marginTop: 2, textTransform: 'uppercase' }}>
-                           Default Free Shared Pool (Ready)
+                        <Text style={{ color: colors.success, fontSize: 11, fontFamily: 'Inter_600SemiBold', marginTop: 2 }}>
+                           Free Pool • {dailyUsage.remaining} of 50 queries left today
                         </Text>
                      </View>
                   </View>
