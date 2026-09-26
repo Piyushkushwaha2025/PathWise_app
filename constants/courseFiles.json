@@ -1,0 +1,286 @@
+﻿{
+    "DBMS":  {
+                 "Unit 4":  [
+                                "Topic 4.1.1 - Transaction concept and ACID properties.pptx",
+                                "Topic 4.1.2 - Schedules and types of schedules.pptx",
+                                "Topic 4.1.3 - Conflict and View Serializability.pptx",
+                                "Topic 4.1.4 - Precedence graphs and correctness criteria.pptx",
+                                "Topic 4.1.5 - Concurrency Control Techniques 2PL, Strict 2PL, and Timestamp Ordering.pptx",
+                                "Topic 4.1.6 - Deadlock detection, prevention and recovery.pptx",
+                                "Topic 4.1.7 - Logging, Checkpointing and Crash Recovery.pptx",
+                                "Topic 4.1.8 - Distributed transactions and two-phase commit protocol.pptx"
+                            ],
+                 "Unit 1":  [
+                                "Topic 1.1.1 - Database System Architecture and Three Schema Architecture.pptx",
+                                "Topic 1.1.2 - Relational Data Model, Keys and Integrity Constraints.pptx",
+                                "Topic 1.1.3 - Relational algebra operations.pdf",
+                                "Topic 1.1.4 - Extended Relational Algebra.pptx",
+                                "Topic 1.1.5 - Tuple and Domain Relational Calculus.pptx",
+                                "Topic 1.1.6 - Safety of Expressions and Equivalence of Relational Query Languages.pptx",
+                                "Topic 1.1.7 - Optimization of Relational Algebra Expressions.pptx",
+                                "Topic 1.1.8 - Implementation of Relational Calculus in SQL.pptx"
+                            ],
+                 "Unit 3":  [
+                                "Topic 3.1.1 - SQL Data Definition Commands CREATE, ALTER, DROP, TRUNCATE, RENAME.pptx",
+                                "Topic 3.1.10 - Implementing Complex Business Logic via Stored Procedures and Functions.pptx",
+                                "Topic 3.1.11 - Advanced Data Integrity Patterns using Triggers and Check Constraints.pptx",
+                                "Topic 3.1.12 - Analyzing Temporal Data with Time Travel and Versioning Capabilities.pptx",
+                                "Topic 3.1.2 - Data manipulation commands including INSERT, UPDATE and DELETE.pptx",
+                                "Topic 3.1.3 - Query formulation using SELECT, WHERE, GROUP BY, HAVING and ORDER BY.pptx",
+                                "Topic 3.1.4 - Joins including inner, outer and self joins.pptx",
+                                "Topic 3.1.5 - Nested and Correlated Subqueries.pptx",
+                                "Topic 3.1.6 - Views, constraints and triggers.pptx",
+                                "Topic 3.1.7 - Stored procedures and indexing commands.pptx",
+                                "Topic 3.1.8 - Transaction Control Statements.pptx",
+                                "Topic 3.1.9 - Optimizing Query Performance with Execution Plans and Indexing Strategies.pptx"
+                            ],
+                 "Unit 5":  [
+                                "Topic 5.1.1 - Physical Storage Organization and File Structures.pptx",
+                                "Topic 5.1.2 - Indexing techniques including B-tree, B+ tree and hashing.pptx",
+                                "Topic 5.1.3 - Multi-level indexing and performance evaluation.pptx",
+                                "Topic 5.1.4 - Query processing architecture and cost-based query optimization.pptx",
+                                "Topic 5.1.5 - Join algorithms including nested-loop, sort-merge and hash join.pptx",
+                                "Topic 5.1.6 - Introduction to NoSQL databases and CAP theorem.pptx",
+                                "Topic 5.1.7 - Database Security, Authorization and Access Control.pptx",
+                                "Topic 5.1.8 - Advanced Partitioning Strategies for Large-Scale Data Management.pptx"
+                            ],
+                 "Unit 2":  [
+                                "topic 2.1.1.pdf",
+                                "Topic 2.1.2 - Mapping ER model to relational schema.pptx",
+                                "Topic 2.1.3 - Functional dependencies and attribute closure.pptx",
+                                "Topic 2.1.4 - Normalization Theory 1NF to 5NF.pptx",
+                                "Topic 2.1.5 - Lossless join and dependency preservation.pptx",
+                                "Topic 2.1.6 - Schema Decomposition Algorithms.pptx",
+                                "Topic 2.1.7 - Handling Multivalued Dependencies in Fourth Normal Form.pptx",
+                                "Topic 2.1.8 - Analyzing Join Dependencies for Fifth Normal Form Decomposition.pptx"
+                            ]
+             },
+    "25MTT-202":  {
+                      "Unit 4":  [
+                                     "Topic 4.1.1.pptx",
+                                     "Topic 4.1.2.pptx",
+                                     "Topic 4.2.1.pptx",
+                                     "Topic 4.2.2.pptx",
+                                     "Topic 4.3.1.pptx",
+                                     "Topic 4.3.2.pptx"
+                                 ],
+                      "Unit 1":  [
+                                     "Topic 1.1.1.pptx",
+                                     "Topic 1.1.2.pptx",
+                                     "Topic 1.2.1.pptx",
+                                     "Topic 1.2.2.pptx",
+                                     "Topic 1.3.1.pptx",
+                                     "Topic 1.3.2.pptx"
+                                 ],
+                      "Unit 3":  [
+                                     "Topic 3.1.1.pptx",
+                                     "Topic 3.1.2.pptx",
+                                     "Topic 3.2.1.pptx",
+                                     "Topic 3.2.2.pptx"
+                                 ],
+                      "Unit 5":  [
+                                     "Topic 5.1.1.pptx",
+                                     "Topic 5.1.2.pptx",
+                                     "Topic 5.2.1.pptx",
+                                     "Topic 5.2.2.pptx",
+                                     "Topic 5.3.1(2nd).pptx",
+                                     "Topic 5.3.2.pptx"
+                                 ],
+                      "Unit 2":  [
+                                     "Topic 2.1.1.pptx",
+                                     "Topic 2.1.2.pptx",
+                                     "Topic 2.2.1.pptx",
+                                     "Topic 2.2.2.pptx",
+                                     "Topic 2.3.1.pptx",
+                                     "Topic 2.3.2.pptx"
+                                 ]
+                  },
+    "25CST-208":  {
+                      "Unit 4":  [
+                                     "Topic 4.1.1 - Memory Hierarchy in Computer Organiz.pptx",
+                                     "Topic 4.1.2 - ROM chips.pptx",
+                                     "Topic 4.1.3 - Memory address map; Memory connectio.pptx",
+                                     "Topic 4.1.4 - Associative Memory in Computer Organ.pptx",
+                                     "Topic 4.1.5 - Cache memory and virtual memory pagi.pptx",
+                                     "Topic 4.1.6 - Auxiliary memory magnetic disks; Mag.pptx",
+                                     "Topic 4.1.7 - Input-output Interface.pptx",
+                                     "Topic 4.1.8 - Asynchronous Data Transfer.pptx",
+                                     "Topic 4.1.9 - Modes of transfer; Priority interrup.pptx"
+                                 ],
+                      "Other Files":  [
+                                          "Text_to_PDF_Onlinenotpad (2).pdf"
+                                      ],
+                      "Unit 3":  [
+                                     "Topic 3.1.1 - Hardware Implementation of Addition .pptx",
+                                     "Topic 3.1.3 - Booths multiplier.pptx",
+                                     "Topic 3.1.4 - Array Multiplier.pptx",
+                                     "Topic 3.1.5 - Division algorithms.pptx",
+                                     "Topic 3.1.6 - Floating Point Arithmetic Representa.pptx",
+                                     "Topic 3.1.7 - Subtract - Computer Arithmetic.pptx",
+                                     "Topic 3.1.8 - Multiplication; Division.pptx"
+                                 ],
+                      "Unit 1":  [
+                                     "COA (3).docx",
+                                     "Sequential Logic Circuits.docx",
+                                     "Topic 1.1.1 - Number Systems Decimal.pptx",
+                                     "topic 1.1.2.pptx",
+                                     "Topic 1.1.4 - Binary Arithmetic (Addition; Subtrac.pptx",
+                                     "Topic 1.1.5 - Signed and Unsigned Numbers; Logic G.pptx",
+                                     "Topic 1.1.6 - K-Map 2 Digital Fundamentals (1).ppt.pptx",
+                                     "Topic 1.1.6 - K-Map 2 Digital Fundamentals.pptx",
+                                     "Topic 1.1.7 - 4 variables; Adders.pptx",
+                                     "Topic 1.1.8 - Subtractor; Multiplexer.pptx",
+                                     "Topic 1.1.9 - Encoder; Decoders.pptx"
+                                 ],
+                      "Unit 2":  [
+                                     "Topic 2.1.1 - Von-Neuman architecture.pptx",
+                                     "Topic 2.1.10 - RISC; CISC.pptx",
+                                     "Topic 2.1.2 - Register transfer and micro operatio.pptx",
+                                     "Topic 2.1.3 - Logic and Shift Micro-operations.ppt.pptx",
+                                     "Topic 2.1.4 - Bus and Memory Transfers; Instructio.pptx",
+                                     "Topic 2.1.5 - Computer registers; Common bus syste.pptx",
+                                     "Topic 2.1.6 - Computer Instructions.pptx",
+                                     "Topic 2.1.7 - Addressing modes; Design of a basic .pptx",
+                                     "topic 2.1.8.pdf",
+                                     "Topic 2.1.9 - Data transfer and manipulation; Prog.pptx"
+                                 ],
+                      "Unit 5":  [
+                                     "Topic 5.1.1 - Hardwired Control Design and Analysi.pptx",
+                                     "Topic 5.1.2 - Microprogrammed control microinstruc.pptx",
+                                     "Topic 5.1.3 - Microprogram sequencing. Pipelining .pptx",
+                                     "Topic 5.1.4 - Speedup in Hardwired and Microprogra.pptx",
+                                     "Topic 5.1.5 - Efficiency in Hardwired and Micropro.pptx",
+                                     "Topic 5.1.7 - Arithmetic Pipeline and.pptx",
+                                     "Topic 5.1.8 - Advanced pipelining techniques for s.pptx"
+                                 ]
+                  },
+    "25CSH-214":  {
+                      "Unit 4":  [
+                                     "Topic 4.1.1 - Loops while; Updating variables.pptx",
+                                     "Topic 4.1.10 - Assignment; Tuples with dictionarie.pptx",
+                                     "Topic 4.1.2 - Counting; Summing; Minmax loops.pptx",
+                                     "Topic 4.1.3 - Strings length; Traversal; Compariso.pptx",
+                                     "Topic 4.1.4 - Methods; Parsing; Format operator.pp.pptx",
+                                     "Topic 4.1.5 - Files open; Read; Search.pptx",
+                                     "Topic 4.1.6 - Write text files; Lists traversal; O.pptx",
+                                     "Topic 4.1.8 - Parsing lines; Dictionaries operatio.pptx",
+                                     "Topic 4.1.9 - Advanced text parsing; Tuples immuta.pptx"
+                                 ],
+                      "Unit 1":  [
+                                     "Lecture1.2.pptx",
+                                     "The_Python_Architect-compressed.pdf",
+                                     "Topic 1.1.2 - Need for programming; Human Language.pptx",
+                                     "topic 1.3.1.pdf",
+                                     "topic1.2.2.pdf"
+                                 ],
+                      "Unit 3":  [
+                                     "Topic 3.1.1 - Built in functions.pptx",
+                                     "Topic 3.1.2 - Python Programming Conversion in Fun.pptx",
+                                     "Topic 3.1.4 - Ratio Analysis in Python Functions.p.pptx",
+                                     "Topic 3.1.5 - Financial statement analysis; Goodwi.pptx"
+                                 ],
+                      "Unit 5":  [
+                                     "Topic 5.1.1 - GUI Applications Introduction to Tki.pptx",
+                                     "Topic 5.1.3 - Button; Listbox - GUI Applications.p.pptx"
+                                 ],
+                      "Unit 2":  [
+                                     "Topic 2.1.1 - Text_to_PDF_Onlinenotpad (1).pdf",
+                                     "Topic 2.1.2 - Text_to_PDF_Onlinenotpad (3).pdf",
+                                     "Topic 2.1.4 - Debugging python code; Conditional e.pptx"
+                                 ]
+                  },
+    "25CSH-209":  {
+                      "Unit 4":  [
+                                     "Topic 4.1.1 - Trees Definition and Properties Binary Tree.pptx",
+                                     "Topic 4.1.2 - Binary Tree Representation Array and Linked List Representation.pptx",
+                                     "Topic 4.1.3 - Binary Search Tree Strictly Binary Tree Complete Binary Tree.pptx",
+                                     "Topic 4.1.4 - Tree Traversal algorithms In-order Pre-order and Post-order.pptx",
+                                     "Topic 4.1.5 - Tree Operations Insertion and Deletion.pptx",
+                                     "Topic 4.1.6 - Searching and Modification of Data in Binary Search Tree.pptx",
+                                     "Topic 4.1.7 - Huffman Coding using Binary Tree.pptx",
+                                     "Topic 4.1.8 - Concept  Operation for AVL Tree.pptx",
+                                     "Topic 4.1.9 - B Tree; Binary Heaps.pptx"
+                                 ],
+                      "Unit 1":  [
+                                     "Topic 1.1.1 - Introduction Overview of Data Structures.pptx",
+                                     "Topic 1.1.10 - Stacks Stack ADT, Stack Operations Push  Pop.pptx",
+                                     "Topic 1.1.2 - Built in Data Types in C.pptx",
+                                     "Topic 1.1.3 - Algorithm Efficiency of an Algorithm; Basic complexity analysis – Best Worst and Average Cases.pptx",
+                                     "Topic 1.1.4 - Asymptotic Notations, Time Space trade-off.pptx",
+                                     "Topic 1.1.5 - Abstract Data Types(ADT).Arrays Single and Multidimensional Arrays.pptx",
+                                     "Topic 1.1.6 - Row Major and Column Major Order Representation of Arrays; Sparse Matrices and their representation.pptx",
+                                     "Topic 1.1.7 - Linked Lists, Singly Linked List.pptx",
+                                     "Topic 1.1.8 - Doubly Linked List.pptx",
+                                     "Topic 1.1.9 - Circular Linked List; Operations on a Linked List (Insertion Deletion and Traversal).pptx"
+                                 ],
+                      "Unit 3":  [
+                                     "Topic 3.1.1 - Searching Techniques Concept of Search.pptx",
+                                     "Topic 3.1.2 - Linear Search, Binary Search.pptx",
+                                     "Topic 3.1.3 - Hashing Techniques Concept of Hashing, Collision resolution Techniques used in Hashing.pptx",
+                                     "Topic 3.1.4 - Sorting Techniques Insertion Sort.pptx",
+                                     "Topic 3.1.5 - Selection Sort Searching and Sorting.pptx",
+                                     "Topic 3.1.6 - Quick Sort Searching and Sorting.pptx",
+                                     "Topic 3.1.7 - Heap Sort Searching and Sorting.pptx",
+                                     "Topic 3.1.8 - Merge Sort and Merging.pptx",
+                                     "Topic 3.1.9 - Introduction to Radix and Shell sort.pptx"
+                                 ],
+                      "Unit 5":  [
+                                     "Topic 5.1.1 - Graph Basic Terminology used with Graph.pptx",
+                                     "Topic 5.1.2 - Graph Representations Adjacency Matrices  Adjacency List.pptx",
+                                     "Topic 5.1.3 - Graph Traversal DFS and BFS.pptx",
+                                     "Topic 5.1.4 - Connected Components in Graphs.pptx",
+                                     "Topic 5.1.5 - Spanning Trees.pptx",
+                                     "Topic 5.1.6 - Minimum Cost Spanning Trees Prims and Kruskal Algorithm.pptx",
+                                     "Topic 5.1.7 - Graph Coloring and Vertex Cover Problems.pptx",
+                                     "Topic 5.1.8 - Shortest Path Algorithms Dijkstra and Bellman-Ford.pptx",
+                                     "Topic 5.1.9 - Topological Sorting and Strongly Connected Components.pptx"
+                                 ],
+                      "Unit 2":  [
+                                     "Topic 2.1.2 - Array based Stacks Linked Stacks.pptx",
+                                     "Topic 2.1.3 - Application of Stack Prefix and Postfix Expressions Evaluation of postfix expression.pptx",
+                                     "Topic 2.1.4 - Implementing Recursion using Stacks Principles of recursion.pptx",
+                                     "Topic 2.1.5 - Tail Recursion in Stack and Queue ADTs.pptx",
+                                     "Topic 2.1.6 - Problem solving using iteration and recursion with examples such as Fibonacci numbers and Hanoi towers.pptx",
+                                     "Topic 2.1.7 - Queues ADT Queue Operations Create Add Delete Full and Empty.pptx",
+                                     "Topic 2.1.8 - Array and Linked List based Queue.pptx",
+                                     "Topic 2.1.9 - Double ended queue; Circular queue, Priority Queue.pptx",
+                                     "UNIT 2.1.1.comp.pptx"
+                                 ]
+                  },
+    "25UCT-201":  {
+                      "Unit 4":  [
+                                     "Topic 4.1.1 - Ethics and Ecological Wisdom Environmental Conservation and Awareness.pptx",
+                                     "Topic 4.1.2 - Case studies, Environmental movement.pptx",
+                                     "Topic 4.1.3 - Digital Forensics in Environmental Data Integrity Verification.pptx",
+                                     "Topic 4.1.4 - Blockchain Applications for Supply Chain Transparency in Conservation.pptx"
+                                 ],
+                      "Unit 1":  [
+                                     "Topic 1.1.1 - Environmental Studies Definition, Ri.pptx",
+                                     "Topic 1.1.2 - Hazards of Environmental Engineering.pptx"
+                                 ],
+                      "Unit 3":  [
+                                     "Topic 3.1.1 - An understanding of environmental is.pptx",
+                                     "Topic 3.1.2 - Ozone layer depletion; Acid rain; Na.pptx",
+                                     "Topic 3.1.3 - Projections of global climate change.pptx",
+                                     "Topic 3.1.4 - Climate Variability, Projections, an.pptx",
+                                     "Topic 3.1.5 - Vulnerability and adaptation to clim.pptx",
+                                     "Topic 3.1.6 - National climate action plan and Int.pptx"
+                                 ],
+                      "Unit 5":  [
+                                     "Topic 5.1.1 - Introduction to environmental laws and regulation, Policy consideration Environmental (Protection), Act, 1986.pptx",
+                                     "Topic 5.1.2 - Hazardous Wastes (Management and Handling) Rules, 1989.pptx",
+                                     "Topic 5.1.3 - Noise Pollution (Regulation and Control) Rules, 2000.pptx",
+                                     "Topic 5.1.4 - Bio-Medical Waste Rules, Agencies, and Global Agreements.pptx"
+                                 ],
+                      "Unit 2":  [
+                                     "Topic 2.1.1 - Environmental pollution Air.pptx",
+                                     "Topic 2.1.2 - Water and Soil Remediation in Enviro.pptx",
+                                     "Topic 2.1.3 - Noise Pollution and Remediation.pptx",
+                                     "Topic 2.1.4 - Environmental Pollution and Remediat.pptx",
+                                     "Topic 2.1.5 - Recycle and Reuse in Environmental R.pptx",
+                                     "Topic 2.1.6 - Plastic pollution; Biomagnifications.pptx",
+                                     "Topic 2.1.7 - Eutrophication Environmental Polluti.pptx",
+                                     "Topic 2.1.8 - Thermal and Radioactive Pollution an.pptx"
+                                 ]
+                  }
+}

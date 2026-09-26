@@ -37,36 +37,68 @@ function parseSession(text: string): { year: number; month: number } {
   return { year, month };
 }
 
-function buildSemesterList(raw: RawSemester[], studentSemStr?: string): SemesterItem[] {
-  const sorted = [...raw].sort((a, b) => {
+function getOptionSemNumber(text: string): number | null {
+  const m = text.match(/(?:sem(?:ester)?|term)\s*[-:]?\s*(\d+)/i) || text.match(/(\d+)(?:st|nd|rd|th)\s*sem/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function buildSemesterList(raw: RawSemester[], studentSemStr?: string, courseStr?: string): SemesterItem[] {
+  // 1. Filter out placeholder/dummy dropdown options (e.g. "--Select--", "0", "-1", empty text)
+  const validRaw = (raw || []).filter((opt) => {
+    if (!opt || !opt.value) return false;
+    const val = String(opt.value).trim();
+    if (val === '' || val === '0' || val === '-1') return false;
+    const lower = (opt.text || '').trim().toLowerCase();
+    if (lower.includes('select') || lower === '--' || lower === 'choose') return false;
+    return true;
+  });
+
+  const sorted = [...validRaw].sort((a, b) => {
     const A = parseSession(a.text);
     const B = parseSession(b.text);
     if (A.year !== B.year) return A.year - B.year;
     return A.month - B.month;
   });
 
-  // Extract student's actual current semester from profile (e.g. "3" -> 3)
+  // Extract student's actual current semester from profile (e.g. "2" -> 2)
   let studentCurrentSem = 0;
   if (studentSemStr && studentSemStr !== 'N/A') {
-    const match = studentSemStr.match(/(\d+)/);
+    const match = String(studentSemStr).match(/(\d+)/);
     if (match) {
       studentCurrentSem = parseInt(match[1], 10);
     }
   }
 
+  // Fallback: extract semester from course string if profile.semester wasn't set
+  if (studentCurrentSem === 0 && courseStr) {
+    const cMatch = String(courseStr).match(/(?:sem(?:ester)?|term)\s*[-:]?\s*(\d+)/i) || String(courseStr).match(/(\d+)(?:st|nd|rd|th)\s*sem/i);
+    if (cMatch) {
+      studentCurrentSem = parseInt(cMatch[1], 10);
+    }
+  }
+
+  // Authoritative current semester number from profile, or fallback to sequential count
+  const currentNum = studentCurrentSem > 0 ? studentCurrentSem : Math.max(1, sorted.length + 1);
+
   const list: SemesterItem[] = [];
 
-  // 1. Add all completed sessions that have declared results on the portal
+  // Add past completed sessions
   sorted.forEach((opt, idx) => {
-    list.push({
-      label: `Semester ${idx + 1}`,
-      value: opt.value,
-      originalText: opt.text,
-    });
+    const semInText = getOptionSemNumber(opt.text);
+    const semNum = semInText || (idx + 1);
+
+    // Only add as past completed result if it is prior to the ongoing current semester,
+    // or if current semester is unknown
+    if (studentCurrentSem === 0 || semNum < currentNum) {
+      list.push({
+        label: `Semester ${semNum}`,
+        value: opt.value,
+        originalText: opt.text,
+      });
+    }
   });
 
-  // 2. Add current ongoing semester (for internal marks)
-  const currentNum = Math.max(list.length + 1, studentCurrentSem > 0 ? studentCurrentSem : 1);
+  // Add current ongoing semester (for internal marks)
   list.push({
     label: `Semester ${currentNum} (Current)`,
     value: 'CURRENT_INTERNAL',
@@ -95,8 +127,8 @@ export default function MarksScreen() {
 
   // Semester picker list: aligned with real portal profile semester
   const derivedSemesters = useMemo(
-    () => buildSemesterList(semesterOptions, profile?.semester),
-    [semesterOptions, profile?.semester]
+    () => buildSemesterList(semesterOptions, profile?.semester, profile?.course),
+    [semesterOptions, profile?.semester, profile?.course]
   );
 
   // Latest (current) semester = last item in chronological list

@@ -19,6 +19,7 @@ import { BlurView, BlurTargetView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getNetworkState, reportNetworkError, reportNetworkSuccess, useNetworkStatus } from '../../../../../lib/networkManager';
+import { getBundledCourseFiles } from '../../../../../constants/courseFiles';
 
 interface Message {
   id: string;
@@ -333,52 +334,126 @@ export default function AITutorChatScreen() {
        } else if (rawName.includes('environmental') || rawName.includes('evs') || rawName.includes('ecology') || courseCode.includes('25UCT-201') || courseCode.includes('25UCT201')) {
           courseCode = '25UCT-201';
        }
-       
-       const res = await fetch('https://studyos-ai-proxy.piyushkushwaha2520.workers.dev', {
-          method: 'POST',
-          headers: { 
-             'Content-Type': 'application/json',
-             'Cache-Control': 'no-cache, no-store, must-revalidate',
-             'Pragma': 'no-cache',
-             'Expires': '0'
-          },
-          body: JSON.stringify({ action: 'list-files', courseCode: courseCode, _t: Date.now() })
-       });
-       
-       const textData = await res.text();
-       let data: any = null;
-       try {
-           if (textData && !textData.trim().startsWith('<')) {
-               data = JSON.parse(textData);
-           }
-       } catch {}
 
-       if (!res.ok || !data) {
-          throw new Error('Course materials temporarily unavailable.');
+       // 1. Instant bundled local files (0ms offline availability, zero delay)
+       const bundled = getBundledCourseFiles(courseCode, rawName);
+       if (bundled && Object.keys(bundled).length > 0) {
+          setAvailableFiles(bundled);
+          setExpandedUnits(prev => prev.length === 0 ? [Object.keys(bundled).sort()[0]] : prev);
+          setIsLoadingFiles(false);
+          setFetchError(null);
+          return;
        }
 
-       if (data.success && data.data) {
-          // API already returns data grouped by unit keys like "25CSH-214 Unit 1"
-          // Just use the data directly — don't re-group into hardcoded Unit 1..5 buckets
-          const grouped: Record<string, string[]> = {};
-          
-          Object.entries(data.data as Record<string, string[]>).forEach(([unitKey, files]) => {
-             if (!Array.isArray(files) || files.length === 0) return;
-             // Clean up the key to show a nicer label e.g. "25CSH-214 Unit 1" -> "Unit 1"
-             const cleanKey = unitKey.replace(/^[A-Z0-9_\-]+\s*/i, '').trim() || unitKey;
-             const uniqueFiles = [...new Set(files)].filter(f => f && f !== 'System Overview');
-             if (uniqueFiles.length > 0) {
-                grouped[cleanKey] = uniqueFiles;
+       // 2. Check local AsyncStorage cache
+       const cachedJson = await AsyncStorage.getItem('@cached_files_' + courseCode).catch(() => null);
+       if (cachedJson) {
+          try {
+             const cached = JSON.parse(cachedJson);
+             if (cached && Object.keys(cached).length > 0) {
+                setAvailableFiles(cached);
+                setExpandedUnits(prev => prev.length === 0 ? [Object.keys(cached).sort()[0]] : prev);
+                setIsLoadingFiles(false);
+                setFetchError(null);
+                return;
              }
+          } catch {}
+       }
+
+       // 3. Direct Pinecone Query Fallback
+       const PINECONE_HOST = (process.env.EXPO_PUBLIC_PINECONE_HOST || '').replace(/['"]/g, '').trim().replace(/^https?:\/\//, '');
+       const PINECONE_KEY = (process.env.EXPO_PUBLIC_PINECONE_API_KEY || '').replace(/['"]/g, '').trim();
+
+       if (PINECONE_HOST && PINECONE_KEY) {
+          try {
+             const vector = new Array(768).fill(0.1);
+             const pcRes = await fetch(`https://${PINECONE_HOST}/query`, {
+                method: 'POST',
+                headers: { 'Api-Key': PINECONE_KEY, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vector, topK: 1000, includeMetadata: true }),
+             });
+             if (pcRes.ok) {
+                const pcData = await pcRes.json() as any;
+                if (pcData.matches && pcData.matches.length > 0) {
+                   const filesByUnit: Record<string, string[]> = {};
+                   pcData.matches.forEach((m: any) => {
+                      if (m.metadata?.source && m.metadata?.subject) {
+                         const dbSubject = m.metadata.subject.toLowerCase();
+                         let searchCode = (courseCode || '').toLowerCase().replace('cont_', '');
+                         const searchName = (rawName || '').toLowerCase();
+
+                         let isMatch = searchCode && dbSubject.includes(searchCode);
+                         if (!isMatch && (searchCode === '25csh-211' || searchName.includes('database') || searchName.includes('dbms'))) {
+                            isMatch = dbSubject.includes('dbms');
+                         }
+                         if (!isMatch) return;
+
+                         const unit = m.metadata.subject.replace(/^[A-Z0-9_\-]+\s*/i, '').trim() || m.metadata.subject;
+                         const file = m.metadata.source.split('/').pop();
+                         if (!filesByUnit[unit]) filesByUnit[unit] = [];
+                         if (!filesByUnit[unit].includes(file)) filesByUnit[unit].push(file);
+                      }
+                   });
+                   if (Object.keys(filesByUnit).length > 0) {
+                      setAvailableFiles(filesByUnit);
+                      setExpandedUnits(prev => prev.length === 0 ? [Object.keys(filesByUnit).sort()[0]] : prev);
+                      AsyncStorage.setItem('@cached_files_' + courseCode, JSON.stringify(filesByUnit)).catch(() => {});
+                      setIsLoadingFiles(false);
+                      setFetchError(null);
+                      return;
+                   }
+                }
+             }
+          } catch (pcErr) {
+             console.warn("Direct Pinecone list-files warning:", pcErr);
+          }
+       }
+       
+       // 4. Fallback to Cloudflare Worker Proxy
+       try {
+          const res = await fetch('https://studyos-ai-proxy.piyushkushwaha2520.workers.dev', {
+             method: 'POST',
+             headers: { 
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+             },
+             body: JSON.stringify({ action: 'list-files', courseCode: courseCode, _t: Date.now() })
           });
           
-          setAvailableFiles(grouped);
-       } else {
-          setFetchError(data.error || "Unknown API Error");
-       }
+          const textData = await res.text();
+          let data: any = null;
+          try {
+              if (textData && !textData.trim().startsWith('<')) {
+                  data = JSON.parse(textData);
+              }
+          } catch {}
+
+          if (data && data.success && data.data && Object.keys(data.data).length > 0) {
+             const grouped: Record<string, string[]> = {};
+             Object.entries(data.data as Record<string, string[]>).forEach(([unitKey, files]) => {
+                if (!Array.isArray(files) || files.length === 0) return;
+                const cleanKey = unitKey.replace(/^[A-Z0-9_\-]+\s*/i, '').trim() || unitKey;
+                const uniqueFiles = [...new Set(files)].filter(f => f && f !== 'System Overview');
+                if (uniqueFiles.length > 0) {
+                   grouped[cleanKey] = uniqueFiles;
+                }
+             });
+             if (Object.keys(grouped).length > 0) {
+                setAvailableFiles(grouped);
+                setExpandedUnits(prev => prev.length === 0 ? [Object.keys(grouped).sort()[0]] : prev);
+                AsyncStorage.setItem('@cached_files_' + courseCode, JSON.stringify(grouped)).catch(() => {});
+                setIsLoadingFiles(false);
+                setFetchError(null);
+                return;
+             }
+          }
+       } catch {}
+
+       // No files found for this specific subject — clear error so clean empty state renders
+       setFetchError(null);
     } catch (e) {
        console.error("Failed to fetch available files:", e);
-       setFetchError(String(e));
+       setFetchError(null);
     }
     setIsLoadingFiles(false);
   };

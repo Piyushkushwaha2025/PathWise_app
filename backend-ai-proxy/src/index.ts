@@ -309,13 +309,16 @@ Do NOT output anything else except the bulleted list.`;
 
 			// --- LIST FILES API ---
 			if (action === 'list-files') {
-				if (env.PINECONE_HOST && env.PINECONE_API_KEY) {
+				const pcHost = env.PINECONE_HOST || "studyos-index-b9yyms8.svc.aped-4627-b74a.pinecone.io";
+				const pcKey = env.PINECONE_API_KEY || "pcsk_5gmWaY_TszJiTtASxEm3UZ1PNxcJau62DXuRdpsYASMBqtG98FqMsWimC6qg6PBxoYnvVE";
+
+				if (pcHost && pcKey) {
 					try {
 						const vector = new Array(768).fill(0.1);
-						const pineconeRes = await fetch(`https://${env.PINECONE_HOST}/query`, {
+						const pineconeRes = await fetch(`https://${pcHost.replace(/^https?:\/\//, '')}/query`, {
 							method: 'POST',
-							headers: { 'Api-Key': env.PINECONE_API_KEY, 'Content-Type': 'application/json' },
-							body: JSON.stringify({ vector, topK: 10000, includeMetadata: true }),
+							headers: { 'Api-Key': pcKey, 'Content-Type': 'application/json' },
+							body: JSON.stringify({ vector, topK: 1000, includeMetadata: true }),
 							signal: AbortSignal.timeout(5000)
 						});
 						if (pineconeRes.ok) {
@@ -357,7 +360,10 @@ Do NOT output anything else except the bulleted list.`;
 			const isDoubtSolver = courseCode === 'DOUBT_SOLVER' || courseName?.includes('Snap & Solve');
 
 			// Only run RAG for course subjects, completely skip for Universal Doubt Solver
-			if (!isDoubtSolver && env.PINECONE_HOST && env.PINECONE_API_KEY && messages && messages.length > 0) {
+			const ragPcHost = env.PINECONE_HOST || "studyos-index-b9yyms8.svc.aped-4627-b74a.pinecone.io";
+			const ragPcKey = env.PINECONE_API_KEY || "pcsk_5gmWaY_TszJiTtASxEm3UZ1PNxcJau62DXuRdpsYASMBqtG98FqMsWimC6qg6PBxoYnvVE";
+
+			if (!isDoubtSolver && ragPcHost && ragPcKey && messages && messages.length > 0) {
 				try {
 					const lastM = messages[messages.length - 1];
 					let lastMsg = lastM?.parts?.[0]?.text ?? (typeof lastM?.content === 'string' ? lastM.content : (lastM?.text || ''));
@@ -423,9 +429,9 @@ Do NOT output anything else except the bulleted list.`;
 
 					if (vector.length > 0) {
 						const queryTopK = requestedFiles.length > 0 ? 2000 : 100;
-						const pineconeRes = await fetch(`https://${env.PINECONE_HOST}/query`, {
+						const pineconeRes = await fetch(`https://${ragPcHost.replace(/^https?:\/\//, '')}/query`, {
 							method: 'POST',
-							headers: { 'Api-Key': env.PINECONE_API_KEY, 'Content-Type': 'application/json' },
+							headers: { 'Api-Key': ragPcKey, 'Content-Type': 'application/json' },
 							body: JSON.stringify({ vector, topK: queryTopK, includeMetadata: true }),
 							signal: AbortSignal.timeout(5000)
 						});
