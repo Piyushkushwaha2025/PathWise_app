@@ -313,135 +313,207 @@ export default function MarksScreen() {
          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESULT_DATA', error: 'SESSION_EXPIRED' }));
       } else {
         var resultType = document.querySelector('select[name*="ddlResultType"]');
-        if (resultType && resultType.value !== "Session") {
-           resultType.value = "Session";
-           if (typeof __doPostBack === 'function') {
-              __doPostBack(resultType.name, '');
+        if (resultType && !window.__hasSwitchedResultType) {
+           var sessionIndex = -1;
+           for (var ri = 0; ri < resultType.options.length; ri++) {
+             var rOpt = (resultType.options[ri].text || '').toLowerCase();
+             var rVal = (resultType.options[ri].value || '').toLowerCase();
+             if (rOpt.includes('session') || rVal.includes('session') || rOpt.includes('semester')) {
+               sessionIndex = ri;
+               break;
+             }
            }
-           // Return early, the page will reload
-           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESULT_DATA', options: [], pendingPostback: true }));
+           if (sessionIndex !== -1 && resultType.selectedIndex !== sessionIndex) {
+              window.__hasSwitchedResultType = true;
+              resultType.selectedIndex = sessionIndex;
+              if (typeof __doPostBack === 'function') {
+                 __doPostBack(resultType.name, '');
+              } else if (typeof resultType.onchange === 'function') {
+                 resultType.onchange();
+              }
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESULT_DATA', options: [], pendingPostback: true }));
+              return;
+           }
+        }
+        
+        var ddl = document.querySelector('select[name*="ddlSession"]') || 
+                  document.querySelector('select[name*="Session"]') || 
+                  document.querySelector('select[id*="ddlSession"]') || 
+                  document.querySelector('select[name*="ddlSemester"]') || 
+                  document.querySelector('select[id*="ddlSemester"]') || 
+                  document.querySelector('select');
+        var options = [];
+        if (ddl) {
+          for (var i = 0; i < ddl.options.length; i++) {
+            var ot = (ddl.options[i].text || '').trim();
+            var ov = (ddl.options[i].value || '').trim();
+            if (ov && ov !== '0' && ov !== '-1' && !ot.toLowerCase().includes('select') && !ot.toLowerCase().includes('choose')) {
+              options.push({ text: ot, value: ov });
+            }
+          }
+        }
+         
+        var sgpa = '';
+        var bodyText = document.body ? document.body.innerText : '';
+        var match = bodyText.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
+        if (match) {
+           sgpa = match[1];
         } else {
-         var ddl = document.querySelector('select[name*="ddlSession"]') || document.querySelector('select[name*="Session"]');
-         var options = [];
-         if (ddl) {
-           for (var i = 0; i < ddl.options.length; i++) {
-             options.push({ text: ddl.options[i].text, value: ddl.options[i].value });
+           var sgpaEl = document.querySelector('input[name*="SGPA" i], input[id*="SGPA" i], span[id*="lblSGPA" i], span[id*="lblCGPA" i]');
+           if (sgpaEl) {
+              sgpa = sgpaEl.value || sgpaEl.innerText;
+           } else {
+              var spans = document.querySelectorAll('span, td, div');
+              for (var k = 0; k < spans.length; k++) {
+                 var text = spans[k].innerText;
+                 if (text && (text.includes('SGPA') || text.includes('CGPA') || text.includes('GPA'))) {
+                    var m = text.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
+                    if (m) {
+                       sgpa = m[1];
+                       break;
+                    }
+                 }
+              }
            }
-         }
+        }
          
-         var sgpa = '';
-         var bodyText = document.body.innerText;
-         var match = bodyText.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
-         if (match) {
-            sgpa = match[1];
-         } else {
-            var sgpaEl = document.querySelector('input[name*="SGPA" i], input[id*="SGPA" i], span[id*="lblSGPA" i], span[id*="lblCGPA" i]');
-            if (sgpaEl) {
-               sgpa = sgpaEl.value || sgpaEl.innerText;
-            } else {
-               var spans = document.querySelectorAll('span, td, div');
-               for(var k=0; k<spans.length; k++) {
-                  var text = spans[k].innerText;
-                  if(text && (text.includes('SGPA') || text.includes('CGPA') || text.includes('GPA'))) {
-                     var m = text.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
-                     if (m) {
-                        sgpa = m[1];
-                        break;
-                     }
-                  }
-               }
-            }
-         }
-         
-         var sgpaDebug = '';
-         if (!sgpa) {
-            var els = Array.from(document.querySelectorAll('*')).filter(el => el.innerText && el.innerText.includes('SGPA') && el.children.length === 0);
-            if (els.length > 0) {
-               sgpaDebug = els[els.length - 1].parentElement ? els[els.length - 1].parentElement.innerHTML : els[els.length - 1].innerHTML;
-            }
-         }
+        var sgpaDebug = '';
+        if (!sgpa) {
+           var els = Array.from(document.querySelectorAll('*')).filter(el => el.innerText && el.innerText.includes('SGPA') && el.children.length === 0);
+           if (els.length > 0) {
+              sgpaDebug = els[els.length - 1].parentElement ? els[els.length - 1].parentElement.innerHTML : els[els.length - 1].innerHTML;
+           }
+        }
       
-      var subjects = [];
-      var trs = document.querySelectorAll('table tr');
-      var debugRows = [];
-      for (var i = 0; i < trs.length; i++) {
-         var tds = Array.from(trs[i].children).filter(function(el) {
-            return el.tagName.toUpperCase() === 'TD' || el.tagName.toUpperCase() === 'TH';
-         });
-         var textArr = tds.map(t => t.innerText.trim());
-         if (textArr.length > 0) {
-            debugRows.push(textArr.join(' | '));
-         }
-         
-         var codeIndex = textArr.findIndex(t => /^[0-9A-Z]{2,7}-[0-9]{3}/.test(t));
-         if (codeIndex !== -1 && textArr.length >= codeIndex + 3) {
-            var code = textArr[codeIndex];
-            var name = textArr[codeIndex + 1];
-            
-            var grade = '';
-            var credit = '0';
-            
-            for (var j = textArr.length - 1; j > codeIndex + 1; j--) {
-               var val = textArr[j].toUpperCase();
-               if (/^(O|A\\+|A|B\\+|B|C\\+|C|D|E|F|P|AB|I|DT|UMC\\*?)$/.test(val)) {
-                  grade = textArr[j]; // Keep original case
-                  var beforeGrade = textArr[j - 1];
-                  if (!isNaN(parseFloat(beforeGrade))) {
-                     credit = beforeGrade;
-                  } else if (j - 2 > codeIndex && !isNaN(parseFloat(textArr[j - 2]))) {
-                     credit = textArr[j - 2];
-                  }
-                  break;
-               }
+        var subjects = [];
+        var trs = Array.from(document.querySelectorAll('table tr'));
+        var iframes = document.querySelectorAll('iframe');
+        for (var f = 0; f < iframes.length; f++) {
+          try {
+            var idoc = iframes[f].contentDocument || iframes[f].contentWindow.document;
+            if (idoc) {
+              trs = trs.concat(Array.from(idoc.querySelectorAll('table tr')));
             }
-            
-            var internal = '';
-            var external = '';
-            if (codeIndex + 2 < textArr.length && textArr[codeIndex + 2] !== credit && textArr[codeIndex + 2] !== grade) {
-               internal = textArr[codeIndex + 2];
-            }
-            if (codeIndex + 3 < textArr.length && textArr[codeIndex + 3] !== credit && textArr[codeIndex + 3] !== grade) {
-               external = textArr[codeIndex + 3];
-            }
-            
-            if (grade) {
-               subjects.push({ code: code, name: name, credit: credit, grade: grade, internal: internal, external: external });
-            }
-         }
-      }
-      
-      if (!sgpa && subjects.length > 0) {
-         var totalCredits = 0;
-         var totalPoints = 0;
-         var gradeMap = {
-            'O': 10, 'A+': 10, 'A': 9, 'B+': 8, 'B': 7, 'C+': 6, 'C': 5, 'P': 4, 'F': 0, 'E': 0, 'UMC': 0, 'UMC*': 0
-         };
-         for(var s=0; s<subjects.length; s++) {
-            var cred = parseFloat(subjects[s].credit);
-            var grd = subjects[s].grade ? subjects[s].grade.trim().toUpperCase() : '';
-            if (!isNaN(cred) && gradeMap.hasOwnProperty(grd)) {
-               totalCredits += cred;
-               totalPoints += (cred * gradeMap[grd]);
-            }
-         }
-         if (totalCredits > 0) {
-            sgpa = (totalPoints / totalCredits).toFixed(2);
-         }
-      }
+          } catch(e) {}
+        }
 
-      var semEl = document.querySelector('span[id*="lblSem"]');
-      var semNum = semEl ? semEl.innerText.trim() : '';
+        var debugRows = [];
+        var gradeRegex = /^(O|A\\+|A|B\\+|B|C\\+|C|D|E|F|P|AB|I|DT|UMC\\*?)$/i;
 
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'RESULT_DATA',
-        options: options,
-        sgpa: sgpa,
-        subjects: subjects,
-        selected: ddl ? ddl.value : '',
-        semesterNumber: semNum,
-        debugSgpa: sgpaDebug,
-        debugRows: debugRows
-      }));
+        for (var i = 0; i < trs.length; i++) {
+           var tds = Array.from(trs[i].children).filter(function(el) {
+              return el.tagName.toUpperCase() === 'TD' || el.tagName.toUpperCase() === 'TH';
+           });
+           var textArr = tds.map(function(t) { return t.innerText.trim(); });
+           if (textArr.length > 0) {
+              debugRows.push(textArr.join(' | '));
+           }
+           
+           var codeIndex = textArr.findIndex(function(t) {
+              return /^[0-9A-Z]{2,8}[-_]?[0-9]{2,4}$/i.test(t) || /^[0-9A-Z]{2,7}-[0-9]{3}/.test(t);
+           });
+           var gradeIndex = textArr.findIndex(function(t) { return gradeRegex.test(t.toUpperCase()); });
+
+           if (codeIndex !== -1 && textArr.length >= 3) {
+              var code = textArr[codeIndex];
+              var name = (codeIndex + 1 < textArr.length) ? textArr[codeIndex + 1] : '';
+              
+              var grade = '';
+              var credit = '0';
+              
+              for (var j = textArr.length - 1; j > codeIndex; j--) {
+                 var val = textArr[j].toUpperCase();
+                 if (gradeRegex.test(val)) {
+                    grade = textArr[j];
+                    if (j - 1 > codeIndex && !isNaN(parseFloat(textArr[j - 1]))) {
+                       credit = textArr[j - 1];
+                    } else if (j - 2 > codeIndex && !isNaN(parseFloat(textArr[j - 2]))) {
+                       credit = textArr[j - 2];
+                    }
+                    break;
+                 }
+              }
+              
+              var internal = '';
+              var external = '';
+              if (grade) {
+                 for (var k = codeIndex + 2; k < textArr.length; k++) {
+                    if (textArr[k] !== grade && textArr[k] !== credit && !isNaN(parseFloat(textArr[k]))) {
+                       if (!internal) internal = textArr[k];
+                       else if (!external) external = textArr[k];
+                    }
+                 }
+                 subjects.push({ code: code, name: name, credit: credit, grade: grade, internal: internal, external: external });
+              }
+           } else if (gradeIndex !== -1 && textArr.length >= 3) {
+              var grade = textArr[gradeIndex];
+              var candidateCode = (textArr[0] && textArr[0].length <= 12 && !/^\\d+$/.test(textArr[0])) ? textArr[0] : (textArr[1] && textArr[1].length <= 12 ? textArr[1] : 'SUBJ');
+              var candidateName = textArr.find(function(t, idx) { return idx !== gradeIndex && t.length > 4 && !/^\\d+$/.test(t) && !gradeRegex.test(t); }) || candidateCode;
+              var candidateCredit = '0';
+              if (gradeIndex > 0 && !isNaN(parseFloat(textArr[gradeIndex - 1]))) {
+                 candidateCredit = textArr[gradeIndex - 1];
+              }
+              subjects.push({ code: candidateCode, name: candidateName, credit: candidateCredit, grade: grade, internal: '', external: '' });
+           }
+        }
+        
+        if (!sgpa && subjects.length > 0) {
+           var totalCredits = 0;
+           var totalPoints = 0;
+           var gradeMap = {
+              'O': 10, 'A+': 10, 'A': 9, 'B+': 8, 'B': 7, 'C+': 6, 'C': 5, 'P': 4, 'F': 0, 'E': 0, 'UMC': 0, 'UMC*': 0
+           };
+           for (var s = 0; s < subjects.length; s++) {
+              var cred = parseFloat(subjects[s].credit);
+              var grd = subjects[s].grade ? subjects[s].grade.trim().toUpperCase() : '';
+              if (!isNaN(cred) && gradeMap.hasOwnProperty(grd)) {
+                 totalCredits += cred;
+                 totalPoints += (cred * gradeMap[grd]);
+              }
+           }
+           if (totalCredits > 0) {
+              sgpa = (totalPoints / totalCredits).toFixed(2);
+           }
+        }
+
+        var semEl = document.querySelector('span[id*="lblSem"]');
+        var semNum = semEl ? semEl.innerText.trim() : '';
+        if (!semNum && ddl && ddl.selectedIndex >= 0 && ddl.options[ddl.selectedIndex]) {
+           var selOptText = ddl.options[ddl.selectedIndex].text || '';
+           var semMatch = selOptText.match(/(\\d+)/);
+           if (semMatch) semNum = semMatch[1];
+        }
+
+        var allSelects = Array.from(document.querySelectorAll('select')).map(function(s) {
+           return {
+             name: s.name,
+             id: s.id,
+             value: s.value,
+             options: Array.from(s.options).map(function(o){ return { text: o.text, value: o.value }; })
+           };
+        });
+        var allInputs = Array.from(document.querySelectorAll('input, button')).map(function(b) {
+           return { name: b.name, id: b.id, type: b.type, value: b.value };
+        });
+        var allTables = Array.from(document.querySelectorAll('table')).map(function(t) {
+           return { id: t.id, rows: t.rows ? t.rows.length : 0, snippet: (t.innerText || '').substring(0, 100) };
+        });
+
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'RESULT_DATA',
+          pageUrl: window.location.href,
+          options: options,
+          sgpa: sgpa,
+          subjects: subjects,
+          selected: ddl ? ddl.value : '',
+          semesterNumber: semNum,
+          debugSgpa: sgpaDebug,
+          debugRows: debugRows.slice(0, 30),
+          allSelects: allSelects,
+          allInputs: allInputs,
+          allTables: allTables,
+          bodySnippet: (document.body ? document.body.innerText : '').substring(0, 500)
+        }));
       } // CLOSE ELSE BLOCK FOR RESULT TYPE
     } // CLOSE ELSE BLOCK FOR LOGIN
     } catch(e) {
@@ -608,6 +680,15 @@ export default function MarksScreen() {
         if (data.debugRows) {
            console.log("RESULT PAGE DEBUG ROWS:", data.debugRows);
         }
+        console.log("RESULT PAGE INSPECTION:", JSON.stringify({
+          pageUrl: data.pageUrl,
+          selected: data.selected,
+          options: data.options,
+          selects: data.allSelects,
+          inputs: data.allInputs,
+          tables: data.allTables,
+          bodySnippet: data.bodySnippet,
+        }, null, 2));
         if (data.options && data.options.length > 0) {
           setSemesterOptions(data.options);
           setScrapedData({ semesterOptionsCache: data.options });
@@ -625,11 +706,14 @@ export default function MarksScreen() {
              newCache[`sem_${data.semesterNumber}`] = { sgpa: data.sgpa, subjects: data.subjects };
            }
            setScrapedData({ resultCache: newCache });
+           setIsLoading(false);
+           setRefreshing(false);
         } else {
-           setResultData(null);
+           if (data.options && data.options.length > 0 && !selectedSemester) {
+             setIsLoading(false);
+             setRefreshing(false);
+           }
         }
-        setIsLoading(false);
-        setRefreshing(false);
       } else if (data.type === 'INTERNAL_MARKS') {
         if (data.error) {
            console.log("INTERNAL MARKS SCRIPT ERROR:", data.error);
@@ -700,6 +784,8 @@ export default function MarksScreen() {
     }
 
     const value = item.value;
+    const label = item.label;
+    const originalText = item.originalText;
     setIsModalVisible(false);
     setSelectedSemester(value);
     
@@ -720,28 +806,77 @@ export default function MarksScreen() {
     }
 
     webViewRef.current?.injectJavaScript(`
-      try {
-        var ddl = document.querySelector('select[name*="ddlSession"]') || document.querySelector('select[name*="Session"]');
-        if (ddl) {
-          ddl.value = '${value}';
-          if (typeof ddl.onchange === 'function') {
-             ddl.onchange();
+      (function() {
+        try {
+          var targetVal = ${JSON.stringify(value)};
+          var targetText = ${JSON.stringify(originalText || '')};
+          var targetLabel = ${JSON.stringify(label || '')};
+
+          var ddl = document.querySelector('select[name*="ddlSession"]') || 
+                    document.querySelector('select[name*="Session"]') || 
+                    document.querySelector('select[id*="ddlSession"]') || 
+                    document.querySelector('select[name*="ddlSemester"]') || 
+                    document.querySelector('select[id*="ddlSemester"]') || 
+                    document.querySelector('select');
+          if (ddl) {
+            var matchedIndex = -1;
+            for (var i = 0; i < ddl.options.length; i++) {
+              if (ddl.options[i].value === targetVal) {
+                matchedIndex = i;
+                break;
+              }
+            }
+            if (matchedIndex === -1 && targetText) {
+              for (var i = 0; i < ddl.options.length; i++) {
+                if (ddl.options[i].text.trim().toLowerCase() === targetText.trim().toLowerCase()) {
+                  matchedIndex = i;
+                  break;
+                }
+              }
+            }
+            if (matchedIndex === -1 && targetLabel) {
+              var semM = targetLabel.match(/\\d+/);
+              if (semM) {
+                for (var i = 0; i < ddl.options.length; i++) {
+                  if (ddl.options[i].text.includes(semM[0])) {
+                    matchedIndex = i;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (matchedIndex !== -1) {
+              ddl.selectedIndex = matchedIndex;
+              ddl.value = ddl.options[matchedIndex].value;
+            }
+
+            var btn = document.querySelector('input[type="submit"][name*="Show" i], input[type="submit"][id*="Show" i], input[type="submit"][value*="Show" i], input[type="submit"][name*="Result" i], input[type="submit"][id*="Result" i], input[type="submit"][value*="Result" i], input[type="submit"][name*="Search" i], input[type="submit"][name*="btn" i], input[type="submit"], button[type="submit"]');
+
+            if (btn) {
+              btn.click();
+            } else if (typeof ddl.onchange === 'function') {
+              ddl.onchange();
+            } else if (typeof __doPostBack === 'function') {
+              __doPostBack(ddl.name, '');
+            } else {
+              ddl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
           }
-          if (typeof __doPostBack === 'function') {
-             __doPostBack(ddl.name, '');
-          } else {
-             var btn = document.querySelector('input[type="submit"][name*="btnShowResult"], input[type="submit"][value*="Show Result"], input[type="submit"]');
-             if (btn) btn.click();
-          }
-          ddl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      } catch(e) {}
+        } catch(e) {}
+      })();
       true;
     `);
 
-    // Re-scrape the result table after postback updates DOM
+    // Staggered scraping retries in case postback DOM takes varying network time
     if (!cached) {
+      setTimeout(() => injectAndScrapeRef.current(), 1200);
       setTimeout(() => injectAndScrapeRef.current(), 2500);
+      setTimeout(() => injectAndScrapeRef.current(), 4500);
+      setTimeout(() => injectAndScrapeRef.current(), 7000);
+      setTimeout(() => {
+        setIsLoading((cur) => (cur ? false : false));
+      }, 9000);
     }
   };
 
