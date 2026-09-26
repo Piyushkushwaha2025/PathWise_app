@@ -43,13 +43,13 @@ function getOptionSemNumber(text: string): number | null {
 }
 
 function buildSemesterList(raw: RawSemester[], studentSemStr?: string, courseStr?: string): SemesterItem[] {
-  // 1. Filter out placeholder/dummy dropdown options (e.g. "--Select--", "0", "-1", empty text)
+  // 1. Filter out placeholder/dummy dropdown options (e.g. "--Select--", "0", "-1", empty text, "Final", "Session")
   const validRaw = (raw || []).filter((opt) => {
     if (!opt || !opt.value) return false;
     const val = String(opt.value).trim();
     if (val === '' || val === '0' || val === '-1') return false;
     const lower = (opt.text || '').trim().toLowerCase();
-    if (lower.includes('select') || lower === '--' || lower === 'choose') return false;
+    if (lower.includes('select') || lower === '--' || lower === 'choose' || lower === 'final' || lower === 'session') return false;
     return true;
   });
 
@@ -60,7 +60,7 @@ function buildSemesterList(raw: RawSemester[], studentSemStr?: string, courseStr
     return A.month - B.month;
   });
 
-  // Extract student's actual current semester from profile (e.g. "2" -> 2)
+  // Extract student's actual current semester from profile (e.g. "3" -> 3)
   let studentCurrentSem = 0;
   if (studentSemStr && studentSemStr !== 'N/A') {
     const match = String(studentSemStr).match(/(\d+)/);
@@ -82,20 +82,39 @@ function buildSemesterList(raw: RawSemester[], studentSemStr?: string, courseStr
 
   const list: SemesterItem[] = [];
 
-  // Add past completed sessions
-  sorted.forEach((opt, idx) => {
-    const semInText = getOptionSemNumber(opt.text);
-    const semNum = semInText || (idx + 1);
+  // Add past completed sessions from portal if valid
+  if (sorted.length > 0) {
+    sorted.forEach((opt, idx) => {
+      const semInText = getOptionSemNumber(opt.text);
+      const semNum = semInText || (idx + 1);
 
-    // Only add as past completed result if it is prior to the ongoing current semester,
-    // or if current semester is unknown
-    if (studentCurrentSem === 0 || semNum < currentNum) {
+      if (studentCurrentSem === 0 || semNum < currentNum) {
+        list.push({
+          label: `Semester ${semNum}`,
+          value: opt.value,
+          originalText: opt.text,
+        });
+      }
+    });
+  }
+
+  // Ensure all completed semesters prior to currentNum are in the list
+  for (let s = 1; s < currentNum; s++) {
+    const alreadyExists = list.some(item => item.label === `Semester ${s}`);
+    if (!alreadyExists) {
       list.push({
-        label: `Semester ${semNum}`,
-        value: opt.value,
-        originalText: opt.text,
+        label: `Semester ${s}`,
+        value: String(s),
+        originalText: `Semester ${s} Results`,
       });
     }
+  }
+
+  // Sort past semesters numerically (Semester 1, Semester 2, ...)
+  list.sort((a, b) => {
+    const numA = parseInt(a.label.replace(/\D/g, '') || '0', 10);
+    const numB = parseInt(b.label.replace(/\D/g, '') || '0', 10);
+    return numA - numB;
   });
 
   // Add current ongoing semester (for internal marks)
@@ -328,132 +347,202 @@ export default function MarksScreen() {
             }
           }
         }
-         
-        var sgpa = '';
-        var bodyText = document.body ? document.body.innerText : '';
-        var match = bodyText.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
-        if (match) {
-           sgpa = match[1];
-        } else {
-           var sgpaEl = document.querySelector('input[name*="SGPA" i], input[id*="SGPA" i], span[id*="lblSGPA" i], span[id*="lblCGPA" i]');
-           if (sgpaEl) {
-              sgpa = sgpaEl.value || sgpaEl.innerText;
-           } else {
-              var spans = document.querySelectorAll('span, td, div');
-              for (var k = 0; k < spans.length; k++) {
-                 var text = spans[k].innerText;
-                 if (text && (text.includes('SGPA') || text.includes('CGPA') || text.includes('GPA'))) {
-                    var m = text.match(/(?:S\.?G\.?P\.?A\.?|C\.?G\.?P\.?A\.?|GPA)\s*[:\-\=]?\s*([0-9]{1,2}\.[0-9]{1,3})/i);
-                    if (m) {
-                       sgpa = m[1];
-                       break;
-                    }
-                 }
-              }
-           }
-        }
-         
-        var sgpaDebug = '';
-        if (!sgpa) {
-           var els = Array.from(document.querySelectorAll('*')).filter(el => el.innerText && el.innerText.includes('SGPA') && el.children.length === 0);
-           if (els.length > 0) {
-              sgpaDebug = els[els.length - 1].parentElement ? els[els.length - 1].parentElement.innerHTML : els[els.length - 1].innerHTML;
-           }
-        }
-      
-        var subjects = [];
-        var trs = Array.from(document.querySelectorAll('table tr'));
-        var iframes = document.querySelectorAll('iframe');
-        for (var f = 0; f < iframes.length; f++) {
-          try {
-            var idoc = iframes[f].contentDocument || iframes[f].contentWindow.document;
-            if (idoc) {
-              trs = trs.concat(Array.from(idoc.querySelectorAll('table tr')));
-            }
-          } catch(e) {}
-        }
 
-        var debugRows = [];
         var gradeRegex = /^(O|A\\+|A|B\\+|B|C\\+|C|D|E|F|P|AB|I|DT|UMC\\*?)$/i;
+        var gradeMap = {
+          'O': 10, 'A+': 10, 'A': 9, 'B+': 8, 'B': 7, 'C+': 6, 'C': 5, 'P': 4, 'F': 0, 'E': 0, 'UMC': 0, 'UMC*': 0
+        };
 
-        for (var i = 0; i < trs.length; i++) {
-           var tds = Array.from(trs[i].children).filter(function(el) {
+        function parseRows(rows) {
+          var subjs = [];
+          for (var r = 0; r < rows.length; r++) {
+            var tds = Array.from(rows[r].children).filter(function(el) {
               return el.tagName.toUpperCase() === 'TD' || el.tagName.toUpperCase() === 'TH';
-           });
-           var textArr = tds.map(function(t) { return t.innerText.trim(); });
-           if (textArr.length > 0) {
-              debugRows.push(textArr.join(' | '));
-           }
-           
-           var codeIndex = textArr.findIndex(function(t) {
-              return /^[0-9A-Z]{2,8}[-_]?[0-9]{2,4}$/i.test(t) || /^[0-9A-Z]{2,7}-[0-9]{3}/.test(t);
-           });
-           var gradeIndex = textArr.findIndex(function(t) { return gradeRegex.test(t.toUpperCase()); });
+            });
+            var textArr = tds.map(function(t) { return t.innerText.trim(); });
+            if (textArr.length < 3) continue;
 
-           if (codeIndex !== -1 && textArr.length >= 3) {
+            if (textArr.some(function(t) { var low = t.toLowerCase(); return low.includes('subject code') || low.includes('course code'); })) {
+              continue;
+            }
+
+            var codeIndex = textArr.findIndex(function(t) {
+              return /^[0-9A-Z]{2,8}[-_]?[0-9]{2,4}$/i.test(t) || /^[0-9A-Z]{2,7}-[0-9]{3}/i.test(t);
+            });
+            var gradeIndex = textArr.findIndex(function(t) { return gradeRegex.test(t.toUpperCase()); });
+
+            if (codeIndex !== -1 && textArr.length >= 3) {
               var code = textArr[codeIndex];
               var name = (codeIndex + 1 < textArr.length) ? textArr[codeIndex + 1] : '';
-              
               var grade = '';
               var credit = '0';
-              
+
               for (var j = textArr.length - 1; j > codeIndex; j--) {
-                 var val = textArr[j].toUpperCase();
-                 if (gradeRegex.test(val)) {
-                    grade = textArr[j];
-                    if (j - 1 > codeIndex && !isNaN(parseFloat(textArr[j - 1]))) {
-                       credit = textArr[j - 1];
-                    } else if (j - 2 > codeIndex && !isNaN(parseFloat(textArr[j - 2]))) {
-                       credit = textArr[j - 2];
-                    }
-                    break;
-                 }
+                var val = textArr[j].toUpperCase();
+                if (gradeRegex.test(val)) {
+                  grade = textArr[j];
+                  if (j - 1 > codeIndex && !isNaN(parseFloat(textArr[j - 1]))) {
+                    credit = textArr[j - 1];
+                  } else if (j - 2 > codeIndex && !isNaN(parseFloat(textArr[j - 2]))) {
+                    credit = textArr[j - 2];
+                  }
+                  break;
+                }
               }
-              
+
               var internal = '';
               var external = '';
               if (grade) {
-                 for (var k = codeIndex + 2; k < textArr.length; k++) {
-                    if (textArr[k] !== grade && textArr[k] !== credit && !isNaN(parseFloat(textArr[k]))) {
-                       if (!internal) internal = textArr[k];
-                       else if (!external) external = textArr[k];
-                    }
-                 }
-                 subjects.push({ code: code, name: name, credit: credit, grade: grade, internal: internal, external: external });
+                for (var k = codeIndex + 2; k < textArr.length; k++) {
+                  if (textArr[k] !== grade && textArr[k] !== credit && !isNaN(parseFloat(textArr[k]))) {
+                    if (!internal) internal = textArr[k];
+                    else if (!external) external = textArr[k];
+                  }
+                }
+                subjs.push({ code: code, name: name, credit: credit, grade: grade, internal: internal, external: external });
               }
-           } else if (gradeIndex !== -1 && textArr.length >= 3) {
+            } else if (gradeIndex !== -1 && textArr.length >= 3) {
               var grade = textArr[gradeIndex];
               var candidateCode = (textArr[0] && textArr[0].length <= 12 && !/^\\d+$/.test(textArr[0])) ? textArr[0] : (textArr[1] && textArr[1].length <= 12 ? textArr[1] : 'SUBJ');
               var candidateName = textArr.find(function(t, idx) { return idx !== gradeIndex && t.length > 4 && !/^\\d+$/.test(t) && !gradeRegex.test(t); }) || candidateCode;
               var candidateCredit = '0';
               if (gradeIndex > 0 && !isNaN(parseFloat(textArr[gradeIndex - 1]))) {
-                 candidateCredit = textArr[gradeIndex - 1];
+                candidateCredit = textArr[gradeIndex - 1];
               }
-              subjects.push({ code: candidateCode, name: candidateName, credit: candidateCredit, grade: grade, internal: '', external: '' });
-           }
+              subjs.push({ code: candidateCode, name: candidateName, credit: candidateCredit, grade: grade, internal: '', external: '' });
+            }
+          }
+          return subjs;
         }
-        
-        if (!sgpa && subjects.length > 0) {
-           var totalCredits = 0;
-           var totalPoints = 0;
-           var gradeMap = {
-              'O': 10, 'A+': 10, 'A': 9, 'B+': 8, 'B': 7, 'C+': 6, 'C': 5, 'P': 4, 'F': 0, 'E': 0, 'UMC': 0, 'UMC*': 0
-           };
-           for (var s = 0; s < subjects.length; s++) {
+
+        // 1. Grouped Semester Extraction from Repeater Tables (e.g. dlResult_Repeater1_0, Repeater1_1)
+        var allSemesters = {};
+        var repeaterTables = Array.from(document.querySelectorAll('table[id*="Repeater1"]'));
+        if (repeaterTables.length === 0) {
+          var dl = document.getElementById('ContentPlaceHolder1_wucResult1_dlResult') || document.querySelector('[id*="dlResult"]');
+          if (dl) {
+            repeaterTables = Array.from(dl.querySelectorAll('table'));
+          }
+        }
+
+        for (var t = 0; t < repeaterTables.length; t++) {
+          var tbl = repeaterTables[t];
+          var tblSubjects = parseRows(Array.from(tbl.querySelectorAll('tr')));
+          if (tblSubjects.length === 0) continue;
+
+          var semNum = '';
+          var semSgpa = '';
+
+          // Look at surrounding container or preceding elements for Semester : N and SGPA : X.XX
+          var parentItem = tbl.parentElement;
+          while (parentItem && parentItem.tagName !== 'TR' && parentItem.tagName !== 'TD' && parentItem.id !== 'ContentPlaceHolder1_wucResult1_dlResult' && parentItem !== document.body) {
+            parentItem = parentItem.parentElement;
+          }
+          var searchArea = parentItem || tbl.parentElement || document;
+
+          var semSpan = searchArea.querySelector('span[id*="lblSem_' + t + '"]') || 
+                        searchArea.querySelector('span[id*="lblSem"]') ||
+                        document.querySelector('span[id*="lblSem_' + t + '"]');
+          if (semSpan) {
+            semNum = semSpan.innerText.trim();
+          }
+
+          var textToSearch = searchArea.innerText || '';
+          if (!semNum) {
+            var semM = textToSearch.match(/(?:Semester\s*[:\\-\\=]?\s*|Sem\s*[:\\-\\=]?\s*)(\\d+)/i);
+            if (semM) semNum = semM[1];
+          }
+
+          if (!semNum) {
+            var prev = tbl.previousElementSibling;
+            while (prev) {
+              var prevText = prev.innerText || '';
+              var semM = prevText.match(/(?:Semester\s*[:\\-\\=]?\s*|Sem\s*[:\\-\\=]?\s*)(\\d+)/i);
+              if (semM) { semNum = semM[1]; break; }
+              prev = prev.previousElementSibling;
+            }
+          }
+
+          var sgpaM = textToSearch.match(/(?:S\\.?G\\.?P\\.?A\\.?|GPA)\\s*[:\\-\\=]?\\s*([0-9]{1,2}\\.[0-9]{1,3})/i);
+          if (sgpaM) {
+            semSgpa = sgpaM[1];
+          }
+
+          // If SGPA is missing or not in text, calculate from credits & grades:
+          if (!semSgpa && tblSubjects.length > 0) {
+            var totalCreds = 0;
+            var totalPts = 0;
+            for (var s = 0; s < tblSubjects.length; s++) {
+              var cred = parseFloat(tblSubjects[s].credit);
+              var grd = tblSubjects[s].grade ? tblSubjects[s].grade.trim().toUpperCase() : '';
+              if (!isNaN(cred) && gradeMap.hasOwnProperty(grd)) {
+                totalCreds += cred;
+                totalPts += (cred * gradeMap[grd]);
+              }
+            }
+            if (totalCreds > 0) {
+              semSgpa = (totalPts / totalCreds).toFixed(2);
+            }
+          }
+
+          if (semNum) {
+            allSemesters[semNum] = {
+              semesterNumber: semNum,
+              sgpa: semSgpa,
+              subjects: tblSubjects
+            };
+          }
+        }
+
+        // 2. Overall CGPA
+        var cgpa = '';
+        var bodyText = document.body ? document.body.innerText : '';
+        var cgpaMatch = bodyText.match(/(?:C\\.?G\\.?P\\.?A\\.?)\\s*[:\\-\\=]?\\s*([0-9]{1,2}\\.[0-9]{1,3})/i);
+        if (cgpaMatch) {
+          cgpa = cgpaMatch[1];
+        }
+
+        // 3. Fallback flat table parsing if allSemesters couldn't be grouped
+        var subjects = [];
+        var sgpa = '';
+        var allKeys = Object.keys(allSemesters);
+        if (allKeys.length > 0) {
+          var latestKey = allKeys.sort(function(a, b) { return parseInt(b, 10) - parseInt(a, 10); })[0];
+          subjects = allSemesters[latestKey].subjects;
+          sgpa = allSemesters[latestKey].sgpa;
+        } else {
+          var trs = Array.from(document.querySelectorAll('table tr'));
+          var iframes = document.querySelectorAll('iframe');
+          for (var f = 0; f < iframes.length; f++) {
+            try {
+              var idoc = iframes[f].contentDocument || iframes[f].contentWindow.document;
+              if (idoc) trs = trs.concat(Array.from(idoc.querySelectorAll('table tr')));
+            } catch(e) {}
+          }
+          subjects = parseRows(trs);
+
+          var match = bodyText.match(/(?:S\\.?G\\.?P\\.?A\\.?|GPA)\\s*[:\\-\\=]?\\s*([0-9]{1,2}\\.[0-9]{1,3})/i);
+          if (match) {
+            sgpa = match[1];
+          } else if (subjects.length > 0) {
+            var totalCredits = 0;
+            var totalPoints = 0;
+            for (var s = 0; s < subjects.length; s++) {
               var cred = parseFloat(subjects[s].credit);
               var grd = subjects[s].grade ? subjects[s].grade.trim().toUpperCase() : '';
               if (!isNaN(cred) && gradeMap.hasOwnProperty(grd)) {
-                 totalCredits += cred;
-                 totalPoints += (cred * gradeMap[grd]);
+                totalCredits += cred;
+                totalPoints += (cred * gradeMap[grd]);
               }
-           }
-           if (totalCredits > 0) {
+            }
+            if (totalCredits > 0) {
               sgpa = (totalPoints / totalCredits).toFixed(2);
-           }
+            }
+          }
         }
 
         var semEl = document.querySelector('span[id*="lblSem"]');
-        var semNum = semEl ? semEl.innerText.trim() : '';
+        var semNum = semEl ? semEl.innerText.trim() : (allKeys.length > 0 ? allKeys[0] : '');
         if (!semNum && ddl && ddl.selectedIndex >= 0 && ddl.options[ddl.selectedIndex]) {
            var selOptText = ddl.options[ddl.selectedIndex].text || '';
            var semMatch = selOptText.match(/(\\d+)/);
@@ -479,12 +568,12 @@ export default function MarksScreen() {
           type: 'RESULT_DATA',
           pageUrl: window.location.href,
           options: options,
+          allSemesters: allSemesters,
+          cgpa: cgpa,
           sgpa: sgpa,
           subjects: subjects,
           selected: ddl ? ddl.value : '',
           semesterNumber: semNum,
-          debugSgpa: sgpaDebug,
-          debugRows: debugRows.slice(0, 30),
           allSelects: allSelects,
           allInputs: allInputs,
           allTables: allTables,
@@ -660,14 +749,65 @@ export default function MarksScreen() {
           bodySnippet: data.bodySnippet,
         }, null, 2));
         if (data.options && data.options.length > 0) {
-          setSemesterOptions(data.options);
-          setScrapedData({ semesterOptionsCache: data.options });
+          const hasRealOptions = data.options.some((o: any) => /sem|term|\d{4}/i.test(o.text || ''));
+          if (hasRealOptions) {
+            setSemesterOptions(data.options);
+            setScrapedData({ semesterOptionsCache: data.options });
+          }
         }
         
-        if (data.subjects && data.subjects.length > 0) {
+        if (data.allSemesters && Object.keys(data.allSemesters).length > 0) {
+          const newCache = { ...(resultCache || {}) };
+          const semKeys = Object.keys(data.allSemesters);
+
+          semKeys.forEach((k) => {
+            const semData = data.allSemesters[k];
+            if (semData && semData.subjects && semData.subjects.length > 0) {
+              newCache[k] = semData;
+              newCache[`Semester ${k}`] = semData;
+              newCache[`sem_${k}`] = semData;
+            }
+          });
+
+          // Map any session dropdown options from portal to the parsed semester
+          if (data.options && data.options.length > 0) {
+            data.options.forEach((opt: any) => {
+              const sNum = getOptionSemNumber(opt.text || '');
+              if (sNum && data.allSemesters[String(sNum)]) {
+                newCache[opt.value] = data.allSemesters[String(sNum)];
+              }
+            });
+          }
+
+          // If semesterOptions had no real sessions, populate from extracted semester numbers
+          if (semesterOptions.length === 0 || !semesterOptions.some((o: any) => /sem|term|\d{4}/i.test(o.text || ''))) {
+            const semOpts = semKeys
+              .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
+              .map((k) => ({ text: `Semester ${k}`, value: k }));
+            if (semOpts.length > 0) {
+              setSemesterOptions(semOpts);
+              setScrapedData({ semesterOptionsCache: semOpts });
+            }
+          }
+
+          setScrapedData({ resultCache: newCache });
+
+          // Only update resultData if the student is currently inspecting a past semester
+          if (!isCurrentSemester && selectedSemester) {
+            const sNum = selectedSemester.replace(/\D/g, '');
+            const activeData = newCache[selectedSemester] ||
+                               (sNum ? newCache[`Semester ${sNum}`] : null) ||
+                               (sNum ? newCache[`sem_${sNum}`] : null) ||
+                               (sNum ? newCache[sNum] : null);
+            if (activeData) {
+              setResultData(activeData);
+            }
+          }
+
+          setIsLoading(false);
+          setRefreshing(false);
+        } else if (data.subjects && data.subjects.length > 0) {
            const currentSelected = data.selected || selectedSemester;
-           setResultData({ sgpa: data.sgpa, subjects: data.subjects });
-           
            const newCache = { ...(resultCache || {}) };
            if (currentSelected) newCache[currentSelected] = { sgpa: data.sgpa, subjects: data.subjects };
            if (selectedSemester) newCache[selectedSemester] = { sgpa: data.sgpa, subjects: data.subjects };
@@ -676,6 +816,11 @@ export default function MarksScreen() {
              newCache[`sem_${data.semesterNumber}`] = { sgpa: data.sgpa, subjects: data.subjects };
            }
            setScrapedData({ resultCache: newCache });
+
+           // Only update resultData if user is currently inspecting a past semester
+           if (!isCurrentSemester) {
+             setResultData({ sgpa: data.sgpa, subjects: data.subjects });
+           }
            setIsLoading(false);
            setRefreshing(false);
         } else {
@@ -759,19 +904,21 @@ export default function MarksScreen() {
     const label = item.label;
     const originalText = item.originalText;
     setIsModalVisible(false);
-    setSelectedSemester(value);
+    setSelectedSemester(value || label);
     
     // Instant cache hit: check by value, label, or semester number
     const semNum = item.label.replace(/\D/g, '');
     const cached = resultCache && (
-      resultCache[value] ||
+      (value ? resultCache[value] : null) ||
       resultCache[item.label] ||
       (semNum ? resultCache[`Semester ${semNum}`] : null) ||
-      (semNum ? resultCache[`sem_${semNum}`] : null)
+      (semNum ? resultCache[`sem_${semNum}`] : null) ||
+      (semNum ? resultCache[semNum] : null)
     );
     if (cached) {
        setResultData(cached);
        setIsLoading(false);
+       return; // Instant zero-postback display when already extracted & cached
     } else {
        setIsLoading(true);
        setResultData(null);
@@ -1097,7 +1244,7 @@ export default function MarksScreen() {
         )}
 
         {/* Results View for Past Semester */}
-        {resultData && resultData.subjects.length > 0 && !isLoading && (
+        {!isCurrentSemester && resultData && resultData.subjects.length > 0 && !isLoading && (
           <View style={styles.listContainer}>
             {/* Hero SGPA Trophy Capsule */}
             <LinearGradient
