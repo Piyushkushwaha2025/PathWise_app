@@ -1,4 +1,5 @@
-import { Tabs, usePathname, useRouter } from "expo-router";
+import { Tabs, usePathname, useRouter, Redirect } from "expo-router";
+import { useAuth } from "@clerk/clerk-expo";
 import { TabBar } from "../../components/layout/TabBar";
 import { useEffect, useRef, useState } from "react";
 import { BlurTargetView } from "expo-blur";
@@ -52,11 +53,17 @@ const DisconnectedBubble = ({ onPress, colors }: any) => (
 );
 
 export default function AppLayout() {
+  const { isSignedIn, isLoaded } = useAuth();
   const blurTargetRef = useRef<View>(null);
   const { checkForUpdates } = useUpdateStore();
   const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode, customError, setCustomError } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
   
+  // Route Protection: If Clerk is loaded and user is not signed in, redirect to sign-in
+  if (isLoaded && !isSignedIn) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
+
   // Initialize background sync and polling
   useBackgroundSync();
 

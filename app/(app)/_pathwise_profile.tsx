@@ -400,7 +400,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.nameContainer}>
-            <Text style={styles.name}>{user?.fullName ?? "Learner"}</Text>
+            <Text style={styles.name}>{user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress?.split('@')[0] || "Learner"}</Text>
           </View>
 
           <Text style={styles.email}>
