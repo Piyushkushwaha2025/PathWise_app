@@ -312,30 +312,6 @@ export default function MarksScreen() {
       if (window.location.href.toLowerCase().includes('login.aspx') || window.location.href.toLowerCase().includes('login')) {
          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESULT_DATA', error: 'SESSION_EXPIRED' }));
       } else {
-        var resultType = document.querySelector('select[name*="ddlResultType"]');
-        if (resultType && !window.__hasSwitchedResultType) {
-           var sessionIndex = -1;
-           for (var ri = 0; ri < resultType.options.length; ri++) {
-             var rOpt = (resultType.options[ri].text || '').toLowerCase();
-             var rVal = (resultType.options[ri].value || '').toLowerCase();
-             if (rOpt.includes('session') || rVal.includes('session') || rOpt.includes('semester')) {
-               sessionIndex = ri;
-               break;
-             }
-           }
-           if (sessionIndex !== -1 && resultType.selectedIndex !== sessionIndex) {
-              window.__hasSwitchedResultType = true;
-              resultType.selectedIndex = sessionIndex;
-              if (typeof __doPostBack === 'function') {
-                 __doPostBack(resultType.name, '');
-              } else if (typeof resultType.onchange === 'function') {
-                 resultType.onchange();
-              }
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'RESULT_DATA', options: [], pendingPostback: true }));
-              return;
-           }
-        }
-        
         var ddl = document.querySelector('select[name*="ddlSession"]') || 
                   document.querySelector('select[name*="Session"]') || 
                   document.querySelector('select[id*="ddlSession"]') || 
@@ -514,8 +490,7 @@ export default function MarksScreen() {
           allTables: allTables,
           bodySnippet: (document.body ? document.body.innerText : '').substring(0, 500)
         }));
-      } // CLOSE ELSE BLOCK FOR RESULT TYPE
-    } // CLOSE ELSE BLOCK FOR LOGIN
+      } // CLOSE ELSE BLOCK FOR LOGIN
     } catch(e) {
       window.ReactNativeWebView.postMessage(JSON.stringify({
         type: 'RESULT_DATA',
@@ -651,12 +626,7 @@ export default function MarksScreen() {
   };
 
   injectAndScrapeRef.current = () => {
-    if (cookieScriptRef.current) {
-      webViewRef.current?.injectJavaScript(cookieScriptRef.current);
-      setTimeout(() => webViewRef.current?.injectJavaScript(extractScript), 500);
-    } else {
-      webViewRef.current?.injectJavaScript(extractScript);
-    }
+    webViewRef.current?.injectJavaScript(extractScript);
   };
 
   const handleMessage = (event: any) => {
@@ -723,6 +693,8 @@ export default function MarksScreen() {
         }
         setIsLoading(false);
         setRefreshing(false);
+      } else if (data.type === 'SELECT_SEM_DEBUG') {
+        console.log("SELECT SEMESTER DEBUG:", JSON.stringify(data));
       }
     } catch (e) {}
   };
@@ -851,7 +823,15 @@ export default function MarksScreen() {
               ddl.value = ddl.options[matchedIndex].value;
             }
 
-            var btn = document.querySelector('input[type="submit"][name*="Show" i], input[type="submit"][id*="Show" i], input[type="submit"][value*="Show" i], input[type="submit"][name*="Result" i], input[type="submit"][id*="Result" i], input[type="submit"][value*="Result" i], input[type="submit"][name*="Search" i], input[type="submit"][name*="btn" i], input[type="submit"], button[type="submit"]');
+            var btn = document.querySelector('input[type="submit"][name*="Show" i], input[type="submit"][id*="Show" i], input[type="submit"][value*="Show" i], input[type="submit"][name*="Result" i], input[type="submit"][id*="Result" i], input[type="submit"][value*="Result" i], input[type="submit"][name*="Search" i], input[type="submit"][name*="btn" i], input[type="submit"], button[type="submit"], a[id*="btnShow" i], a[id*="btnResult" i], a[id*="btnSearch" i], a[id*="Show" i]');
+
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'SELECT_SEM_DEBUG',
+              matchedIndex: matchedIndex,
+              selectedVal: ddl.value,
+              btnFound: !!btn,
+              btnDesc: btn ? (btn.tagName + '#' + btn.id + '[name=' + (btn.name || '') + '][val=' + (btn.value || btn.innerText) + ']') : 'NONE'
+            }));
 
             if (btn) {
               btn.click();
@@ -863,7 +843,12 @@ export default function MarksScreen() {
               ddl.dispatchEvent(new Event('change', { bubbles: true }));
             }
           }
-        } catch(e) {}
+        } catch(e) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'SELECT_SEM_DEBUG',
+            error: e.toString()
+          }));
+        }
       })();
       true;
     `);
