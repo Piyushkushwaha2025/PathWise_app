@@ -8,6 +8,7 @@ import * as SecureStore from 'expo-secure-store';
 import { GoogleGenAI } from '@google/genai';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { PermissionExplanationModal } from '../../../../../components/modals/PermissionExplanationModal';
 import { useThemeStore } from '../../../../../store/useThemeStore';
 import { CenterPopModal } from '../../../../../components/ui/CenterPopModal';
 import Markdown from 'react-native-markdown-display';
@@ -200,14 +201,12 @@ export default function AITutorChatScreen() {
   const [showPhotoPickerModal, setShowPhotoPickerModal] = useState(false);
   const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
 
-  const handleTakePhoto = async () => {
-    setShowPhotoPickerModal(false);
+  // Permission Pre-Prompt State
+  const [permissionModalVisible, setPermissionModalVisible] = useState(false);
+  const [pendingPermissionType, setPendingPermissionType] = useState<'camera' | 'mediaLibrary'>('camera');
+
+  const launchCameraDirectly = async () => {
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permission Required", "Camera access is needed to photograph your doubts.");
-        return;
-      }
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.7,
@@ -229,14 +228,8 @@ export default function AITutorChatScreen() {
     }
   };
 
-  const handleChooseFromGallery = async () => {
-    setShowPhotoPickerModal(false);
+  const launchGalleryDirectly = async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Permission Required", "Gallery access is needed to select doubt photos.");
-        return;
-      }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -256,6 +249,57 @@ export default function AITutorChatScreen() {
     } catch (e) {
       console.error("Pick image error:", e);
       Alert.alert("Error", "Could not pick image from gallery.");
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    setShowPhotoPickerModal(false);
+    try {
+      const currentStatus = await ImagePicker.getCameraPermissionsAsync();
+      if (!currentStatus.granted) {
+        setPendingPermissionType('camera');
+        setPermissionModalVisible(true);
+        return;
+      }
+      await launchCameraDirectly();
+    } catch (e) {
+      console.error("Camera check error:", e);
+      await launchCameraDirectly();
+    }
+  };
+
+  const handleChooseFromGallery = async () => {
+    setShowPhotoPickerModal(false);
+    try {
+      const currentStatus = await ImagePicker.getMediaLibraryPermissionsAsync();
+      if (!currentStatus.granted) {
+        setPendingPermissionType('mediaLibrary');
+        setPermissionModalVisible(true);
+        return;
+      }
+      await launchGalleryDirectly();
+    } catch (e) {
+      console.error("Gallery check error:", e);
+      await launchGalleryDirectly();
+    }
+  };
+
+  const handleContinuePermission = async () => {
+    setPermissionModalVisible(false);
+    if (pendingPermissionType === 'camera') {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (permission.granted) {
+        await launchCameraDirectly();
+      } else {
+        Alert.alert("Permission Required", "Camera access is needed to photograph your doubts.");
+      }
+    } else {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.granted) {
+        await launchGalleryDirectly();
+      } else {
+        Alert.alert("Permission Required", "Photo library access is needed to select doubt images.");
+      }
     }
   };
   
@@ -2266,6 +2310,14 @@ export default function AITutorChatScreen() {
           )}
         </View>
       </Modal>
+
+      {/* Camera / Storage Pre-Permission Explanation Modal */}
+      <PermissionExplanationModal
+        visible={permissionModalVisible}
+        permissionType={pendingPermissionType}
+        onContinue={handleContinuePermission}
+        onCancel={() => setPermissionModalVisible(false)}
+      />
 
       </BlurTargetView>
 

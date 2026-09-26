@@ -59,16 +59,17 @@ export function DeleteAccountModal({ isVisible, onClose, onConfirm }: DeleteAcco
                 <Text style={styles.description}>
                   This action is{' '}
                   <Text style={{ fontWeight: 'bold', color: colors.text }}>permanent and irreversible.</Text>
-                  {' '}All your data — progress, roadmaps, and settings — will be erased forever.
+                  {' '}The following personal data will be completely erased from servers and this device:
                 </Text>
 
                 {/* Danger List */}
                 <GlassCard style={styles.dangerCard}>
                   {[
-                    "All progress & achievements",
-                    "Enrolled roadmaps",
-                    "Custom settings & preferences",
-                    "Account cannot be recovered",
+                    "College ERP sync data & login credentials",
+                    "All AI tutor chat histories & doubt photos",
+                    "Active subscription, tokens & rewards",
+                    "Enrolled roadmaps, quiz history & XP",
+                    "Account cannot be restored or recovered",
                   ].map((item, i) => (
                     <View key={i} style={styles.dangerRow}>
                       <Ionicons name="close-circle" size={16} color={colors.error} />

@@ -469,6 +469,40 @@ app.post('/api/user/subscription', getClerkId, async (req, res) => {
   }
 });
 
+// 5. Direct Account Deletion Route (DPDP 2023 Erasure & In-App Deletion)
+app.delete(['/api/user', '/user'], getClerkId, async (req, res) => {
+  try {
+    const clerkId = req.clerkUserId;
+    await connectDB();
+
+    // 1. Delete User profile
+    await User.findOneAndDelete({ clerkUserId: clerkId });
+
+    // 2. Delete all UserAssignment tracking records
+    await UserAssignment.deleteMany({ clerkUserId: clerkId });
+
+    // 3. If CR, clean up created assignments & B2 PDFs
+    const createdAssignments = await Assignment.find({ created_by: clerkId });
+    for (const assignment of createdAssignments) {
+      if (assignment.pdf_key) {
+        try {
+          await b2.send(new DeleteObjectCommand({ Bucket: B2_BUCKET, Key: assignment.pdf_key }));
+        } catch (s3err) {
+          console.warn(`⚠️ Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
+        }
+      }
+    }
+    await Assignment.deleteMany({ created_by: clerkId });
+    await Notification.deleteMany({ created_by: clerkId });
+
+    console.log(`✅ Permanently deleted user and cascaded records for ${clerkId}`);
+    res.json({ success: true, message: 'User account and associated data successfully deleted' });
+  } catch (error) {
+    console.error('❌ Error deleting user:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 // CR roles are assigned directly in MongoDB Atlas by the admin (you).
 // No API routes needed for CR management.

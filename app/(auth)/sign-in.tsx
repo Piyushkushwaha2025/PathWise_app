@@ -26,6 +26,7 @@ import { GlassCard } from "../../components/ui/GlassCard";
 import AppLoading from "../../components/AppLoading";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import { LegalViewerModal } from "../../components/modals/LegalViewerModal";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -59,6 +60,9 @@ export default function SignInScreen() {
   const [pendingVerification, setPendingVerification] = useState(false);
   const [verificationType, setVerificationType] = useState<"first" | "second">("first");
   const [code, setCode] = useState("");
+
+  // Legal Modal State
+  const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'refund' | null>(null);
 
   const handleOAuth = async () => {
     try {
@@ -338,17 +342,44 @@ export default function SignInScreen() {
             />
 
             {!pendingVerification && (
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>{"Don't have an account? "}</Text>
-                <Link href="/(auth)/sign-up" asChild>
-                  <TouchableOpacity>
-                    <Text style={styles.footerLink}>{"Sign Up"}</Text>
-                  </TouchableOpacity>
-                </Link>
-              </View>
+              <>
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>{"Don't have an account? "}</Text>
+                  <Link href="/(auth)/sign-up" asChild>
+                    <TouchableOpacity>
+                      <Text style={styles.footerLink}>{"Sign Up"}</Text>
+                    </TouchableOpacity>
+                  </Link>
+                </View>
+
+                <View style={styles.legalNoticeContainer}>
+                  <Text style={styles.legalNoticeText}>
+                    By continuing, you agree to our{' '}
+                    <Text
+                      style={styles.legalLink}
+                      onPress={() => setLegalModalType('terms')}
+                    >
+                      Terms of Service
+                    </Text>
+                    {' '}and{' '}
+                    <Text
+                      style={styles.legalLink}
+                      onPress={() => setLegalModalType('privacy')}
+                    >
+                      Privacy Policy
+                    </Text>.
+                  </Text>
+                </View>
+              </>
             )}
           </GlassCard>
         </MotiView>
+
+        <LegalViewerModal
+          visible={!!legalModalType}
+          type={legalModalType}
+          onClose={() => setLegalModalType(null)}
+        />
       </KeyboardAwareScrollView>
   );
 }
@@ -423,4 +454,21 @@ const useStyles = (colors: any) => StyleSheet.create({
   footer: { flexDirection: "row", justifyContent: "center", marginTop: 4 },
   footerText: { ...Typography.small, color: colors.textDim },
   footerLink: { ...Typography.small, color: colors.primary, fontWeight: "600" },
+  legalNoticeContainer: {
+    marginTop: 10,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  legalNoticeText: {
+    ...Typography.small,
+    color: colors.textDim,
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  legalLink: {
+    color: colors.primary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
 });

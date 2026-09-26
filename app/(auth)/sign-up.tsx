@@ -22,6 +22,7 @@ import { GradientButton } from "../../components/ui/GradientButton";
 import { Colors, Typography, Spacing } from "../../constants/theme";
 import { useThemeStore } from "../../store/useThemeStore";
 import AppLoading from "../../components/AppLoading";
+import { LegalViewerModal } from "../../components/modals/LegalViewerModal";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -49,8 +50,16 @@ export default function SignUpScreen() {
   const [pendingVerification, setPendingVerification] = useState(false);
   const [code, setCode] = useState("");
 
+  // Legal Agreement State
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'refund' | null>(null);
+
 
   const handleOAuth = async () => {
+    if (!agreedToTerms) {
+      setError("Please accept the Terms of Service and Privacy Policy to continue.");
+      return;
+    }
     try {
       setOauthLoading(true);
       setError("");
@@ -89,6 +98,10 @@ export default function SignUpScreen() {
 
   const handleSignUp = async () => {
     if (!isLoaded) return;
+    if (!agreedToTerms) {
+      setError("Please accept the Terms of Service and Privacy Policy to continue.");
+      return;
+    }
     if (!name.trim() || !email.trim() || !password) {
       setError("Please fill in all fields.");
       return;
@@ -174,7 +187,11 @@ export default function SignUpScreen() {
             <>
               <Text style={styles.formTitle}>{"Create Account"}</Text>
 
-              <TouchableOpacity style={styles.oauthBtn} onPress={handleOAuth} disabled={loading}>
+              <TouchableOpacity
+                style={[styles.oauthBtn, !agreedToTerms && { opacity: 0.6 }]}
+                onPress={handleOAuth}
+                disabled={loading}
+              >
                 <Ionicons name="logo-google" size={20} color={Colors.text} />
                 <Text style={styles.oauthBtnText}>Sign up with Google</Text>
               </TouchableOpacity>
@@ -213,6 +230,36 @@ export default function SignUpScreen() {
                 returnKeyType="done"
                 onSubmitEditing={handleSignUp}
               />
+
+              {/* Terms & Privacy Agreement Checkbox */}
+              <View style={styles.agreementRow}>
+                <TouchableOpacity
+                  style={styles.checkboxTouch}
+                  onPress={() => setAgreedToTerms(!agreedToTerms)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <View style={[styles.checkboxBox, agreedToTerms && styles.checkboxBoxChecked]}>
+                    {agreedToTerms && <Ionicons name="checkmark" size={13} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+                <Text style={styles.agreementText}>
+                  I agree to the{' '}
+                  <Text
+                    style={styles.legalLink}
+                    onPress={() => setLegalModalType('terms')}
+                  >
+                    Terms of Service
+                  </Text>
+                  {' '}and{' '}
+                  <Text
+                    style={styles.legalLink}
+                    onPress={() => setLegalModalType('privacy')}
+                  >
+                    Privacy Policy
+                  </Text>
+                </Text>
+              </View>
             </>
           ) : (
             <>
@@ -240,13 +287,14 @@ export default function SignUpScreen() {
             label={pendingVerification ? "Verify Email" : "Create Account"}
             onPress={pendingVerification ? handleVerify : handleSignUp}
             loading={loading}
+            disabled={!pendingVerification && !agreedToTerms}
             icon={
               pendingVerification
                 ? "checkmark-circle-outline"
                 : "person-add-outline"
             }
             size="lg"
-            style={styles.btn}
+            style={(!pendingVerification && !agreedToTerms) ? { ...styles.btn, opacity: 0.5 } : styles.btn}
           />
 
           {!pendingVerification && (
@@ -262,6 +310,12 @@ export default function SignUpScreen() {
             </View>
           )}
         </MotiView>
+
+        <LegalViewerModal
+          visible={!!legalModalType}
+          type={legalModalType}
+          onClose={() => setLegalModalType(null)}
+        />
       </KeyboardAwareScrollView>
   );
 }
@@ -321,4 +375,40 @@ const styles = StyleSheet.create({
   footer: { flexDirection: "row", justifyContent: "center", marginTop: 4 },
   footerText: { ...Typography.small, color: Colors.textMuted },
   footerLink: { ...Typography.small, color: Colors.primary, fontWeight: "600" },
+  agreementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+    gap: 10,
+  },
+  checkboxTouch: {
+    padding: 2,
+  },
+  checkboxBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxBoxChecked: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  agreementText: {
+    ...Typography.small,
+    color: Colors.textMuted,
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  legalLink: {
+    color: Colors.primary,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
 });

@@ -42,6 +42,7 @@ import { useStudyOSStore } from "../../store/studyosStore";
 import { useDBProfile, deleteUserFromDB } from "../../lib/db";
 import { DeleteAccountModal } from "../../components/modals/DeleteAccountModal";
 import { ClearStudyOSModal } from "../../components/modals/ClearStudyOSModal";
+import { LegalViewerModal } from "../../components/modals/LegalViewerModal";
 import { useSubscription } from "../../hooks/useSubscription";
 type SubBadge = "FREE" | "TRIAL" | "PRO" | "ELITE";
 
@@ -115,6 +116,7 @@ export default function ProfileScreen() {
   const [isChangePasswordVisible, setChangePasswordVisible] = useState(false);
   const [isDeleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [isClearStudyOSVisible, setClearStudyOSVisible] = useState(false);
+  const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'refund' | null>(null);
 
   // Close all modals when user navigates away from profile tab
   useFocusEffect(
@@ -127,6 +129,7 @@ export default function ProfileScreen() {
         setChangePasswordVisible(false);
         setDeleteAccountVisible(false);
         setClearStudyOSVisible(false);
+        setLegalModalType(null);
       };
     }, [])
   );
@@ -635,6 +638,25 @@ export default function ProfileScreen() {
 
             <View style={styles.divider} />
 
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setLegalModalType('privacy')}
+            >
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={20}
+                color={colors.primary}
+              />
+              <Text style={styles.menuLabel}>{"Legal & Privacy Policies"}</Text>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
             <TouchableOpacity style={styles.menuItem} onPress={handleClearStudyOSData}>
               <Ionicons name="school-outline" size={20} color="#f59e0b" />
               <View style={{ flex: 1, marginLeft: 12 }}>
@@ -858,6 +880,12 @@ export default function ProfileScreen() {
         isVisible={isClearStudyOSVisible}
         onClose={() => setClearStudyOSVisible(false)}
         onConfirm={doClearStudyOSData}
+      />
+
+      <LegalViewerModal
+        visible={!!legalModalType}
+        type={legalModalType}
+        onClose={() => setLegalModalType(null)}
       />
     </View>
   );
