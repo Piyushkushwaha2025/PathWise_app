@@ -6,9 +6,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   Platform,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography, Spacing } from '../../constants/theme';
 import { useThemeStore } from '../../store/useThemeStore';
@@ -23,20 +24,38 @@ interface LegalViewerModalProps {
 
 export function LegalViewerModal({ visible, type, onClose }: LegalViewerModalProps) {
   const colors = useThemeStore((s) => s.colors);
+  const theme = useThemeStore((s) => s.theme);
+  const insets = useSafeAreaInsets();
   const styles = useStyles(colors);
 
   if (!type || !LEGAL_DOCS[type]) return null;
   const doc: LegalDocument = LEGAL_DOCS[type];
 
+  // Guaranteed safe insets across all Android notches, punch-holes & navigation bars
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 20
+  );
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 28 : 20);
+
+  const isLight = theme === 'white' || theme === 'cream';
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'fullScreen'}
+      presentationStyle="fullScreen"
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.safeArea}>
-        {/* Header */}
+      <StatusBar
+        barStyle={isLight ? 'dark-content' : 'light-content'}
+        backgroundColor="transparent"
+        translucent={true}
+      />
+
+      <View style={[styles.root, { paddingTop: topInset }]}>
+        {/* Header with proper status bar clearance */}
         <View style={styles.header}>
           <View style={styles.headerTitleContainer}>
             <Text style={styles.headerTitle}>{doc.title}</Text>
@@ -54,12 +73,20 @@ export function LegalViewerModal({ visible, type, onClose }: LegalViewerModalPro
         {/* Scrollable Content */}
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: bottomInset + 36 },
+          ]}
           showsVerticalScrollIndicator={true}
         >
           {/* Summary Box */}
           <GlassCard style={styles.summaryCard}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} style={{ marginTop: 2 }} />
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={20}
+              color={colors.primary}
+              style={{ marginTop: 2 }}
+            />
             <Text style={styles.summaryText}>{doc.summary}</Text>
           </GlassCard>
 
@@ -75,20 +102,28 @@ export function LegalViewerModal({ visible, type, onClose }: LegalViewerModalPro
           <View style={styles.footerNote}>
             <Text style={styles.footerNoteText}>
               For any questions regarding this document, please contact us at{' '}
-              <Text style={{ color: colors.primary, fontWeight: '600' }}>privacy@pathwise.in</Text>
-              {' '}or{' '}
-              <Text style={{ color: colors.primary, fontWeight: '600' }}>support@pathwise.in</Text>.
+              <Text style={{ color: colors.primary, fontWeight: '600' }}>
+                privacy@pathwise.in
+              </Text>{' '}
+              or{' '}
+              <Text style={{ color: colors.primary, fontWeight: '600' }}>
+                support@pathwise.in
+              </Text>
+              .
             </Text>
           </View>
         </ScrollView>
-      </SafeAreaView>
+
+        {/* Bottom Safety Spacer for Android Navigation Bar */}
+        <View style={{ height: bottomInset, backgroundColor: colors.background }} />
+      </View>
     </Modal>
   );
 }
 
 const useStyles = (colors: any) =>
   StyleSheet.create({
-    safeArea: {
+    root: {
       flex: 1,
       backgroundColor: colors.background,
     },
@@ -97,9 +132,11 @@ const useStyles = (colors: any) =>
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: Spacing.lg,
-      paddingVertical: Spacing.md,
+      paddingTop: Spacing.sm,
+      paddingBottom: Spacing.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
+      backgroundColor: colors.background,
     },
     headerTitleContainer: {
       flex: 1,
@@ -128,7 +165,6 @@ const useStyles = (colors: any) =>
     },
     scrollContent: {
       padding: Spacing.lg,
-      paddingBottom: Spacing.xl * 2,
     },
     summaryCard: {
       flexDirection: 'row',
