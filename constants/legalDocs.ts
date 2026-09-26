@@ -40,11 +40,11 @@ export const LEGAL_DOCS: Record<'privacy' | 'terms' | 'refund', LegalDocument> =
       },
       {
         heading: '6. How to Request Data Deletion',
-        body: 'You have full control over your data:\n• In-App Deletion: Go to Settings > Danger Zone > "Delete My Account". Confirming with "DELETE" will permanently purge your MongoDB account records, all local storage, ERP caches, and Clerk session.\n• Email Request: Contact privacy@pathwise.in from your registered email for manual erasure within 7 business days.',
+        body: 'You have full control over your data:\n• In-App Deletion: Go to Settings > Danger Zone > "Delete My Account". Confirming with "DELETE" will permanently purge your account records, all local storage, ERP caches, and Clerk session.\n• Web Deletion Portal: Visit https://pathwise-beige.vercel.app/delete-account or email pathwise.app.support@gmail.com from your registered email for manual erasure within 48 hours.',
       },
       {
         heading: '7. Grievance Officer & Contact',
-        body: 'For privacy concerns or statutory inquiries under DPDP Act 2023, reach out to our Grievance Officer at privacy@pathwise.in. General support is available at support@pathwise.in.',
+        body: 'For privacy concerns, support, or statutory inquiries under DPDP Act 2023, reach out to our team at pathwise.app.support@gmail.com. We respond within 48–72 hours.',
       },
     ],
   },
@@ -102,7 +102,7 @@ export const LEGAL_DOCS: Record<'privacy' | 'terms' | 'refund', LegalDocument> =
       },
       {
         heading: '4. How to Request a Refund',
-        body: 'To request a refund, email support@pathwise.in or billing@pathwise.in with your registered account email, Razorpay Payment ID / Order ID, and reason for refund. Requests are reviewed within 24–48 hours.',
+        body: 'To request a refund, email pathwise.app.support@gmail.com with your registered account email, Razorpay Payment ID / Order ID, and reason for refund. Requests are reviewed and processed within 24–48 hours.',
       },
       {
         heading: '5. Processing Time',

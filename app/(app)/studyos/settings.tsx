@@ -40,7 +40,7 @@ export default function StudyOSSettingsScreen() {
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
 
   const handleOpenSupport = async () => {
-    const supportEmail = 'support@pathwise.in';
+    const supportEmail = 'pathwise.app.support@gmail.com';
     const subject = encodeURIComponent('PathWise / StudyOS - Help & Support');
     const mailUrl = `mailto:${supportEmail}?subject=${subject}`;
 
@@ -177,7 +177,7 @@ export default function StudyOSSettingsScreen() {
             <Ionicons name="help-buoy-outline" size={20} color={colors.primary} />
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.menuTitleNoMargin}>Help & Support</Text>
-              <Text style={styles.menuSubDesc}>support@pathwise.in</Text>
+              <Text style={styles.menuSubDesc}>pathwise.app.support@gmail.com</Text>
             </View>
             <Ionicons name="open-outline" size={18} color={colors.textMuted} />
           </TouchableOpacity>

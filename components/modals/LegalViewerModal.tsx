@@ -101,13 +101,9 @@ export function LegalViewerModal({ visible, type, onClose }: LegalViewerModalPro
           {/* Footer note */}
           <View style={styles.footerNote}>
             <Text style={styles.footerNoteText}>
-              For any questions regarding this document, please contact us at{' '}
+              For any questions or data requests regarding this document, please contact us at{' '}
               <Text style={{ color: colors.primary, fontWeight: '600' }}>
-                privacy@pathwise.in
-              </Text>{' '}
-              or{' '}
-              <Text style={{ color: colors.primary, fontWeight: '600' }}>
-                support@pathwise.in
+                pathwise.app.support@gmail.com
               </Text>
               .
             </Text>
