@@ -1014,7 +1014,7 @@ export default function AITutorChatScreen() {
     }
 
     if (selectedFiles.length > 0) {
-       currentText += `\n\n[TOPIC FOCUS: ${selectedFiles.join('|||')}]. Please explain this subject comprehensively using the course syllabus and educational concepts. Even if specific extracts are not attached, provide a complete, exam-focused professor explanation of this topic.`;
+       currentText += `\n\n[TOPIC FOCUS: ${selectedFiles.join('|||')}]. Start with a friendly, natural opening sentence tailored to this request, then explain these topics step-by-step with clear definitions, examples, and exam tips. Do NOT output course metadata headers or template outline previews.`;
     }
 
     const currentPhoto = attachedPhoto;
