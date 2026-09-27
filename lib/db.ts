@@ -240,8 +240,9 @@ export interface SaturdayOverrideData {
 export async function fetchSaturdayOverrides(clerkId: string, section_code?: string): Promise<SaturdayOverrideData[]> {
   if (!section_code) return [];
   try {
+    const headers = await getAuthHeaders(clerkId);
     const res = await fetch(`${API_URL}/saturday-override?section_code=${encodeURIComponent(section_code)}`, {
-      headers: { 'x-clerk-user-id': clerkId }
+      headers,
     });
     if (!res.ok) return [];
     return (await safeJsonParse(res)) || [];
@@ -251,12 +252,10 @@ export async function fetchSaturdayOverrides(clerkId: string, section_code?: str
 }
 
 export async function setSaturdayOverride(clerkId: string, date: string, mapped_day: string, section_code: string): Promise<SaturdayOverrideData> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/saturday-override`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-clerk-user-id': clerkId
-    },
+    headers,
     body: JSON.stringify({ date, mapped_day, section_code })
   });
   const data = await safeJsonParse(res);
@@ -265,9 +264,10 @@ export async function setSaturdayOverride(clerkId: string, date: string, mapped_
 }
 
 export async function deleteSaturdayOverride(clerkId: string, overrideId: string): Promise<void> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/saturday-override/${overrideId}`, {
     method: 'DELETE',
-    headers: { 'x-clerk-user-id': clerkId }
+    headers,
   });
   if (!res.ok) throw new Error('Failed to delete override');
 }
@@ -275,9 +275,8 @@ export async function deleteSaturdayOverride(clerkId: string, overrideId: string
 export async function fetchNotifications(clerkId: string, section?: string): Promise<NotificationData[]> {
   try {
     const url = section ? `${API_URL}/notifications?section=${encodeURIComponent(section)}` : `${API_URL}/notifications`;
-    const res = await fetch(url, {
-      headers: { 'x-clerk-user-id': clerkId }
-    });
+    const headers = await getAuthHeaders(clerkId);
+    const res = await fetch(url, { headers });
     if (!res.ok) return [];
     return (await safeJsonParse(res)) || [];
   } catch {
@@ -294,12 +293,10 @@ export async function createNotification(
   pdf_key?: string,
   pdf_filename?: string
 ): Promise<NotificationData> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/notifications`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-clerk-user-id': clerkId
-    },
+    headers,
     body: JSON.stringify({ title, message, expiresAt, section_code, pdf_key, pdf_filename })
   });
   const data = await safeJsonParse(res);
@@ -308,9 +305,10 @@ export async function createNotification(
 }
 
 export async function deleteNotification(clerkId: string, id: string): Promise<void> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/notifications/${id}`, {
     method: 'DELETE',
-    headers: { 'x-clerk-user-id': clerkId }
+    headers,
   });
   if (!res.ok) throw new Error('Failed to delete notification');
 }
@@ -320,9 +318,8 @@ export async function deleteNotification(clerkId: string, id: string): Promise<v
 export async function fetchAssignments(clerkId: string, section?: string): Promise<AssignmentData[]> {
   try {
     const url = section ? `${API_URL}/assignments?section=${encodeURIComponent(section)}` : `${API_URL}/assignments`;
-    const res = await fetch(url, {
-      headers: { 'x-clerk-user-id': clerkId }
-    });
+    const headers = await getAuthHeaders(clerkId);
+    const res = await fetch(url, { headers });
     if (!res.ok) return [];
     return (await safeJsonParse(res)) || [];
   } catch {
@@ -341,9 +338,10 @@ export async function fetchSections(): Promise<string[]> {
 }
 
 export async function toggleAssignment(clerkId: string, assignmentId: string): Promise<'pending' | 'submitted'> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/assignments/${assignmentId}/toggle`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-clerk-user-id': clerkId }
+    headers,
   });
   const data = await safeJsonParse(res);
   return data?.status || 'pending';
@@ -406,6 +404,12 @@ function fallbackServerUpload(clerkId: string, file: { uri: string; name: string
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API_URL}/assignments/upload-pdf`);
     xhr.setRequestHeader('x-clerk-user-id', clerkId);
+    // Also inject JWT if available (required by sensitive path check)
+    getAuthToken().then(token => {
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      }
+    }).catch(() => {});
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -444,12 +448,10 @@ export async function uploadPdf(clerkId: string, file: { uri: string; name: stri
 
   // Strategy 1: Direct Presigned S3/B2 Upload (Completely bypasses Vercel 4.5MB serverless limit)
   try {
+    const presignedHeaders = await getAuthHeaders(clerkId);
     const presignedRes = await fetch(`${API_URL}/assignments/get-upload-url`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-clerk-user-id': clerkId,
-      },
+      headers: presignedHeaders,
       body: JSON.stringify({
         filename: file.name || 'document.pdf',
         contentType: resolvedMime,
@@ -476,9 +478,10 @@ export async function createAssignment(clerkId: string, payload: {
   title: string; subject: string; description: string;
   dueDate: string; pdf_key?: string; pdf_filename?: string;
 }): Promise<AssignmentData> {
+  const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/assignments`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-clerk-user-id': clerkId },
+    headers,
     body: JSON.stringify(payload)
   });
   const data = await safeJsonParse(res);
@@ -487,9 +490,10 @@ export async function createAssignment(clerkId: string, payload: {
 }
 
 export async function deleteAssignment(clerkId: string, assignmentId: string): Promise<void> {
+  const headers = await getAuthHeaders(clerkId);
   await fetch(`${API_URL}/assignments/${assignmentId}`, {
     method: 'DELETE',
-    headers: { 'x-clerk-user-id': clerkId }
+    headers,
   });
 }
 

@@ -623,7 +623,7 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
         .filter(s => s.expoPushToken && Expo.isExpoPushToken(s.expoPushToken))
         .map(s => ({
           to: s.expoPushToken,
-          sound: 'default',
+          sound: 'ting.mp3',
           channelId: 'pathwise-default-v2',
           title: '📋 New Assignment Posted!',
           body: `${title} (${subject}) — Due: ${new Date(dueDate).toLocaleDateString()}`,
@@ -1033,7 +1033,8 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), asyn
 });
 
 // Get total user count
-app.get('/api/users/count', async (req, res) => {
+// Get total user count (authenticated only)
+app.get('/api/users/count', getClerkId, async (req, res) => {
   try {
     const count = await User.countDocuments();
     res.json({ count });
