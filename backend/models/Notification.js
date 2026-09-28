@@ -1,37 +1,22 @@
 const mongoose = require('mongoose');
 
 const NotificationSchema = new mongoose.Schema({
-  title: {
-    type: String,
-    required: true
-  },
-  message: {
-    type: String,
-    required: true
-  },
-  created_by: {
-    type: String,   // clerkUserId of the CR who posted it
-    required: true
-  },
-  section_code: {
-    type: String,   // e.g. "CSE-B-2025" — only students of this section see it
-    required: true
-  },
-  expiresAt: {
-    type: Date,
-    required: true
-  },
-  pdf_key: {
-    type: String,
-    default: null
-  },
-  pdf_filename: {
-    type: String,
-    default: null
-  }
-}, { timestamps: true });
+  title:        { type: String, required: true },
+  message:      { type: String, required: true },
+  created_by:   { type: String, required: true }, // clerkUserId of the CR
+  section_code: { type: String, required: true }, // e.g. "CSE-B-2025"
+  expiresAt:    { type: Date, required: true },
+  pdf_key:      { type: String },               // absent when no attachment
+  pdf_filename: { type: String },               // absent when no attachment
+}, {
+  timestamps: true,
+  minimize: true,
+});
 
-// TTL index to automatically delete documents when expiresAt is reached
+// TTL index — auto-deletes notification document when expiresAt is reached
 NotificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+// Index for fast section-based queries
+NotificationSchema.index({ section_code: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Notification', NotificationSchema);

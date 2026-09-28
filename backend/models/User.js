@@ -7,79 +7,45 @@ const UserSchema = new mongoose.Schema({
     unique: true
   },
 
-  uid: {
-    type: String
-  },
-  app_first_opened_date: {
-    type: Date,
-    default: Date.now
-  },
-  free_ai_subject_id: {
-    type: String,
-    default: null
-  },
-  is_premium: {
-    type: Boolean,
-    default: false
-  },
-  subscription_plan: {
-    type: String,
-    default: 'free'
-  },
-  subscription_updated_at: {
-    type: Date,
-    default: Date.now
-  },
-  expoPushToken: {
-    type: String,
-    default: null
-  },
+  uid: { type: String },
+
+  // Removed app_first_opened_date — createdAt (timestamps:true) serves same purpose
+  // Removed subscription_updated_at — updatedAt (timestamps:true) covers it
+
+  free_ai_subject_id: { type: String },         // omit default null — saves field storage
+  is_premium:         { type: Boolean },         // omit default false — 0 bytes when absent
+  subscription_plan:  { type: String },          // omit default 'free' — derived on read
+  expoPushToken:      { type: String },          // null when not registered — omit default
+
   // CR Sub-Admin System
   role: {
     type: String,
     enum: ['student', 'cr', 'admin'],
-    default: 'student'
+    // No default — 'student' assumed server-side when absent (saves field in 99% of docs)
   },
-  section_code: {
-    type: String,
-    default: null  // e.g. "CSE-B-2025" — the class/section this CR manages
-  },
+  section_code: { type: String },               // null when not a CR — omit default
 
-  // 🪙 Reward System
-  token_balance: {
-    type: Number,
-    default: 0
-  },
-  ads_watched_today: {
-    type: Number,
-    default: 0
-  },
-  daily_ad_views: {
-    type: Number,
-    default: 0
-  },
-  last_ad_watch_date: {
-    type: String,
-    default: null  // "2026-09-02" format — reset daily
-  },
-  last_ad_watch_time: {
-    type: Date,
-    default: null
-  },
-  last_daily_bonus_date: {
-    type: String,
-    default: null  // "2026-09-02" format
-  },
-  premium_expires_at: {
-    type: Number,
-    default: null  // Unix timestamp ms — for token-earned premium
-  },
+  // 🪙 Reward System — omit defaults of 0/null to avoid storing them in every doc
+  token_balance:      { type: Number },
+  ads_watched_today:  { type: Number },
+  daily_ad_views:     { type: Number },
+  last_ad_watch_date: { type: String },         // "YYYY-MM-DD" format — reset daily
+  last_ad_watch_time: { type: Date },
+  last_daily_bonus_date: { type: String },      // "YYYY-MM-DD" format
+  premium_expires_at: { type: Number },         // Unix ms timestamp — token-earned premium
 
-  // 🎁 30-Day Free Trial — stored server-side so reinstalling app can't reset it
-  trial_started_at: {
-    type: Date,
-    default: null
-  }
-}, { timestamps: true });
+  // 🎁 30-Day Free Trial
+  trial_started_at: { type: Date },
+
+}, {
+  timestamps: true,   // provides createdAt + updatedAt (replaces app_first_opened_date & subscription_updated_at)
+  minimize: true,     // Mongoose: remove empty objects from docs — reduces stored BSON size
+});
+
+// Sparse index on uid — only indexes docs that HAVE a uid (saves index space since not all users link college ID)
+UserSchema.index({ uid: 1 }, { sparse: true });
+
+// Sparse index on expoPushToken — only indexes registered push devices
+UserSchema.index({ expoPushToken: 1 }, { sparse: true });
 
 module.exports = mongoose.model('User', UserSchema);

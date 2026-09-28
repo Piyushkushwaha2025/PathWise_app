@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -21,8 +21,8 @@ const UserAssignment = require('./models/UserAssignment');
 const Notification = require('./models/Notification');
 const { Webhook } = require('svix');
 
-// ─── Trial Fingerprint: tracks deleted users to prevent free trial abuse ──────
-// Stores SHA-256 hash of email — so we don't store raw PII but can still detect
+// â”€â”€â”€ Trial Fingerprint: tracks deleted users to prevent free trial abuse â”€â”€â”€â”€â”€â”€
+// Stores SHA-256 hash of email â€” so we don't store raw PII but can still detect
 // re-registrations with the same email after account deletion.
 const UsedTrialFingerprintSchema = new mongoose.Schema({
   emailHash: { type: String, required: true, unique: true },
@@ -43,7 +43,7 @@ async function getExpo() {
 const app = express();
 app.use(cors());
 
-// ─── CLERK WEBHOOKS (Must be before express.json) ──────────────────────────
+// â”€â”€â”€ CLERK WEBHOOKS (Must be before express.json) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async (req, res) => {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
   if (!WEBHOOK_SECRET) return res.status(500).json({ error: 'Please add CLERK_WEBHOOK_SECRET to .env' });
@@ -69,7 +69,7 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
     return res.status(400).json({ error: 'Error verifying webhook' });
   }
 
-  // ─── user.created: Auto-create user record in MongoDB ─────────────────────
+  // â”€â”€â”€ user.created: Auto-create user record in MongoDB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (evt.type === 'user.created') {
     const clerkId = evt.data.id;
     const rawEmail = (evt.data.email_addresses?.[0]?.email_address || '').toLowerCase().trim();
@@ -78,7 +78,7 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
       if (!exists) {
         let restoredTrialAt = null;
 
-        // ── Trial Abuse Prevention ─────────────────────────────────────────────
+        // â”€â”€ Trial Abuse Prevention â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // If this email was used before and account was deleted, restore old trial
         // start date so they don't get a fresh 30-day trial on re-registration.
         if (rawEmail) {
@@ -86,24 +86,23 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
           const fingerprint = await UsedTrialFingerprint.findOne({ emailHash });
           if (fingerprint) {
             restoredTrialAt = fingerprint.trial_started_at;
-            console.log(`⚠️ Webhook: Email re-registration detected. Restoring trial_started_at for ${clerkId}`);
+            console.log(`âš ï¸ Webhook: Email re-registration detected. Restoring trial_started_at for ${clerkId}`);
           }
         }
 
         await User.create({
           clerkUserId: clerkId,
-          app_first_opened_date: new Date(),
-          // If previous trial found, use it — otherwise null (will be set on first sync/login)
+          // If previous trial found, use it â€” otherwise null (will be set on first sync/login)
           trial_started_at: restoredTrialAt || null,
         });
-        console.log(`✅ Webhook: Created user ${clerkId} in MongoDB`);
+        console.log(`âœ… Webhook: Created user ${clerkId} in MongoDB`);
       }
     } catch (err) {
-      console.error(`❌ Webhook Error creating user:`, err);
+      console.error(`âŒ Webhook Error creating user:`, err);
     }
   }
 
-  // ─── user.deleted: CASCADE delete ALL data for that user ──────────────────
+  // â”€â”€â”€ user.deleted: CASCADE delete ALL data for that user â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (evt.type === 'user.deleted') {
     const clerkId = evt.data.id;
     const rawEmail = (evt.data.email_addresses?.[0]?.email_address || '').toLowerCase().trim();
@@ -122,9 +121,9 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
             { emailHash, trial_started_at: deletedUser.trial_started_at, deleted_at: new Date() },
             { upsert: true, new: true }
           );
-          console.log(`🔒 Webhook: Saved trial fingerprint for deleted user ${clerkId}`);
+          console.log(`ðŸ”’ Webhook: Saved trial fingerprint for deleted user ${clerkId}`);
         } catch (fpErr) {
-          console.warn(`⚠️ Could not save trial fingerprint:`, fpErr.message);
+          console.warn(`âš ï¸ Could not save trial fingerprint:`, fpErr.message);
         }
       }
 
@@ -141,7 +140,7 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
             await b2.send(new DeleteObjectCommand({ Bucket: B2_BUCKET, Key: assignment.pdf_key }));
             deletedPdfs++;
           } catch (s3err) {
-            console.warn(`⚠️ Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
+            console.warn(`âš ï¸ Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
           }
         }
       }
@@ -155,7 +154,7 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
         `     Notifications created by user: ${notificationsResult.deletedCount} deleted\n` +
         `     PDFs checked: ${createdAssignments.length}`);
     } catch (err) {
-      console.error(`❌ Webhook CASCADE DELETE Error for ${clerkId}:`, err);
+      console.error(`âŒ Webhook CASCADE DELETE Error for ${clerkId}:`, err);
     }
   }
 
@@ -179,9 +178,9 @@ const connectDB = async () => {
       socketTimeoutMS: 45000,
     });
     isConnected = db.connections[0].readyState === 1;
-    console.log('✅ Connected to MongoDB');
+    console.log('âœ… Connected to MongoDB');
   } catch (error) {
-    console.error('❌ MongoDB Connection Error:', error);
+    console.error('âŒ MongoDB Connection Error:', error);
     throw error;
   }
 };
@@ -196,7 +195,7 @@ app.use(async (req, res, next) => {
   }
 });
 
-// ─── Backblaze B2 (S3-compatible) ────────────────────────────────────────────
+// â”€â”€â”€ Backblaze B2 (S3-compatible) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const B2_ENDPOINT = process.env.B2_ENDPOINT || 'https://s3.us-east-005.backblazeb2.com';
 const B2_REGION = B2_ENDPOINT.replace('https://s3.', '').replace('.backblazeb2.com', ''); // "us-east-005"
 
@@ -241,7 +240,7 @@ function getMimeType(filename, defaultMime = 'application/pdf') {
   return map[ext] || (defaultMime === 'application/octet-stream' ? 'application/pdf' : defaultMime);
 }
 
-// ─── Multer (in-memory, up to 15MB, all college documents & images allowed) ────
+// â”€â”€â”€ Multer (in-memory, up to 15MB, all college documents & images allowed) â”€â”€â”€â”€
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
@@ -312,17 +311,17 @@ const requireCR = async (req, res, next) => {
   }
 };
 
-// Admin role management is done directly via MongoDB Atlas — no API routes needed.
+// Admin role management is done directly via MongoDB Atlas â€” no API routes needed.
 
-// ─── Razorpay ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Razorpay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || 'test_key',
   key_secret: process.env.RAZORPAY_KEY_SECRET || 'test_secret',
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // USER ROUTES
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 // 1. Get or Create User Profile (returns role info too)
 app.post('/api/user/sync', getClerkId, async (req, res) => {
@@ -339,7 +338,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         ? user.uid.trim().toUpperCase()
         : null;
 
-      // ── Rule 1: Account already has a bound UID ─────────────────────────────
+      // â”€â”€ Rule 1: Account already has a bound UID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Never allow switching to a different college UID on this account!
       if (currentBoundUid) {
         if (incomingUid && incomingUid !== currentBoundUid) {
@@ -350,7 +349,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
           });
         }
       } else if (incomingUid) {
-        // ── Rule 2: First-time binding for existing account ───────────────────
+        // â”€â”€ Rule 2: First-time binding for existing account â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Check if this incoming UID is already claimed by another user
         const existingWithUID = await User.findOne({
           uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
@@ -364,7 +363,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         user.uid = incomingUid;
       }
     } else {
-      // ── Rule 3: Brand new user account ────────────────────────────────────
+      // â”€â”€ Rule 3: Brand new user account â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (incomingUid) {
         const existingWithUID = await User.findOne({
           uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
@@ -382,7 +381,6 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         uid: incomingUid,
         section_code: req.body.section_code || null,
         expoPushToken: req.body.expoPushToken || null,
-        app_first_opened_date: new Date(),
         trial_started_at: new Date(), // Start 30-day trial on first login
       });
       await user.save();
@@ -399,7 +397,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       changed = true;
     }
     if (!user.trial_started_at) {
-      user.trial_started_at = user.app_first_opened_date || user.createdAt || new Date();
+      user.trial_started_at = user.createdAt || new Date();
       changed = true;
     }
     if (changed || user.isModified()) {
@@ -501,13 +499,12 @@ app.post('/api/user/subscription', getClerkId, async (req, res) => {
 
     user.is_premium = false;
     user.subscription_plan = 'free';
-    user.subscription_updated_at = new Date();
     await user.save();
 
-    console.log(`✅ Subscription cancelled/set to free in DB for ${req.clerkUserId}`);
+    console.log(`âœ… Subscription cancelled/set to free in DB for ${req.clerkUserId}`);
     res.json({ success: true, user });
   } catch (error) {
-    console.error('❌ Error updating subscription in DB:', error);
+    console.error('âŒ Error updating subscription in DB:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -531,29 +528,29 @@ app.delete(['/api/user', '/user'], getClerkId, async (req, res) => {
         try {
           await b2.send(new DeleteObjectCommand({ Bucket: B2_BUCKET, Key: assignment.pdf_key }));
         } catch (s3err) {
-          console.warn(`⚠️ Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
+          console.warn(`âš ï¸ Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
         }
       }
     }
     await Assignment.deleteMany({ created_by: clerkId });
     await Notification.deleteMany({ created_by: clerkId });
 
-    console.log(`✅ Permanently deleted user and cascaded records for ${clerkId}`);
+    console.log(`âœ… Permanently deleted user and cascaded records for ${clerkId}`);
     res.json({ success: true, message: 'User account and associated data successfully deleted' });
   } catch (error) {
-    console.error('❌ Error deleting user:', error);
+    console.error('âŒ Error deleting user:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // CR roles are assigned directly in MongoDB Atlas by the admin (you).
 // No API routes needed for CR management.
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // ASSIGNMENT ROUTES
-// ════════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 // Get all unique sections that have CRs or assignments
 app.get('/api/sections', getClerkId, async (req, res) => {
@@ -620,7 +617,7 @@ app.post(['/api/assignments/upload-pdf', '/api/upload-document'], getClerkId, re
         ContentType: determinedContentType,
       }));
 
-      // Store the key (path), not a public URL — signed URLs generated on download
+      // Store the key (path), not a public URL â€” signed URLs generated on download
       res.json({ success: true, pdf_key: key, pdf_filename: req.file.originalname || safeOriginalName });
     } catch (e) {
       console.error('B2 upload error:', e);
@@ -668,8 +665,8 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
           to: s.expoPushToken,
           sound: 'ting.mp3',
           channelId: 'pathwise-default-v2',
-          title: '📋 New Assignment Posted!',
-          body: `${title} (${subject}) — Due: ${new Date(dueDate).toLocaleDateString()}`,
+          title: 'ðŸ“‹ New Assignment Posted!',
+          body: `${title} (${subject}) â€” Due: ${new Date(dueDate).toLocaleDateString()}`,
           data: { assignmentId: assignment._id.toString(), type: 'assignment' },
           priority: 'high',
         }));
@@ -776,9 +773,9 @@ app.delete('/api/assignments/:id', getClerkId, async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // NOTIFICATION ROUTES
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // Get notifications for a section
 app.get('/api/notifications', getClerkId, async (req, res) => {
@@ -848,7 +845,7 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
           to: s.expoPushToken,
           sound: 'default',
           channelId: 'pathwise-default-v2',
-          title: `📢 CR Announcement: ${title}`,
+          title: `ðŸ“¢ CR Announcement: ${title}`,
           body: message.length > 120 ? `${message.substring(0, 117)}...` : message,
           data: { notificationId: notification._id.toString(), type: 'cr_notification' },
           priority: 'high',
@@ -902,9 +899,9 @@ app.delete('/api/notifications/:id', getClerkId, async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // SATURDAY OVERRIDE ROUTES
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 app.get('/api/saturday-override', getClerkId, async (req, res) => {
   try {
@@ -953,19 +950,19 @@ app.delete('/api/saturday-override/:id', getClerkId, requireCR, async (req, res)
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // PAYMENT ROUTES
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 app.post('/api/payment/create-order', getClerkId, async (req, res) => {
   try {
     const { plan_id, receipt } = req.body;
 
-    // ── Server-side price validation (never trust client amount) ────────────
+    // â”€â”€ Server-side price validation (never trust client amount) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const PLAN_PRICES = {
-      monthly:  5900,   // ₹59
-      semester: 29900,  // ₹299
-      yearly:   49900,  // ₹499
+      monthly:  5900,   // â‚¹59
+      semester: 29900,  // â‚¹299
+      yearly:   49900,  // â‚¹499
     };
     const amount = PLAN_PRICES[plan_id];
     if (!amount) {
@@ -1017,7 +1014,6 @@ app.post('/api/payment/verify', getClerkId, async (req, res) => {
         { 
           is_premium: true,
           subscription_plan: plan_id || 'pro',
-          subscription_updated_at: new Date(),
           premium_expires_at: expiryTime
         },
         { upsert: true }
@@ -1059,11 +1055,10 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), asyn
             {
               is_premium: true,
               subscription_plan: plan_id || 'pro',
-              subscription_updated_at: new Date(),
-              premium_expires_at: expiryTime  // ← Now sets expiry correctly
+              premium_expires_at: expiryTime  // â† Now sets expiry correctly
             }
           );
-          console.log(`✅ Upgraded user ${clerkUserId} to ${plan_id || 'pro'} via Webhook! Expires: ${new Date(expiryTime).toISOString()}`);
+          console.log(`âœ… Upgraded user ${clerkUserId} to ${plan_id || 'pro'} via Webhook! Expires: ${new Date(expiryTime).toISOString()}`);
         }
       }
       res.json({ status: 'ok' });
@@ -1144,7 +1139,6 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
     if (!user) {
       user = new User({
         clerkUserId: req.clerkUserId,
-        app_first_opened_date: new Date(),
         trial_started_at: new Date(),
       });
       await user.save();
@@ -1174,7 +1168,7 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
       subscription_plan: user.subscription_plan || 'free',
       is_paid_active: isPaidActive,
       is_reward_premium_active: Boolean(isPremiumActive && user.subscription_plan === 'reward'),
-      trial_started_at: user.trial_started_at || user.app_first_opened_date || user.createdAt || null,
+      trial_started_at: user.trial_started_at || user.createdAt || null,
       plans: REDEMPTION_PLANS,
     });
   } catch (err) {
@@ -1190,7 +1184,6 @@ app.post('/api/rewards/daily-bonus', getClerkId, rewardRateLimiter, async (req, 
     if (!user) {
       user = new User({
         clerkUserId: req.clerkUserId,
-        app_first_opened_date: new Date(),
         trial_started_at: new Date(),
       });
       await user.save();
@@ -1226,7 +1219,6 @@ app.post('/api/rewards/watch-ad', getClerkId, rewardRateLimiter, async (req, res
     if (!user) {
       user = new User({
         clerkUserId: req.clerkUserId,
-        app_first_opened_date: new Date(),
         trial_started_at: new Date(),
       });
       await user.save();
@@ -1295,7 +1287,6 @@ app.post('/api/rewards/redeem', getClerkId, rewardRateLimiter, async (req, res) 
     if (!user) {
       user = new User({
         clerkUserId: req.clerkUserId,
-        app_first_opened_date: new Date(),
         trial_started_at: new Date(),
       });
       await user.save();
@@ -1314,7 +1305,6 @@ app.post('/api/rewards/redeem', getClerkId, rewardRateLimiter, async (req, res) 
     if (!user.subscription_plan || user.subscription_plan === 'free') {
       user.subscription_plan = 'reward';
     }
-    user.subscription_updated_at = new Date();
     
     await user.save();
 
@@ -1339,3 +1329,4 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
 }
 
 module.exports = app;
+
