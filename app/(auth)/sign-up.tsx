@@ -1,13 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
   Image,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
@@ -16,7 +13,6 @@ import { useSignUp, useOAuth, useAuth } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import { MotiView } from "moti";
 import * as Linking from "expo-linking";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { GradientButton } from "../../components/ui/GradientButton";
 import { Colors, Typography, Spacing } from "../../constants/theme";
@@ -28,7 +24,6 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
-  const colors = useThemeStore((s) => s.colors);
   const theme = useThemeStore((s) => s.theme);
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
   const { signOut } = useAuth();
@@ -43,17 +38,41 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  // OAuth-specific loading — shows full-screen AppLoading overlay
   const [oauthLoading, setOauthLoading] = useState(false);
 
   // Verification state
   const [pendingVerification, setPendingVerification] = useState(false);
   const [code, setCode] = useState("");
 
+  // Resend OTP cooldown (30 seconds)
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendLoading, setResendLoading] = useState(false);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Legal Agreement State
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'refund' | null>(null);
 
+  // Cleanup cooldown timer on unmount
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
+  }, []);
+
+  const startResendCooldown = () => {
+    setResendCooldown(30);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setResendCooldown(prev => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current!);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
   const handleOAuth = async () => {
     if (!agreedToTerms) {
@@ -67,7 +86,6 @@ export default function SignUpScreen() {
         redirectUrl: Linking.createURL("/(auth)/sign-up", { scheme: "pathwise" })
       });
 
-      // User cancelled or dismissed the browser — clear any partial session and stay on sign-up
       if (
         !authSessionResult ||
         authSessionResult.type === "cancel" ||
@@ -80,7 +98,6 @@ export default function SignUpScreen() {
 
       if (createdSessionId && setOAuthActive) {
         await setOAuthActive({ session: createdSessionId });
-        // Don't turn off loading on success so the loading screen covers the navigation delay
         router.replace("/(app)/dashboard");
       } else {
         setOauthLoading(false);
@@ -94,7 +111,6 @@ export default function SignUpScreen() {
       setOauthLoading(false);
     }
   };
-
 
   const handleSignUp = async () => {
     if (!isLoaded) return;
@@ -117,6 +133,7 @@ export default function SignUpScreen() {
       });
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       setPendingVerification(true);
+      startResendCooldown(); // Start 30s cooldown when OTP is first sent
     } catch (err: unknown) {
       const clerkErr = err as { errors?: { message: string }[] };
       setError(
@@ -124,6 +141,21 @@ export default function SignUpScreen() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    if (!isLoaded || resendCooldown > 0 || resendLoading) return;
+    setResendLoading(true);
+    setError("");
+    try {
+      await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
+      startResendCooldown();
+    } catch (err: unknown) {
+      const clerkErr = err as { errors?: { message: string }[] };
+      setError(clerkErr?.errors?.[0]?.message ?? "Failed to resend code. Please try again.");
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -143,8 +175,31 @@ export default function SignUpScreen() {
         setError("Verification failed. Please check the code and try again.");
       }
     } catch (err: unknown) {
-      const clerkErr = err as { errors?: { message: string }[] };
-      setError(clerkErr?.errors?.[0]?.message ?? "Verification failed.");
+      const clerkErr = err as { errors?: { code?: string; message: string }[] };
+      const errCode = clerkErr?.errors?.[0]?.code ?? "";
+      const errMsg = clerkErr?.errors?.[0]?.message ?? "";
+
+      // Handle "already verified" — session may already be active, navigate to dashboard
+      if (
+        errCode === "form_identifier_already_verified" ||
+        errCode === "is_already_verified" ||
+        errMsg.toLowerCase().includes("already verified") ||
+        errMsg.toLowerCase().includes("already been verified")
+      ) {
+        // Account is already verified, try to complete the session
+        try {
+          if (signUp.createdSessionId) {
+            await setActive({ session: signUp.createdSessionId });
+          }
+          router.replace("/(app)/dashboard");
+        } catch {
+          setError("Your email is already verified. Please sign in.");
+          router.replace("/(auth)/sign-in");
+        }
+        return;
+      }
+
+      setError(errMsg || "Verification failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -161,8 +216,6 @@ export default function SignUpScreen() {
       extraScrollHeight={20}
       keyboardShouldPersistTaps="handled"
     >
-
-
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
@@ -277,7 +330,24 @@ export default function SignUpScreen() {
                 keyboardType="number-pad"
                 returnKeyType="done"
                 onSubmitEditing={handleVerify}
+                autoFocus
               />
+
+              {/* Resend OTP Button */}
+              <TouchableOpacity
+                style={[styles.resendBtn, (resendCooldown > 0 || resendLoading) && { opacity: 0.5 }]}
+                onPress={handleResendOTP}
+                disabled={resendCooldown > 0 || resendLoading}
+              >
+                <Ionicons name="refresh-outline" size={15} color={Colors.primary} />
+                <Text style={styles.resendBtnText}>
+                  {resendLoading
+                    ? "Sending..."
+                    : resendCooldown > 0
+                    ? `Resend code in ${resendCooldown}s`
+                    : "Resend code"}
+                </Text>
+              </TouchableOpacity>
             </>
           )}
 
@@ -328,8 +398,6 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 40,
   },
-  orbContainer: { alignItems: "center", marginBottom: -40 },
-  orb: { width: 200, height: 200, borderRadius: 100, opacity: 0.3 },
   header: { alignItems: "center", marginBottom: Spacing.xl },
   appLogo: { width: 120, height: 120, borderRadius: 28, marginBottom: 12 },
   logoText: { fontSize: 32, textAlign: "center" },
@@ -364,6 +432,18 @@ const styles = StyleSheet.create({
     padding: 14,
     color: Colors.text,
     ...Typography.body,
+  },
+  resendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  resendBtnText: {
+    ...Typography.small,
+    color: Colors.primary,
+    fontWeight: '600',
   },
   errorText: { ...Typography.small, color: Colors.error },
   btn: { marginTop: 4 },

@@ -21,6 +21,16 @@ const UserAssignment = require('./models/UserAssignment');
 const Notification = require('./models/Notification');
 const { Webhook } = require('svix');
 
+// ─── Trial Fingerprint: tracks deleted users to prevent free trial abuse ──────
+// Stores SHA-256 hash of email — so we don't store raw PII but can still detect
+// re-registrations with the same email after account deletion.
+const UsedTrialFingerprintSchema = new mongoose.Schema({
+  emailHash: { type: String, required: true, unique: true },
+  trial_started_at: { type: Date, required: true },
+  deleted_at: { type: Date, default: Date.now },
+});
+const UsedTrialFingerprint = mongoose.model('UsedTrialFingerprint', UsedTrialFingerprintSchema);
+
 // expo-server-sdk is ESM-only; use dynamic import lazily
 let _expo = null;
 async function getExpo() {
@@ -62,12 +72,29 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
   // ─── user.created: Auto-create user record in MongoDB ─────────────────────
   if (evt.type === 'user.created') {
     const clerkId = evt.data.id;
+    const rawEmail = (evt.data.email_addresses?.[0]?.email_address || '').toLowerCase().trim();
     try {
       const exists = await User.findOne({ clerkUserId: clerkId });
       if (!exists) {
+        let restoredTrialAt = null;
+
+        // ── Trial Abuse Prevention ─────────────────────────────────────────────
+        // If this email was used before and account was deleted, restore old trial
+        // start date so they don't get a fresh 30-day trial on re-registration.
+        if (rawEmail) {
+          const emailHash = crypto.createHash('sha256').update(rawEmail).digest('hex');
+          const fingerprint = await UsedTrialFingerprint.findOne({ emailHash });
+          if (fingerprint) {
+            restoredTrialAt = fingerprint.trial_started_at;
+            console.log(`⚠️ Webhook: Email re-registration detected. Restoring trial_started_at for ${clerkId}`);
+          }
+        }
+
         await User.create({
           clerkUserId: clerkId,
           app_first_opened_date: new Date(),
+          // If previous trial found, use it — otherwise null (will be set on first sync/login)
+          trial_started_at: restoredTrialAt || null,
         });
         console.log(`✅ Webhook: Created user ${clerkId} in MongoDB`);
       }
@@ -79,11 +106,27 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
   // ─── user.deleted: CASCADE delete ALL data for that user ──────────────────
   if (evt.type === 'user.deleted') {
     const clerkId = evt.data.id;
+    const rawEmail = (evt.data.email_addresses?.[0]?.email_address || '').toLowerCase().trim();
     try {
       await connectDB();
 
-      // 1. Delete User profile
+      // 1. Delete User profile (save trial info first for abuse prevention)
       const deletedUser = await User.findOneAndDelete({ clerkUserId: clerkId });
+
+      // 1b. Save email fingerprint so re-registration can't get a fresh trial
+      if (deletedUser && rawEmail && deletedUser.trial_started_at) {
+        try {
+          const emailHash = crypto.createHash('sha256').update(rawEmail).digest('hex');
+          await UsedTrialFingerprint.findOneAndUpdate(
+            { emailHash },
+            { emailHash, trial_started_at: deletedUser.trial_started_at, deleted_at: new Date() },
+            { upsert: true, new: true }
+          );
+          console.log(`🔒 Webhook: Saved trial fingerprint for deleted user ${clerkId}`);
+        } catch (fpErr) {
+          console.warn(`⚠️ Could not save trial fingerprint:`, fpErr.message);
+        }
+      }
 
       // 2. Delete all UserAssignment tracking records for this user
       const userAssignmentsResult = await UserAssignment.deleteMany({ clerkUserId: clerkId });
