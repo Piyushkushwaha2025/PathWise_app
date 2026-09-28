@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useRouter, Link } from "expo-router";
-import { useSignUp, useOAuth, useAuth } from "@clerk/clerk-expo";
+import { useSignUp, useSignIn, useOAuth, useAuth } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import { MotiView } from "moti";
 import * as Linking from "expo-linking";
@@ -24,6 +24,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
+  const { signIn } = useSignIn();
   const theme = useThemeStore((s) => s.theme);
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
   const { signOut } = useAuth();
@@ -179,23 +180,53 @@ export default function SignUpScreen() {
       const errCode = clerkErr?.errors?.[0]?.code ?? "";
       const errMsg = clerkErr?.errors?.[0]?.message ?? "";
 
-      // Handle "already verified" — session may already be active, navigate to dashboard
-      if (
+      // ── "Already verified" scenario ─────────────────────────────────────────
+      // This happens when: first OTP attempt actually verified the account but
+      // Clerk threw an error anyway (race condition / network blip), and user
+      // hits submit again. We must NOT send them to sign-in — instead silently
+      // complete the session using one of three fallback strategies.
+      const isAlreadyVerified =
         errCode === "form_identifier_already_verified" ||
         errCode === "is_already_verified" ||
+        errCode === "session_exists" ||
         errMsg.toLowerCase().includes("already verified") ||
-        errMsg.toLowerCase().includes("already been verified")
-      ) {
-        // Account is already verified, try to complete the session
-        try {
-          if (signUp.createdSessionId) {
+        errMsg.toLowerCase().includes("already been verified") ||
+        errMsg.toLowerCase().includes("is already verified");
+
+      if (isAlreadyVerified) {
+        // Strategy 1: signUp object may still have the createdSessionId
+        if (signUp?.createdSessionId) {
+          try {
             await setActive({ session: signUp.createdSessionId });
+            router.replace("/(app)/dashboard");
+            return;
+          } catch {
+            // fall through to next strategy
           }
-          router.replace("/(app)/dashboard");
-        } catch {
-          setError("Your email is already verified. Please sign in.");
-          router.replace("/(auth)/sign-in");
         }
+
+        // Strategy 2: Auto-sign-in using the credentials they just registered with
+        // This is the most reliable path — email is verified so sign-in will succeed
+        if (signIn && email && password) {
+          try {
+            const signInResult = await signIn.create({
+              identifier: email.trim(),
+              password,
+            });
+            if (signInResult.status === "complete" && signInResult.createdSessionId) {
+              await setActive({ session: signInResult.createdSessionId });
+              router.replace("/(app)/dashboard");
+              return;
+            }
+          } catch {
+            // fall through to last resort
+          }
+        }
+
+        // Strategy 3: Last resort — redirect to sign-in with a success message
+        // (not an error — their account IS created and verified)
+        setError("Account verified! Please sign in with your credentials.");
+        setTimeout(() => router.replace("/(auth)/sign-in"), 1500);
         return;
       }
 
