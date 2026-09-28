@@ -584,11 +584,18 @@ export default function SyncScreen() {
           isScrapedDataLoaded: true
         });
 
-      if (userId && newData.profile?.uid) {
+      // Fallback: If scraped profile UID is missing or 'Unknown', get UID entered by user during login
+      const savedUid = await SecureStore.getItemAsync('culko_u').catch(() => null);
+      const effectiveUid =
+        (newData.profile?.uid && newData.profile.uid !== 'Unknown' && newData.profile.uid !== 'Error')
+          ? newData.profile.uid
+          : (savedUid || undefined);
+
+      if (userId && (effectiveUid || section)) {
         try {
           await Promise.race([
-            syncUserWithDB(userId, section || undefined, newData.profile.uid),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 3000))
+            syncUserWithDB(userId, section || undefined, effectiveUid),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 10000))
           ]);
         } catch (e: any) {
           if (e?.code === 'UID_ALREADY_LINKED' || e?.code === 'ACCOUNT_ALREADY_BOUND') {

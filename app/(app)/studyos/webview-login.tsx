@@ -10,7 +10,7 @@ import { UNIVERSITIES } from '../../../constants/universities';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { useAuth } from '@clerk/clerk-expo';
-import { verifyUidWithDB, useDBProfile } from '../../../lib/db';
+import { verifyUidWithDB, useDBProfile, syncUserWithDB } from '../../../lib/db';
 
 function sanitizeUserFacingError(rawMsg: string | undefined | null, fallback: string = ''): string {
   if (!rawMsg) return fallback;
@@ -185,6 +185,13 @@ export default function WebViewLoginScreen() {
         SecureStore.setItemAsync('culko_p', pwd).catch(() => {});
       }
       
+      // Immediately bind and persist UID to MongoDB
+      if (userId && uid) {
+        syncUserWithDB(userId, undefined, uid.trim()).catch((err) => {
+          console.warn('[WebViewLogin] Background sync UID notice:', err?.message);
+        });
+      }
+      
       setTimeout(() => {
         if (isReconnect === 'true') {
           useStudySessionStore.getState().setSessionDisconnected(false);
@@ -222,6 +229,11 @@ export default function WebViewLoginScreen() {
           if (uid && pwd) {
             SecureStore.setItemAsync('culko_u', uid).catch(() => {});
             SecureStore.setItemAsync('culko_p', pwd).catch(() => {});
+          }
+          if (userId && uid) {
+            syncUserWithDB(userId, undefined, uid.trim()).catch((err) => {
+              console.warn('[WebViewLogin] Background sync UID notice:', err?.message);
+            });
           }
           setTimeout(() => {
             if (isReconnect === 'true') {

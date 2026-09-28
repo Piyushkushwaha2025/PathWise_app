@@ -83,7 +83,7 @@ export async function syncUserWithDB(
   try {
     const headers = await getAuthHeaders(clerkId);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+    const timeout = setTimeout(() => controller.abort(), 12000);
     const res = await fetch(`${API_URL}/user/sync`, {
       method: 'POST',
       headers,
