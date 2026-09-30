@@ -17,6 +17,7 @@ interface CulkoProfile {
   semester?: string;
   section?: string;
   photoUrl?: string;
+  overallAttendance?: number;
 }
 
 export interface CulkoSubject {
@@ -233,17 +234,45 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
   },
 
   setScrapedData: async (data) => {
-    set((state) => ({ ...state, ...data, isScrapedDataLoaded: true }));
+    set((state) => {
+      const mergedProfile = (data.profile && data.profile.name && data.profile.name !== 'Error' && data.profile.name !== 'Unknown')
+        ? { ...(state.profile || {}), ...data.profile }
+        : (state.profile || data.profile);
+
+      const mergedSubjects = (data.subjects && Array.isArray(data.subjects) && data.subjects.length > 0)
+        ? data.subjects
+        : state.subjects;
+
+      const mergedTimetable = (data.timetable && Object.keys(data.timetable).length > 0)
+        ? data.timetable
+        : state.timetable;
+
+      const mergedMarks = (data.marks && Array.isArray(data.marks) && data.marks.length > 0)
+        ? data.marks
+        : state.marks;
+
+      return {
+        ...state,
+        ...data,
+        profile: mergedProfile,
+        subjects: mergedSubjects,
+        timetable: mergedTimetable,
+        marks: mergedMarks,
+        isScrapedDataLoaded: true
+      };
+    });
     
     // Save to persistence
+    const current = get();
     const stateToSave = {
-      profile: data.profile || get().profile,
-      subjects: data.subjects || get().subjects,
-      timetable: data.timetable || get().timetable,
-      marks: data.marks || get().marks,
-      semesterOptionsCache: data.semesterOptionsCache || get().semesterOptionsCache,
-      resultCache: data.resultCache || get().resultCache,
-      detailedAttendanceCache: data.detailedAttendanceCache || get().detailedAttendanceCache,
+      profile: current.profile,
+      subjects: current.subjects,
+      timetable: current.timetable,
+      marks: current.marks,
+      datesheet: current.datesheet,
+      semesterOptionsCache: current.semesterOptionsCache,
+      resultCache: current.resultCache,
+      detailedAttendanceCache: current.detailedAttendanceCache,
       isScrapedDataLoaded: true
     };
     await AsyncStorage.setItem('studyos_scraped_data', JSON.stringify(stateToSave));

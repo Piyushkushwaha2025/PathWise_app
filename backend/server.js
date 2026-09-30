@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -90,10 +90,11 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
           }
         }
 
+        const fullName = `${evt.data.first_name || ''} ${evt.data.last_name || ''}`.trim() || null;
         await User.create({
           clerkUserId: clerkId,
-          // If previous trial found, use it â€” otherwise null (will be set on first sync/login)
-          trial_started_at: restoredTrialAt || null,
+          name: fullName,
+          trial_started_at: restoredTrialAt || new Date(),
         });
         console.log(`âœ… Webhook: Created user ${clerkId} in MongoDB`);
       }
@@ -266,8 +267,11 @@ const getClerkId = async (req, res, next) => {
       req.clerkUserId = verified.sub; // Authenticated User ID
       return next();
     } catch (error) {
-      console.error("JWT Verification failed:", error.message);
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      console.warn("JWT Verification failed:", error.message);
+      const reqPath = req.path || '';
+      if (reqPath.startsWith('/api/payment') || reqPath.startsWith('/api/rewards/redeem') || (reqPath === '/api/user' && req.method === 'DELETE')) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      }
     }
   }
 
@@ -276,13 +280,7 @@ const getClerkId = async (req, res, next) => {
   const isSensitivePath = 
     path.startsWith('/api/payment') ||
     path.startsWith('/api/rewards/redeem') ||
-    path.startsWith('/api/rewards/watch-ad') ||
-    path.startsWith('/api/rewards/daily-bonus') ||
-    path.startsWith('/api/assignments') ||
-    path.startsWith('/api/notifications') ||
-    path.startsWith('/api/saturday-override') ||
-    (path === '/api/user' && req.method === 'DELETE') ||
-    path === '/api/user/subscription';
+    (path === '/api/user' && req.method === 'DELETE');
 
   if (isSensitivePath) {
     return res.status(401).json({ error: 'Unauthorized: Verified JWT token required for this action' });
@@ -338,32 +336,24 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         ? user.uid.trim().toUpperCase()
         : null;
 
-      // â”€â”€ Rule 1: Account already has a bound UID â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      // Never allow switching to a different college UID on this account!
-      if (currentBoundUid) {
-        if (incomingUid && incomingUid !== currentBoundUid) {
-          return res.status(409).json({
-            error: 'ACCOUNT_ALREADY_BOUND',
-            message: `This PathWise account is permanently linked to college ID ${user.uid}. You cannot use another college ID on this account.`,
-            boundUid: user.uid
+      // Handle UID binding / updating
+      if (incomingUid) {
+        if (!currentBoundUid || incomingUid !== currentBoundUid) {
+          const existingWithUID = await User.findOne({
+            uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') },
+            clerkUserId: { $ne: req.clerkUserId }
           });
+          if (existingWithUID) {
+            return res.status(409).json({
+              error: 'UID_ALREADY_LINKED',
+              message: 'This college ID is already linked to another PathWise account.'
+            });
+          }
+          user.uid = incomingUid;
         }
-      } else if (incomingUid) {
-        // â”€â”€ Rule 2: First-time binding for existing account â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // Check if this incoming UID is already claimed by another user
-        const existingWithUID = await User.findOne({
-          uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
-        });
-        if (existingWithUID && existingWithUID.clerkUserId !== req.clerkUserId) {
-          return res.status(409).json({
-            error: 'UID_ALREADY_LINKED',
-            message: 'This college ID is already linked to another PathWise account.'
-          });
-        }
-        user.uid = incomingUid;
       }
     } else {
-      // â”€â”€ Rule 3: Brand new user account â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // Brand new user account
       if (incomingUid) {
         const existingWithUID = await User.findOne({
           uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
@@ -376,20 +366,47 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         }
       }
 
+      const incomingSection = req.body.section_code ? String(req.body.section_code).trim().toUpperCase() : null;
+      const isCorruptedSection = incomingSection && (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(incomingSection) || /^[0-9A-Z]{2,6}-\d{3,4}/i.test(incomingSection));
+      const validSection = (!isCorruptedSection && incomingSection) ? incomingSection : null;
+
       user = new User({
         clerkUserId: req.clerkUserId,
         uid: incomingUid,
-        section_code: req.body.section_code || null,
+        name: req.body.name || null,
+        section_code: validSection || null,
+        semester: req.body.semester ? String(req.body.semester) : null,
         expoPushToken: req.body.expoPushToken || null,
-        trial_started_at: new Date(), // Start 30-day trial on first login
+        trial_started_at: new Date(),
       });
       await user.save();
       return res.json(user);
     }
 
     let changed = false;
-    if (req.body.section_code && user.section_code !== req.body.section_code) {
-      user.section_code = req.body.section_code;
+    if (incomingUid && user.uid !== incomingUid) {
+      user.uid = incomingUid;
+      changed = true;
+    }
+    if (req.body.name && user.name !== req.body.name) {
+      user.name = req.body.name;
+      changed = true;
+    }
+
+    const incomingSection = req.body.section_code ? String(req.body.section_code).trim().toUpperCase() : null;
+    const isCorruptedSection = incomingSection && (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(incomingSection) || /^[0-9A-Z]{2,6}-\d{3,4}/i.test(incomingSection));
+    const validSection = (!isCorruptedSection && incomingSection) ? incomingSection : null;
+
+    if (validSection && user.section_code !== validSection) {
+      user.section_code = validSection;
+      changed = true;
+    } else if (user.section_code && (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(user.section_code) || /^[0-9A-Z]{2,6}-\d{3,4}/i.test(user.section_code))) {
+      user.section_code = validSection;
+      changed = true;
+    }
+
+    if (req.body.semester && user.semester !== String(req.body.semester)) {
+      user.semester = String(req.body.semester);
       changed = true;
     }
     if (req.body.expoPushToken && user.expoPushToken !== req.body.expoPushToken) {
@@ -421,22 +438,28 @@ app.post('/api/user/verify-uid', getClerkId, async (req, res) => {
     const user = await User.findOne({ clerkUserId: req.clerkUserId });
     if (user && user.uid && user.uid.trim() !== '' && user.uid.trim().toUpperCase() !== 'UNKNOWN') {
       const boundUid = user.uid.trim().toUpperCase();
-      if (incomingUid !== boundUid) {
-        return res.status(409).json({
-          allowed: false,
-          error: 'ACCOUNT_ALREADY_BOUND',
-          message: `This PathWise account is permanently linked to college ID ${user.uid}. You cannot use another college ID on this account.`,
-          boundUid: user.uid
+      const isDummy = boundUid.includes('TEST') || boundUid.startsWith('TEMP');
+      if (incomingUid !== boundUid && !isDummy) {
+        const existingWithUID = await User.findOne({
+          uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') },
+          clerkUserId: { $ne: req.clerkUserId }
         });
+        if (existingWithUID) {
+          return res.status(409).json({
+            allowed: false,
+            error: 'UID_ALREADY_LINKED',
+            message: 'This college ID is already linked to another PathWise account.'
+          });
+        }
       }
-      return res.json({ allowed: true, boundUid: user.uid });
+      return res.json({ allowed: true, boundUid: incomingUid });
     }
 
-    // Account has no bound UID yet; verify if this UID is used by another account
     const existingWithUID = await User.findOne({
-      uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
+      uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') },
+      clerkUserId: { $ne: req.clerkUserId }
     });
-    if (existingWithUID && existingWithUID.clerkUserId !== req.clerkUserId) {
+    if (existingWithUID) {
       return res.status(409).json({
         allowed: false,
         error: 'UID_ALREADY_LINKED',
@@ -1144,7 +1167,7 @@ app.get('/api/rewards/status', getClerkId, async (req, res) => {
       await user.save();
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(Date.now() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0];
     if (user.last_ad_watch_date !== today) {
       user.ads_watched_today = 0;
       user.daily_ad_views = 0;
@@ -1189,7 +1212,7 @@ app.post('/api/rewards/daily-bonus', getClerkId, rewardRateLimiter, async (req, 
       await user.save();
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(Date.now() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0];
 
     if (user.last_daily_bonus_date === today) {
       return res.status(400).json({ error: 'ALREADY_CLAIMED', message: 'Daily bonus already claimed today.' });

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+﻿import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler, InteractionManager } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -659,8 +659,19 @@ export function DetailedAttendanceModal({
         cookies = await AsyncStorage.getItem('culko_cookies');
       }
 
-      if (target && target.includes('|') && cookies) {
-        const [uidVal, chkVal] = target.split('|');
+      let uidVal = '';
+      let chkVal = '';
+      if (target && target.includes('|')) {
+        [uidVal, chkVal] = target.split('|');
+      } else {
+        const profile = useStudyOSStore.getState().profile;
+        if (profile?.uid) {
+          uidVal = profile.uid;
+          chkVal = subjectCode || '';
+        }
+      }
+
+      if (uidVal && chkVal && cookies) {
         const res = await fetch('https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx/GetFullReport', {
           method: 'POST',
           headers: {

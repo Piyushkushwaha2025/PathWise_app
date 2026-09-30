@@ -5,6 +5,7 @@ import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStudySessionStore } from '../../../store/studySessionStore';
 import { UNIVERSITIES } from '../../../constants/universities';
 import { useLocalSearchParams } from 'expo-router';
@@ -179,6 +180,15 @@ export default function WebViewLoginScreen() {
       setIsProcessing(true);
       setLoadingMsg('Login successful. Preparing to sync data...');
       
+      // Request cookies immediately from webview
+      webViewRef.current?.injectJavaScript(`
+        try {
+          var c = document.cookie;
+          if (c) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'COOKIES', data: c }));
+        } catch(e) {}
+        true;
+      `);
+
       // Save credentials for auto-login later
       if (uid && pwd) {
         SecureStore.setItemAsync('culko_u', uid).catch(() => {});
@@ -212,7 +222,10 @@ export default function WebViewLoginScreen() {
   const handleMessage = async (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'CAPTCHA_SRC') {
+      if (data.type === 'COOKIES' && data.data) {
+        SecureStore.setItemAsync('culko_cookies', data.data).catch(() => {});
+        AsyncStorage.setItem('culko_cookies', data.data).catch(() => {});
+      } else if (data.type === 'CAPTCHA_SRC') {
         setCaptchaBase64(data.src);
         if (step === 2 && isProcessing && loadingMsg === 'Authenticating...') {
           setInlineError('Invalid CAPTCHA or credentials. Please try again with the new image.');
@@ -226,6 +239,10 @@ export default function WebViewLoginScreen() {
         if (loadingMsg !== 'Login successful. Preparing to sync data...') {
           setIsProcessing(true);
           setLoadingMsg('Login successful. Preparing to sync data...');
+          if (data.cookies) {
+            SecureStore.setItemAsync('culko_cookies', data.cookies).catch(() => {});
+            AsyncStorage.setItem('culko_cookies', data.cookies).catch(() => {});
+          }
           if (uid && pwd) {
             SecureStore.setItemAsync('culko_u', uid).catch(() => {});
             SecureStore.setItemAsync('culko_p', pwd).catch(() => {});
@@ -396,7 +413,7 @@ export default function WebViewLoginScreen() {
           var currentUrl = (window.location.href || '').toLowerCase();
           if ((currentUrl.includes('student.culko.in') || currentUrl.includes('home') || currentUrl.includes('profile')) &&
               !currentUrl.includes('login') && !currentUrl.includes('logout')) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'LOGIN_SUCCESS', url: currentUrl }));
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'LOGIN_SUCCESS', url: currentUrl, cookies: document.cookie }));
             return;
           }
 

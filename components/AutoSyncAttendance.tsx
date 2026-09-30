@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+﻿import React, { useRef, useState, useEffect } from 'react';
 import { View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -164,7 +164,8 @@ const ATTENDANCE_SCRIPT = `
              if (!existing || (existing.total === 0 && total > 0)) {
                var viewActionTarget = viewActionTargetOf(rows[i]);
                
-               var dataObj = { total: total, attended: attended, percentage: percentage, viewActionTarget: viewActionTarget, targets: [], records: [] };
+               var detectedTitle = altName || altName2 || code || "";
+                var dataObj = { code: code || "", title: detectedTitle, total: total, attended: attended, percentage: percentage, viewActionTarget: viewActionTarget, targets: [], records: [] };
                if (viewActionTarget) dataObj.targets.push(viewActionTarget);
                // Carry over targets already discovered for this code from a
                // previous (weaker) row so replacing the summary loses nothing.
@@ -385,7 +386,7 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
           let dataChanged = false;
           let changesDetected: { code?: string, subjectName: string, status: string, diffAtt?: number, diffTotal?: number, percentage?: number }[] = [];
 
-          const updatedSubjects = (subjects || []).map((subj: any) => {
+          let updatedSubjects = (subjects || []).map((subj: any) => {
             let att = newData[subj.code];
 
             if (!att && subj.code) {
@@ -450,6 +451,33 @@ export function AutoSyncAttendance({ onFinish, onSessionExpired }: Props) {
             }
             return subj;
           });
+
+          // CRITICAL FIX: If subjects in store is empty, synthesize subjects from attendance table!
+          if (updatedSubjects.length === 0 && Object.keys(newData).length > 0) {
+            const synthList: any[] = [];
+            const seenCodes = new Set<string>();
+            for (const [key, val] of Object.entries(newData) as [string, any][]) {
+              const c = val.code || (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/i.test(key) ? key : '');
+              if (c && !seenCodes.has(c)) {
+                seenCodes.add(c);
+                const title = val.title || (key !== c ? key : c);
+                synthList.push({
+                  code: c,
+                  name: title,
+                  credits: '3.0',
+                  totalClasses: val.total || 0,
+                  attendedClasses: val.attended || 0,
+                  attendancePercentage: val.percentage || 0,
+                  viewActionTarget: val.viewActionTarget
+                });
+              }
+            }
+            if (synthList.length > 0) {
+              console.log('[AutoSync] Synthesized', synthList.length, 'subjects from attendance summary table!');
+              updatedSubjects = synthList;
+              dataChanged = true;
+            }
+          }
 
           // Instantly persist the refreshed summary data to cache
           await setScrapedData({ profile, subjects: updatedSubjects, timetable, marks });

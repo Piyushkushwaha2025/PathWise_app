@@ -2,6 +2,7 @@ import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useStudyOSStore } from '../store/studyosStore';
 
 // Use localhost for emulator, or your local IP for physical device testing
 // In production, this would be your hosted backend URL (e.g., Render, Heroku)
@@ -10,11 +11,24 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.100:5000/ap
 export interface UserData {
   clerkUserId: string;
   uid?: string;
-  app_first_opened_date: string;
+  name?: string;
+  semester?: string;
+  app_first_opened_date?: string;
   free_ai_subject_id: string | null;
   is_premium: boolean;
   role: 'student' | 'cr' | 'admin';
   section_code: string | null;
+  trial_started_at?: string;
+  token_balance?: number;
+  subscription_plan?: string;
+}
+
+export interface UserSyncPayload {
+  section_code?: string;
+  uid?: string;
+  expoPushToken?: string;
+  name?: string;
+  semester?: string;
 }
 
 export interface AssignmentData {
@@ -76,18 +90,23 @@ export async function getAuthHeaders(clerkId: string, explicitToken?: string | n
 
 export async function syncUserWithDB(
   clerkId: string,
-  section_code?: string,
+  sectionOrPayload?: string | UserSyncPayload,
   uid?: string,
   expoPushToken?: string
 ): Promise<UserData> {
   try {
+    const payload: UserSyncPayload =
+      typeof sectionOrPayload === 'object' && sectionOrPayload !== null
+        ? sectionOrPayload
+        : { section_code: sectionOrPayload, uid, expoPushToken };
+
     const headers = await getAuthHeaders(clerkId);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     const res = await fetch(`${API_URL}/user/sync`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ section_code, uid, expoPushToken }),
+      body: JSON.stringify(payload),
       signal: controller.signal
     }).finally(() => clearTimeout(timeout));
     
@@ -101,8 +120,9 @@ export async function syncUserWithDB(
     }
     
     if (!res.ok || !data) throw new Error('Failed to sync user');
-    if (data?.user?.trial_started_at) {
-      AsyncStorage.setItem(`@pathwise_trial_start_${clerkId}`, data.user.trial_started_at).catch(() => {});
+    const trialAt = data?.trial_started_at || data?.user?.trial_started_at;
+    if (trialAt) {
+      AsyncStorage.setItem(`@pathwise_trial_start_${clerkId}`, trialAt).catch(() => {});
     }
     return data;
   } catch (err: any) {
@@ -507,12 +527,17 @@ export function useDBProfile() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (userId && user) {
-      syncUserWithDB(
-        userId,
-        undefined,
-        user.unsafeMetadata?.studyOsId as string
-      )
+    if (userId) {
+      const email = user?.primaryEmailAddress?.emailAddress;
+      const name = user?.fullName || (user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : undefined) || undefined;
+      const stProfile = useStudyOSStore.getState().profile;
+
+      syncUserWithDB(userId, {
+        section_code: stProfile?.section || undefined,
+        uid: (stProfile?.uid && stProfile.uid !== 'Unknown' && stProfile.uid !== 'Error') ? stProfile.uid : (user?.unsafeMetadata?.studyOsId as string || undefined),
+        name: stProfile?.name || name || undefined,
+        semester: stProfile?.semester || undefined,
+      })
         .then(setDbUser)
         .catch((e) => console.log('DB Sync failed, backend might be offline:', e.message))
         .finally(() => setLoading(false));
@@ -520,7 +545,7 @@ export function useDBProfile() {
       setDbUser(null);
       setLoading(false);
     }
-  }, [userId, user?.unsafeMetadata?.studyOsId]);
+  }, [userId, user?.id, user?.primaryEmailAddress?.emailAddress]);
 
   return { dbUser, loading, setDbUser };
 }
@@ -624,16 +649,18 @@ export async function claimDailyBonus(clerkId: string, token?: string | null): P
   let res = await fetch(`${API_URL}/rewards/daily-bonus`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({}),
+    body: JSON.stringify({ clerkUserId: clerkId }),
   });
 
-  if (res.status === 404) {
+  if (res.status === 401 || res.status === 404) {
     try {
       await syncUserWithDB(clerkId);
+      const freshToken = await getAuthToken();
+      const freshHeaders = await getAuthHeaders(clerkId, freshToken);
       res = await fetch(`${API_URL}/rewards/daily-bonus`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({}),
+        headers: freshHeaders,
+        body: JSON.stringify({ clerkUserId: clerkId }),
       });
     } catch {}
   }
@@ -658,12 +685,14 @@ export async function claimAdReward(clerkId: string, adType: string, token?: str
     body: JSON.stringify({ ad_type: adType }),
   });
 
-  if (res.status === 404) {
+  if (res.status === 401 || res.status === 404) {
     try {
       await syncUserWithDB(clerkId);
+      const freshToken = await getAuthToken();
+      const freshHeaders = await getAuthHeaders(clerkId, freshToken);
       res = await fetch(`${API_URL}/rewards/watch-ad`, {
         method: 'POST',
-        headers,
+        headers: freshHeaders,
         body: JSON.stringify({ ad_type: adType }),
       });
     } catch {}

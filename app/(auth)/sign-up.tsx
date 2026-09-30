@@ -119,16 +119,24 @@ export default function SignUpScreen() {
       setError("Please accept the Terms of Service and Privacy Policy to continue.");
       return;
     }
-    if (!name.trim() || !email.trim() || !password) {
-      setError("Please fill in all fields.");
+    if (!email.trim() || !password) {
+      setError("Please fill in email and password.");
       return;
     }
     setError("");
     setLoading(true);
 
+    const trimmedName = name.trim();
+    const fallbackName = email.trim().split('@')[0] || "Student";
+    const effectiveName = trimmedName || fallbackName;
+    const nameParts = effectiveName.split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0] || effectiveName;
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
+
     try {
       await signUp.create({
-        firstName: name.trim(),
+        firstName,
+        ...(lastName ? { lastName } : {}),
         emailAddress: email.trim(),
         password,
       });
@@ -169,12 +177,77 @@ export default function SignUpScreen() {
       const result = await signUp.attemptEmailAddressVerification({
         code: code.trim(),
       });
-      if (result.status === "complete") {
-        await setActive({ session: result.createdSessionId });
-        router.replace("/(app)/dashboard");
-      } else {
-        setError("Verification failed. Please check the code and try again.");
+
+      // If last_name was missing on a previously created sign-up, supply it now
+      if (result.status === "missing_requirements") {
+        const missing = (result as any).missingFields || [];
+        if (missing.includes("last_name") || missing.includes("lastName")) {
+          const nameParts = name.trim().split(/\s+/);
+          const fallbackLastName = nameParts.slice(1).join(" ") || nameParts[0] || "-";
+          try {
+            await signUp.update({ lastName: fallbackLastName });
+          } catch {}
+        }
       }
+
+      // 1. Primary Success Path: Status complete or session created
+      const activeSessionId = result.createdSessionId || signUp.createdSessionId;
+      if (activeSessionId) {
+        await setActive({ session: activeSessionId });
+        router.replace("/(app)/dashboard");
+        return;
+      }
+
+      if (result.status === "complete" || signUp.status === "complete") {
+        if (activeSessionId) {
+          await setActive({ session: activeSessionId });
+          router.replace("/(app)/dashboard");
+          return;
+        }
+      }
+
+      // 2. Email verification succeeded but session ID not attached directly
+      // Auto-sign in with the verified email and password
+      if (
+        result.status === "complete" ||
+        result.verifications?.emailAddress?.status === "verified" ||
+        signUp.verifications?.emailAddress?.status === "verified"
+      ) {
+        if (signIn && email && password) {
+          try {
+            const signInResult = await signIn.create({
+              identifier: email.trim(),
+              password,
+            });
+            if (signInResult.status === "complete" && signInResult.createdSessionId) {
+              await setActive({ session: signInResult.createdSessionId });
+              router.replace("/(app)/dashboard");
+              return;
+            }
+          } catch {
+            // fall through
+          }
+        }
+      }
+
+      // 3. Fallback: Try sign-in in case Clerk completed verification on the server
+      if (signIn && email && password) {
+        try {
+          const signInResult = await signIn.create({
+            identifier: email.trim(),
+            password,
+          });
+          if (signInResult.status === "complete" && signInResult.createdSessionId) {
+            await setActive({ session: signInResult.createdSessionId });
+            router.replace("/(app)/dashboard");
+            return;
+          }
+        } catch {
+          // fall through to error
+        }
+      }
+
+      setError("Verification failed. Please check the code and try again.");
     } catch (err: unknown) {
       const clerkErr = err as { errors?: { code?: string; message: string }[] };
       const errCode = clerkErr?.errors?.[0]?.code ?? "";
@@ -288,7 +361,7 @@ export default function SignUpScreen() {
 
               <TextInput
                 style={styles.input}
-                placeholder="Full name"
+                placeholder="Full name (optional)"
                 placeholderTextColor={Colors.textDim}
                 value={name}
                 onChangeText={setName}

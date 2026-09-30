@@ -52,6 +52,7 @@ export default function RewardsScreen() {
 
   // -- Preload Rewarded Ad Logic --
   const rewardedAdRefs = React.useRef<Record<string, RewardedAd | null>>({});
+  const adLoadedMapRef = React.useRef<Record<string, boolean>>({});
   const resolveAdRef = React.useRef<(() => void) | null>(null);
   const rejectAdRef = React.useRef<((err: Error) => void) | null>(null);
   const isEarnedRef = React.useRef(false);
@@ -68,7 +69,7 @@ export default function RewardsScreen() {
     const ad = RewardedAd.createForAdRequest(adUnitId, { requestNonPersonalizedAdsOnly: true });
 
     ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
-      // Ad is ready
+      adLoadedMapRef.current[adId] = true;
     });
 
     ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
@@ -78,6 +79,7 @@ export default function RewardsScreen() {
     });
 
     ad.addAdEventListener(AdEventType.CLOSED, () => {
+      adLoadedMapRef.current[adId] = false;
       if (currentWatchingAdIdRef.current === adId) {
         setTimeout(() => { (global as any).isAdShowing = false; }, 2000); // Unblock AppOpenAd
         if (isEarnedRef.current) resolveAdRef.current?.();
@@ -88,12 +90,13 @@ export default function RewardsScreen() {
     });
 
     ad.addAdEventListener(AdEventType.ERROR, (error) => {
+      adLoadedMapRef.current[adId] = false;
       if (currentWatchingAdIdRef.current === adId) {
         (global as any).isAdShowing = false;
         rejectAdRef.current?.(error);
         currentWatchingAdIdRef.current = null;
       }
-      setTimeout(() => loadRewardedAd(adId), 5000); // Retry after 5s if failed
+      setTimeout(() => loadRewardedAd(adId), 4000); // Retry after 4s if failed
     });
 
     ad.load();
@@ -115,12 +118,20 @@ export default function RewardsScreen() {
   const fetchStatus = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const token = await getToken();
+      let token = await getToken();
+      if (!token) {
+        await new Promise(r => setTimeout(r, 300));
+        token = await getToken();
+      }
       const data = await getRewardStatus(user.id, token);
       setStatus(data);
-      if (data?.daily_claimed_today) {
-        setDailyClaimed(true);
-        AsyncStorage.setItem('last_daily_claim', new Date().toDateString()).catch(() => {});
+      if (data && typeof data.daily_claimed_today === 'boolean') {
+        setDailyClaimed(data.daily_claimed_today);
+        if (data.daily_claimed_today) {
+          AsyncStorage.setItem('last_daily_claim', new Date().toDateString()).catch(() => {});
+        } else {
+          AsyncStorage.removeItem('last_daily_claim').catch(() => {});
+        }
       }
     } catch (e) {
       console.error(e);
@@ -156,12 +167,16 @@ export default function RewardsScreen() {
     if (!user?.id || dailyClaimed) return;
     setDailyClaimed(true); // Optimistically lock it to prevent double-click spam
     try {
-      // Daily bonus logic separated from ads
-      const token = await getToken();
+      let token = await getToken();
+      if (!token) {
+        await new Promise(r => setTimeout(r, 400));
+        token = await getToken();
+      }
       const result = await claimDailyBonus(user.id, token);
       animateToken();
       await AsyncStorage.setItem('last_daily_claim', new Date().toDateString());
       setStatus(prev => prev ? { ...prev, token_balance: result.token_balance, daily_claimed_today: true } : prev);
+      queryClient.invalidateQueries({ queryKey: ['rewardStatus'] });
       showToast('Daily Bonus! 🎁', `You collected your daily bonus! Balance: ${result.token_balance}`);
     } catch (e: any) {
       if (e.code === 'ALREADY_CLAIMED' || e.message?.toLowerCase().includes('already claimed')) {
@@ -181,12 +196,24 @@ export default function RewardsScreen() {
       showToast('Daily Limit Reached', `You have watched all ${status.max_ads_per_day} ads for today. Come back tomorrow!`, true);
       return;
     }
-    if (!rewardedAdRefs.current[adOption.id]) {
-      showToast('Loading...', 'Please wait a moment while the video loads.', true);
-      return;
-    }
     
     setWatchingAd(adOption.id);
+
+    // Buffer check: if ad is still loading, wait up to 5s before showing
+    if (!adLoadedMapRef.current[adOption.id] || !rewardedAdRefs.current[adOption.id]) {
+      showToast('Loading Video...', 'Preparing your video sponsor, please wait a second.');
+      let waitCount = 0;
+      while (!adLoadedMapRef.current[adOption.id] && waitCount < 10) {
+        await new Promise(r => setTimeout(r, 500));
+        waitCount++;
+      }
+      if (!adLoadedMapRef.current[adOption.id] || !rewardedAdRefs.current[adOption.id]) {
+        setWatchingAd(null);
+        showToast('Video Buffering', 'Ad is still loading. Please tap again in a moment.', true);
+        loadRewardedAd(adOption.id);
+        return;
+      }
+    }
     
     try {
       (global as any).isAdShowing = true;

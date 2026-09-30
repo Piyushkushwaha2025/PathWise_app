@@ -75,6 +75,32 @@ export default function ProfileScreen() {
   
 
   const { dbUser, loading: dbLoading } = useDBProfile();
+  const stProfile = useStudyOSStore((s) => s.profile);
+
+  const displayName = React.useMemo(() => {
+    // 1. If ERP/StudyOS profile or DB user has a valid real student name
+    const collegeName = (stProfile?.name || dbUser?.name || '').trim();
+    if (collegeName && collegeName !== 'Unknown' && collegeName !== 'Error' && !collegeName.includes('@')) {
+      return collegeName;
+    }
+    // 2. Check Clerk firstName and lastName
+    const f = (user?.firstName || '').trim();
+    const l = (user?.lastName || '').trim();
+    if (f && l) {
+      if (f.toLowerCase() === l.toLowerCase()) return f;
+      return `${f} ${l}`;
+    }
+    if (user?.fullName) {
+      const parts = user.fullName.trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
+        return parts[0];
+      }
+      return user.fullName.trim();
+    }
+    if (f) return f;
+    const emailPrefix = user?.primaryEmailAddress?.emailAddress?.split('@')[0];
+    return emailPrefix || "Learner";
+  }, [user?.fullName, user?.firstName, user?.lastName, user?.primaryEmailAddress?.emailAddress, dbUser?.name, stProfile?.name]);
 
   const colors = useThemeStore((s) => s.colors);
   const currentTheme = useThemeStore((s) => s.theme);
@@ -108,7 +134,11 @@ export default function ProfileScreen() {
 
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [firstName, setFirstName] = useState(user?.firstName || "");
-  const [lastName, setLastName] = useState(user?.lastName || "");
+  const [lastName, setLastName] = useState(
+    (user?.firstName && user?.lastName && user.firstName.toLowerCase() === user.lastName.toLowerCase())
+      ? ""
+      : (user?.lastName || "")
+  );
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const [isNotificationsVisible, setNotificationsVisible] = useState(false);
@@ -282,7 +312,7 @@ export default function ProfileScreen() {
     try {
       await user?.update({
         firstName: sanitizeString(firstName),
-        lastName: sanitizeString(lastName),
+        lastName: lastName ? sanitizeString(lastName) : "",
       });
 
       setSettingsVisible(false);
@@ -403,7 +433,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.nameContainer}>
-            <Text style={styles.name}>{user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress?.split('@')[0] || "Learner"}</Text>
+            <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
           </View>
 
           <Text style={styles.email}>
@@ -452,8 +482,10 @@ export default function ProfileScreen() {
             <TouchableOpacity
               style={styles.menuItem}
               onPress={() => {
-                setFirstName(user?.firstName || "");
-                setLastName(user?.lastName || "");
+                const f = (user?.firstName || "").trim();
+                const l = (user?.lastName || "").trim();
+                setFirstName(f);
+                setLastName(f && l && f.toLowerCase() === l.toLowerCase() ? "" : l);
                 setSettingsVisible(true);
               }}
             >

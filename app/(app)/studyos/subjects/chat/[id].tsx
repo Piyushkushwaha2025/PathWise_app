@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Activi
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 
 import { WebView } from 'react-native-webview';
+import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from 'react-native-google-mobile-ads';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { GoogleGenAI } from '@google/genai';
@@ -13,7 +14,8 @@ import { useThemeStore } from '../../../../../store/useThemeStore';
 import { CenterPopModal } from '../../../../../components/ui/CenterPopModal';
 import Markdown from 'react-native-markdown-display';
 import { generateAiResponse, reflectAndLearn, getDailyAiUsage } from '../../../../../lib/aiManager';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth, useUser } from '@clerk/clerk-expo';
+import { useDBProfile } from '../../../../../lib/db';
 import { useSubscription } from '../../../../../hooks/useSubscription';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView, BlurTargetView } from 'expo-blur';
@@ -150,15 +152,103 @@ export default function AITutorChatScreen() {
   const insets = useSafeAreaInsets();
   const kbOffset = insets.top;
 
-  const { isSubscriptionRequired } = useSubscription();
+  const { isSubscriptionRequired, isPro, isRewardPro, isTrialActive, isSubscribed, plan, statusType } = useSubscription();
+  const { user } = useUser();
+  const { dbUser } = useDBProfile();
   const netState = useNetworkStatus();
-  const isAccessGranted = !isSubscriptionRequired;
+
+  // Strict check: NEVER show ads if user has Pro in ANY way (Paid, Token-Reward Pro, Active Free Trial, Clerk metadata, or DB record)
+  const isProInAnyWay =
+    isPro ||
+    isRewardPro ||
+    isTrialActive ||
+    !isSubscriptionRequired ||
+    Boolean(user?.unsafeMetadata?.isSubscribed) ||
+    user?.unsafeMetadata?.plan === 'pro' ||
+    Boolean(dbUser?.is_premium) ||
+    (Boolean(dbUser?.subscription_plan) && dbUser?.subscription_plan !== 'free');
+
+  const isAccessGranted = isProInAnyWay;
+
+  // Daily AI fair-use tier: Free and 30-day Trial users get 15 queries/day; ONLY Paid Pro gets 40 queries/day
+  const isTrial = Boolean(
+    isTrialActive ||
+    statusType === 'trial' ||
+    dbUser?.subscription_plan === 'trial' ||
+    user?.unsafeMetadata?.plan === 'trial'
+  );
+  const isPaidProForAi = !isTrial && Boolean(
+    isSubscribed ||
+    statusType === 'paid' ||
+    user?.unsafeMetadata?.isSubscribed ||
+    (user?.unsafeMetadata?.plan && user?.unsafeMetadata?.plan !== 'trial' && user?.unsafeMetadata?.plan !== 'free') ||
+    (dbUser?.is_premium && dbUser?.subscription_plan !== 'free' && dbUser?.subscription_plan !== 'trial')
+  );
   
+  const [adShowing, setAdShowing] = useState(false);
+  const [adUnlocked, setAdUnlocked] = useState(false);
+  const adUnitId = __DEV__ ? TestIds.REWARDED : 'ca-app-pub-4632911659428084/3940455403'; // 60s ad
+
   useEffect(() => {
-    if (isSubscriptionRequired) {
-      router.replace("/(app)/_pathwise_subscription");
+    if (isProInAnyWay || adUnlocked) {
+      if (adShowing) setAdShowing(false);
+      return;
     }
-  }, [isSubscriptionRequired]);
+    if (Platform.OS === 'web') return;
+
+    let rewardedAd: RewardedAd | null = null;
+    let earned = false;
+    setAdShowing(true);
+
+    try {
+      rewardedAd = RewardedAd.createForAdRequest(adUnitId, { requestNonPersonalizedAdsOnly: true });
+
+      rewardedAd.addAdEventListener(RewardedAdEventType.LOADED, () => {
+        (global as any).isAdShowing = true;
+        rewardedAd?.show();
+      });
+
+      rewardedAd.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
+        earned = true;
+        setAdUnlocked(true);
+      });
+
+      rewardedAd.addAdEventListener(AdEventType.CLOSED, () => {
+        (global as any).isAdShowing = false;
+        setAdShowing(false);
+        if (earned) {
+          setAdUnlocked(true);
+        } else {
+          Alert.alert(
+            "Video Incomplete",
+            "Watch the 60-second sponsored video to access AI Tutor, or upgrade to Pro.",
+            [
+              { text: "Get Pro", onPress: () => router.replace("/(app)/_pathwise_subscription") },
+              { text: "Watch Again", onPress: () => setAdUnlocked(false) },
+            ]
+          );
+        }
+      });
+
+      rewardedAd.addAdEventListener(AdEventType.ERROR, (err) => {
+        console.warn("RewardedAd error in chat:", err);
+        (global as any).isAdShowing = false;
+        setAdShowing(false);
+        setAdUnlocked(true);
+      });
+
+      rewardedAd.load();
+    } catch (e) {
+      console.warn("Could not initialize RewardedAd in chat:", e);
+      setAdShowing(false);
+      setAdUnlocked(true);
+    }
+
+    return () => {
+      rewardedAd = null;
+      (global as any).isAdShowing = false;
+    };
+  }, [isProInAnyWay, adUnlocked]);
 
   const [apiKey, setApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -175,7 +265,7 @@ export default function AITutorChatScreen() {
   }
   const [connectedModels, setConnectedModels] = useState<ConnectedModel[]>([]);
   const [activeProvider, setActiveProvider] = useState<string>('gemini');
-  const [dailyUsage, setDailyUsage] = useState<{ used: number; limit: number; remaining: number }>({ used: 0, limit: 50, remaining: 50 });
+  const [dailyUsage, setDailyUsage] = useState<{ used: number; limit: number; remaining: number }>({ used: 0, limit: 15, remaining: 15 });
   const [showModelSwitcherModal, setShowModelSwitcherModal] = useState(false);
   const [syllabusScraped, setSyllabusScraped] = useState(false);
   const [syllabusText, setSyllabusText] = useState('');
@@ -335,8 +425,8 @@ export default function AITutorChatScreen() {
     loadApiKey();
     loadSessions();
     fetchAvailableFiles();
-    getDailyAiUsage().then(setDailyUsage).catch(() => {});
-  }, [id, name, sessionId, mode]);
+    getDailyAiUsage(isPaidProForAi).then(setDailyUsage).catch(() => {});
+  }, [id, name, sessionId, mode, isPaidProForAi]);
 
   useEffect(() => {
     if (isDoubtSolver) {
@@ -797,8 +887,9 @@ export default function AITutorChatScreen() {
       };
     }
     if (raw.includes('DAILY_LIMIT_REACHED')) {
+      const activeLimit = dailyUsage.limit || (isPaidProForAi ? 40 : 15);
       return {
-        message: "⚠️ **Daily Limit Reached (50 msgs/day)**\n\nYou've used your 50 free PathWise AI queries for today. Limit resets tomorrow at midnight, or connect your free personal Gemini or Groq key in Settings for unlimited queries!",
+        message: `⚠️ **Daily Limit Reached (${activeLimit} msgs/day)**\n\nYou've used your ${activeLimit} ${isPaidProForAi ? 'Pro' : 'free/trial'} PathWise AI queries for today. Limit resets tomorrow at midnight, or connect your free personal Gemini or Groq key in Settings for unlimited queries!`,
         showSettings: true
       };
     }
@@ -901,11 +992,12 @@ export default function AITutorChatScreen() {
          isDoubtSolver ? 'DOUBT_SOLVER' : (id as string), 
          learningProfile, 
          activeProvider,
-         imagePayload
+         imagePayload,
+         isPaidProForAi
       );
 
       reportNetworkSuccess(Date.now() - reqStartTime);
-      getDailyAiUsage().then(setDailyUsage).catch(() => {});
+      getDailyAiUsage(isPaidProForAi).then(setDailyUsage).catch(() => {});
 
       // Trigger self-learning in the background (non-blocking)
       if (apiKey) {
@@ -955,6 +1047,7 @@ export default function AITutorChatScreen() {
 
       if (friendly.showSettings) {
          setShowSettings(true);
+         getDailyAiUsage(isPaidProForAi).then(setDailyUsage).catch(() => {});
       }
       if (friendly.showContextModal) {
          setShowContextLimitModal(true);
@@ -1520,6 +1613,25 @@ export default function AITutorChatScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
+      {!isProInAnyWay && !adUnlocked && (
+        <Modal visible transparent animationType="fade">
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={{ color: '#fff', fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', marginTop: 16, textAlign: 'center' }}>
+              Loading Sponsored Video...
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontFamily: 'Inter_400Regular', marginTop: 8, textAlign: 'center', lineHeight: 18 }}>
+              Enjoy free AI Tutor access by watching a short 60s video sponsor.
+            </Text>
+            <TouchableOpacity 
+              onPress={() => router.back()} 
+              style={{ marginTop: 24, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.1)' }}
+            >
+              <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, fontFamily: 'Inter_600SemiBold' }}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      )}
       <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={kbOffset}>
         
@@ -1560,7 +1672,7 @@ export default function AITutorChatScreen() {
             >
               <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'SpaceGrotesk_700Bold', paddingRight: 4 }}>
                 {activeProvider === 'pool' 
-                  ? `⚡ PathWise AI (${dailyUsage.remaining}/50)` 
+                  ? `⚡ PathWise AI (${dailyUsage.remaining}/${dailyUsage.limit})` 
                   : `${connectedModels.find(m => m.id === activeProvider)?.icon || '🤖'} ${connectedModels.find(m => m.id === activeProvider)?.name || 'BYOK Model'}`}
               </Text>
               <Ionicons name="chevron-down" size={14} color={colors.primary} />
@@ -2149,7 +2261,7 @@ export default function AITutorChatScreen() {
                            PathWise Cloud AI
                         </Text>
                         <Text style={{ color: colors.success, fontSize: 11, fontFamily: 'Inter_600SemiBold', marginTop: 2 }}>
-                           Free Pool • {dailyUsage.remaining} of 50 queries left today
+                           {isPaidProForAi ? 'Pro Pool' : 'Free / Trial Pool'} • {dailyUsage.remaining} of {dailyUsage.limit} queries left today
                         </Text>
                      </View>
                   </View>

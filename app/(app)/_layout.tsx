@@ -1,5 +1,6 @@
 import { Tabs, usePathname, useRouter, Redirect } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
+import { setAuthTokenGetter } from "../../lib/db";
 import { TabBar } from "../../components/layout/TabBar";
 import { useEffect, useRef, useState } from "react";
 import { BlurTargetView } from "expo-blur";
@@ -53,7 +54,13 @@ const DisconnectedBubble = ({ onPress, colors }: any) => (
 );
 
 export default function AppLayout() {
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, getToken } = useAuth();
+
+  useEffect(() => {
+    if (getToken) {
+      setAuthTokenGetter(getToken);
+    }
+  }, [getToken]);
   const blurTargetRef = useRef<View>(null);
   const { checkForUpdates } = useUpdateStore();
   const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode, customError, setCustomError } = useStudySessionStore();
@@ -91,6 +98,11 @@ export default function AppLayout() {
     ]).start(() => setShowToast(false));
   };
 
+
+  useEffect(() => {
+    loadGamification().catch(() => {});
+    checkConnection().catch(() => {});
+  }, []);
 
   useEffect(() => {
     // Single auto-check on app load — delayed so app fully renders first

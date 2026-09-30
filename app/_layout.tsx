@@ -42,8 +42,7 @@ if ((TextInput as any).defaultProps == null) {
 import { tokenCache } from "../lib/clerk";
 import { Colors } from "../constants/theme";
 import * as Notifications from "expo-notifications";
-import { Platform, AppState } from "react-native";
-import { AppOpenAd, TestIds, AdEventType } from "react-native-google-mobile-ads";
+import { Platform } from "react-native";
 
 // Global notification handler — show banner even when app is open
 Notifications.setNotificationHandler({
@@ -167,79 +166,6 @@ function RootLayoutInner() {
     ]).catch(e => console.warn("Store init warning:", e));
   }, []);
 
-  useEffect(() => {
-    // Only show starting AppOpenAd to authenticated users who DO NOT have Pro or an Active Trial
-    if (!isLoaded || !user || isProEffective) {
-      return;
-    }
-
-    if (Platform.OS === "web") return;
-
-    let appOpenAd: AppOpenAd | null = null;
-    let isAdLoaded = false;
-    let isShowingAd = false;
-    let hasShownInitialAd = false; // Track cold start ad
-
-    const adUnitId = __DEV__
-      ? TestIds.APP_OPEN
-      : "ca-app-pub-4632911659428084/4454731771";
-
-    try {
-      appOpenAd = AppOpenAd.createForAdRequest(adUnitId, {
-        requestNonPersonalizedAdsOnly: true,
-      });
-
-      appOpenAd.addAdEventListener(AdEventType.LOADED, () => {
-        isAdLoaded = true;
-        // Strictly verify that user is NOT Pro/Trial before showing
-        if (isProEffectiveRef.current) return;
-
-        // Show immediately on cold start if app is active
-        if (!hasShownInitialAd && AppState.currentState === 'active' && !isShowingAd && !(global as any).isAdShowing) {
-          hasShownInitialAd = true;
-          isShowingAd = true;
-          appOpenAd?.show();
-        }
-      });
-      
-      appOpenAd.addAdEventListener(AdEventType.CLOSED, () => {
-        isShowingAd = false;
-        isAdLoaded = false;
-        // Only preload next ad if the user is still not Pro/Trial
-        if (!isProEffectiveRef.current) {
-          appOpenAd?.load();
-        }
-      });
-
-      appOpenAd.addAdEventListener(AdEventType.ERROR, (error) => {
-        isShowingAd = false;
-        isAdLoaded = false;
-        console.warn("AppOpenAd error:", error);
-      });
-
-      // Load the first ad
-      appOpenAd.load();
-    } catch (e) {
-      console.warn("Could not initialize AppOpenAd", e);
-    }
-
-    const appStateSubscription = AppState.addEventListener("change", (nextAppState) => {
-      // Strictly verify that user is NOT Pro/Trial before showing
-      if (isProEffectiveRef.current) return;
-
-      // Show the ad when app comes to foreground (active), EXCEPT if a rewarded ad is showing
-      if (nextAppState === "active" && appOpenAd && isAdLoaded && !isShowingAd && !(global as any).isAdShowing) {
-        hasShownInitialAd = true;
-        isShowingAd = true;
-        appOpenAd.show();
-      }
-    });
-
-    return () => {
-      appStateSubscription.remove();
-      appOpenAd = null;
-    };
-  }, [isLoaded, !!user, isProEffective]);
 
   useEffect(() => {
     if (!user?.id) return;

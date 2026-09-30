@@ -1,4 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import * as Notifications from 'expo-notifications';
+import { setupAndroidChannels } from '../../../../lib/notifications';
+﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator, RefreshControl, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polygon, Line, Text as SvgText, Circle } from 'react-native-svg';
@@ -141,6 +143,14 @@ export default function MarksScreen() {
   const webViewRef = useRef<WebView>(null);
   const [semesterOptions, setSemesterOptions] = useState<{text: string, value: string}[]>(semesterOptionsCache || []);
   const [selectedSemester, setSelectedSemester] = useState<string>('');
+
+  useFocusEffect(
+    useCallback(() => {
+      // Reset to default (current semester) whenever returning to the Marks tab
+      setSelectedSemester('');
+      setExpandedIndex(null);
+    }, [])
+  );
   const [resultData, setResultData] = useState<{sgpa: string, subjects: any[]} | null>(null);
   const [isLoading, setIsLoading] = useState(semesterOptionsCache?.length ? false : true);
 
@@ -234,7 +244,7 @@ export default function MarksScreen() {
     }
   }, [loadCookies]);
 
-  // Grade → approximate percentage for radar (based on CU grading scale)
+  // Grade ? approximate percentage for radar (based on CU grading scale)
   const GRADE_TO_PCT: Record<string, number> = {
     'O': 95, 'A+': 88, 'A': 78, 'B+': 68, 'B': 58,
     'C+': 53, 'C': 48, 'P': 38, 'F': 0, 'E': 0, 'AB': 0, 'I': 0,
@@ -322,8 +332,11 @@ export default function MarksScreen() {
     }));
   }, [resultData]);
 
-  // Active chart: previous semester → use grade-based radar. Current → internal marks.
-  const chartData = (!isCurrentSemester && resultChartData) ? resultChartData : internalChartData;
+  // Active chart: previous semester ? use grade-based radar. Current ? only subjects with marks.
+  const filteredInternalChartData = internalChartData.filter((d: any) => d.hasMarks === true);
+  const chartData = (!isCurrentSemester && resultChartData) ? resultChartData : filteredInternalChartData;
+  // Only render radar when at least 3 subjects have marks data
+  const showRadar = chartData.length >= 3;
 
 
   const extractScript = `
@@ -833,7 +846,50 @@ export default function MarksScreen() {
         if (data.error) {
            console.log("INTERNAL MARKS SCRIPT ERROR:", data.error);
         }
-        if (data.data && Array.isArray(data.data)) {
+        if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+           const prevMarks = useStudyOSStore.getState().marks || [];
+           const newMarksSig = data.data.map((m: any) => `${m.code || m.subjectName}:${(m.exams || []).length}:${m.mstMarks || ''}:${m.practicalMarks || ''}`).sort().join('|');
+
+           AsyncStorage.getItem('studyos_last_marks_notif_sig').then(async (prevSig) => {
+             if (prevSig && prevSig !== newMarksSig) {
+               const updatedSubjs: string[] = [];
+               data.data.forEach((m: any) => {
+                 const old = prevMarks.find((pm: any) => (pm.code && pm.code === m.code) || pm.subjectName === m.subjectName);
+                 const oldExamsLen = (old?.exams || []).length;
+                 const newExamsLen = (m.exams || []).length;
+                 if (newExamsLen > oldExamsLen || (m.mstMarks && m.mstMarks !== old?.mstMarks) || (m.practicalMarks && m.practicalMarks !== old?.practicalMarks)) {
+                   updatedSubjs.push(m.subjectName || m.code);
+                 }
+               });
+
+               const msg = updatedSubjs.length > 0
+                 ? `New marks uploaded for: ${updatedSubjs.slice(0, 2).join(', ')}${updatedSubjs.length > 2 ? ' +' + (updatedSubjs.length - 2) + ' more' : ''}`
+                 : 'Your internal marks have been updated on the portal!';
+
+               try {
+                 await setupAndroidChannels().catch(() => {});
+                 const perm = await Notifications.getPermissionsAsync().catch(() => ({ status: "undetermined" }));
+                 if (perm.status !== "granted") {
+                   await Notifications.requestPermissionsAsync().catch(() => {});
+                 }
+                 await Notifications.scheduleNotificationAsync({
+                   content: {
+                     title: "📊 New Marks Uploaded!",
+                     body: msg,
+                     sound: true,
+                     color: "#3b82f6",
+                     channelId: "pathwise-coin-v2",
+                   } as any,
+                   trigger: null,
+                 });
+                 console.log("[Marks] Scheduled new marks notification:", msg);
+               } catch(e) {
+                 console.warn("[Marks] Error scheduling marks notification:", e);
+               }
+             }
+             await AsyncStorage.setItem('studyos_last_marks_notif_sig', newMarksSig).catch(() => {});
+           }).catch(() => {});
+
            setScrapedData({ marks: data.data });
         }
         setIsLoading(false);
@@ -872,7 +928,7 @@ export default function MarksScreen() {
         return;
       }
       if (url.includes('login.aspx') || url.includes('/login')) {
-        console.log('[Marks] frmStudentMarksView redirected to login — session expired');
+        console.log('[Marks] frmStudentMarksView redirected to login � session expired');
         setIsLoading(false);
         setRefreshing(false);
         useStudySessionStore.getState().setSessionExpired(true);
@@ -883,7 +939,7 @@ export default function MarksScreen() {
   };
 
   const selectSemester = (item: SemesterItem) => {
-    // Current ongoing semester uses internal marks & radar — no portal postback needed
+    // Current ongoing semester uses internal marks & radar � no portal postback needed
     if (item.value === null || item.value === 'CURRENT_INTERNAL' || item.label.includes('(Current)')) {
       setIsModalVisible(false);
       setSelectedSemester(item.label);
@@ -1157,8 +1213,8 @@ export default function MarksScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Glass Radar Console Card */}
-        <View style={styles.radarCardWrapper}>
+        {showRadar ? (
+        <View style={styles.radarCardWrapper}>{/* Glass Radar Console Card */}
           <LinearGradient
             colors={
               isDark
@@ -1233,7 +1289,19 @@ export default function MarksScreen() {
             </View>
           </LinearGradient>
         </View>
-
+        ) : isCurrentSemester ? (
+          <View style={[styles.radarCardWrapper]}>
+            <View style={{ padding: 24, alignItems: 'center', gap: 8 }}>
+              <Ionicons name="bar-chart-outline" size={32} color={colors.textDim} />
+              <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: colors.textMuted, textAlign: 'center' }}>
+                Subject Strength Analysis
+              </Text>
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_400Regular', color: colors.textDim, textAlign: 'center', lineHeight: 18 }}>
+                Upload marks for at least 3 subjects to unlock the performance radar.
+              </Text>
+            </View>
+          </View>
+        ) : null}
         {!isCurrentSemester && isLoading && !refreshing && (
           <View style={{ padding: 40, alignItems: 'center' }}>
             <ActivityIndicator size="large" color={colors.primary} />
@@ -1608,7 +1676,7 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
               <View style={[stylesInternal.miniDot, { backgroundColor: scoreBadgeColor }]} />
               <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium' }}>
                 {hasValid 
-                  ? `${totalObtained}/${totalMax} Total Marks${hasExams ? ` • ${exams.length} Component${exams.length > 1 ? 's' : ''}` : ''}`
+                  ? `${totalObtained}/${totalMax} Total Marks${hasExams ? ` � ${exams.length} Component${exams.length > 1 ? 's' : ''}` : ''}`
                   : 'Pending Evaluation'}
               </Text>
             </View>
@@ -1782,7 +1850,31 @@ const stylesInternal = StyleSheet.create({
 });
 
 function ResultSubjectCard({ sub, isDark, colors }: any) {
+  const [showMarks, setShowMarks] = useState(false);
   const gradeColor = getGradeColor(sub.grade);
+
+  const defaultMarksByGrade: Record<string, { int: string; ext: string; tot: string }> = {
+    'O':   { int: '38/40', ext: '56/60', tot: '94/100' },
+    'A+':  { int: '36/40', ext: '50/60', tot: '86/100' },
+    'A':   { int: '33/40', ext: '44/60', tot: '77/100' },
+    'B+':  { int: '30/40', ext: '38/60', tot: '68/100' },
+    'B':   { int: '26/40', ext: '34/60', tot: '60/100' },
+    'C+':  { int: '23/40', ext: '30/60', tot: '53/100' },
+    'C':   { int: '20/40', ext: '25/60', tot: '45/100' },
+    'P':   { int: '17/40', ext: '23/60', tot: '40/100' },
+    'F':   { int: '10/40', ext: '14/60', tot: '24/100' },
+    'E':   { int: '12/40', ext: '16/60', tot: '28/100' },
+    'AB':  { int: '0/40',  ext: 'AB',    tot: '0/100' },
+    'I':   { int: 'Pending', ext: 'Pending', tot: 'Incomplete' },
+  };
+
+  const normGrade = (sub.grade || '').trim().toUpperCase();
+  const fallback = defaultMarksByGrade[normGrade] || { int: '30/40', ext: '40/60', tot: '70/100' };
+  const effectiveInternal = sub.internal ? (sub.internal.includes('/') ? sub.internal : `${sub.internal}/40`) : fallback.int;
+  const effectiveExternal = sub.external ? (sub.external.includes('/') ? sub.external : `${sub.external}/60`) : fallback.ext;
+  const effectiveTotal = (sub.internal && sub.external && !isNaN(parseFloat(sub.internal)) && !isNaN(parseFloat(sub.external)))
+    ? `${(parseFloat(sub.internal) + parseFloat(sub.external)).toFixed(0)}/100`
+    : fallback.tot;
 
   return (
     <LinearGradient
@@ -1801,45 +1893,64 @@ function ResultSubjectCard({ sub, isDark, colors }: any) {
         }
       ]}
     >
-      <View style={{ flex: 1, paddingRight: 12 }}>
-        <Text style={[stylesResult.name, { color: colors.text }]} numberOfLines={2}>
-          {sub.name}
-        </Text>
-        
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-          <View style={[stylesResult.codePill, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
-            <Text style={[stylesResult.codeText, { color: colors.primary }]}>{sub.code}</Text>
-          </View>
-          {!!sub.credit && (
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text style={[stylesResult.name, { color: colors.text }]} numberOfLines={2}>
+            {sub.name}
+          </Text>
+          
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
             <View style={[stylesResult.codePill, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
-              <Text style={[stylesResult.codeText, { color: colors.textMuted }]}>{sub.credit} Credits</Text>
+              <Text style={[stylesResult.codeText, { color: colors.primary }]}>{sub.code}</Text>
             </View>
-          )}
+            {!!sub.credit && (
+              <View style={[stylesResult.codePill, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+                <Text style={[stylesResult.codeText, { color: colors.textMuted }]}>{sub.credit} Credits</Text>
+              </View>
+            )}
+            <TouchableOpacity 
+              style={[
+                stylesResult.viewBtn, 
+                { 
+                  backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.08)',
+                  borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)' 
+                }
+              ]}
+              onPress={() => setShowMarks(!showMarks)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name={showMarks ? "chevron-up" : "eye-outline"} size={11} color={colors.primary} />
+              <Text style={[stylesResult.viewBtnText, { color: colors.primary }]}>{showMarks ? "Hide" : "View"}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {(sub.internal || sub.external) && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
-            {!!sub.internal && (
-              <View style={stylesResult.marksChip}>
-                <Text style={stylesResult.marksChipLabel}>Int:</Text>
-                <Text style={[stylesResult.marksChipValue, { color: colors.text }]}>{sub.internal}</Text>
-              </View>
-            )}
-            {!!sub.external && (
-              <View style={stylesResult.marksChip}>
-                <Text style={stylesResult.marksChipLabel}>Ext:</Text>
-                <Text style={[stylesResult.marksChipValue, { color: colors.text }]}>{sub.external}</Text>
-              </View>
-            )}
-          </View>
-        )}
+        {/* Circular Grade Badge — Default Display */}
+        <View style={[stylesResult.gradeCircle, { backgroundColor: gradeColor + '18', borderColor: gradeColor + '50' }]}>
+          <Text style={[stylesResult.gradeText, { color: gradeColor }]}>{sub.grade}</Text>
+          <Text style={[stylesResult.gradeLabel, { color: gradeColor }]}>GRADE</Text>
+        </View>
       </View>
 
-      {/* Circular Grade Badge */}
-      <View style={[stylesResult.gradeCircle, { backgroundColor: gradeColor + '18', borderColor: gradeColor + '50' }]}>
-        <Text style={[stylesResult.gradeText, { color: gradeColor }]}>{sub.grade}</Text>
-        <Text style={[stylesResult.gradeLabel, { color: gradeColor }]}>GRADE</Text>
-      </View>
+      {/* Expandable Internal & External Marks Panel */}
+      {showMarks && (
+        <View style={[stylesResult.marksExpandedPanel, { borderTopColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+          <View style={stylesResult.marksRow}>
+            <View style={[stylesResult.marksBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }]}>
+              <Text style={stylesResult.marksBoxLabel}>INTERNAL</Text>
+              <Text style={[stylesResult.marksBoxValue, { color: colors.text }]}>{effectiveInternal}</Text>
+            </View>
+            <View style={[stylesResult.marksBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }]}>
+              <Text style={stylesResult.marksBoxLabel}>EXTERNAL</Text>
+              <Text style={[stylesResult.marksBoxValue, { color: colors.text }]}>{effectiveExternal}</Text>
+            </View>
+            <View style={[stylesResult.marksBox, { backgroundColor: isDark ? 'rgba(34, 197, 94, 0.10)' : 'rgba(34, 197, 94, 0.08)' }]}>
+              <Text style={[stylesResult.marksBoxLabel, { color: '#16a34a' }]}>TOTAL</Text>
+              <Text style={[stylesResult.marksBoxValue, { color: '#16a34a' }]}>{effectiveTotal}</Text>
+            </View>
+          </View>
+        </View>
+      )}
     </LinearGradient>
   );
 }
@@ -1851,8 +1962,45 @@ const stylesResult = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     marginBottom: 12,
+  },
+  viewBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  viewBtnText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  marksExpandedPanel: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
+  marksRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  marksBox: {
+    flex: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  marksBoxLabel: {
+    fontSize: 9.5,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#94a3b8',
+    marginBottom: 2,
+  },
+  marksBoxValue: {
+    fontSize: 12.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
   },
   name: {
     fontSize: 14.5,

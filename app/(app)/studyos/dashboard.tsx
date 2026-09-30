@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Slider from '@react-native-community/slider';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, RefreshControl, AppState, Alert, Animated, Image, LayoutAnimation, Platform, UIManager, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
@@ -801,12 +802,18 @@ export default function StudyOSDashboard() {
   // so the indicator never repeats on a later refresh.
   const [justUpdated, setJustUpdated] = useState<Record<string, string>>({});
   const [showFilters, setShowFilters] = useState(false);
-  const [subjectFilter, setSubjectFilter] = useState('All');
+  const [minPct, setMinPct] = useState(0);
+
+  const filteredSubjects = React.useMemo(() => {
+    if (!subjects || subjects.length === 0) return [];
+    if (minPct === 0) return subjects;
+    return subjects.filter(sub => (sub.attendancePercentage || 0) >= minPct);
+  }, [subjects, minPct]);
 
   useFocusEffect(
     React.useCallback(() => {
       setShowFilters(false);
-      setSubjectFilter('All');
+      setMinPct(0);
     }, [])
   );
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -899,6 +906,7 @@ export default function StudyOSDashboard() {
   useFocusEffect(
     React.useCallback(() => {
       fetchNotificationCount();
+      setMinPct(0);
     }, [userId, dbUser?.section_code, profile?.section])
   );
 
@@ -950,8 +958,8 @@ export default function StudyOSDashboard() {
     if (refreshing && !force) {
       return;
     }
-    // Rate limit: ignore rapid pulls within 3.5s to prevent portal WAF / error.html throttling
-    if (now - lastSyncTime.current < 3500) {
+    // Rate limit: ignore rapid pulls within 3.5s to prevent portal WAF / error.html throttling (unless forced)
+    if (!force && now - lastSyncTime.current < 3500) {
       setRefreshing(false);
       return;
     }
@@ -969,7 +977,7 @@ export default function StudyOSDashboard() {
   useEffect(() => {
     const timer = setTimeout(() => {
       triggerSync(true);
-    }, 1500);
+    }, 600);
     return () => clearTimeout(timer);
   }, []);
 
@@ -1039,9 +1047,7 @@ export default function StudyOSDashboard() {
             color: '#10b981',
             channelId: 'pathwise-default-v2',
           } as any,
-          trigger: {
-            channelId: 'pathwise-default-v2',
-          } as any,
+          trigger: null,
         });
 
         await Notifications.scheduleNotificationAsync({
@@ -1052,9 +1058,7 @@ export default function StudyOSDashboard() {
             color: '#ef4444',
             channelId: 'pathwise-streak-v2',
           } as any,
-          trigger: {
-            channelId: 'pathwise-streak-v2',
-          } as any,
+          trigger: null,
         });
       } else if (presentChanges.length > 0) {
         const names = presentChanges.map(c => c.subjectName).join(', ');
@@ -1073,9 +1077,7 @@ export default function StudyOSDashboard() {
             color: '#10b981',
             channelId: 'pathwise-default-v2',
           } as any,
-          trigger: {
-            channelId: 'pathwise-default-v2',
-          } as any,
+          trigger: null,
         });
       } else if (absentChanges.length > 0) {
         const names = absentChanges.map(c => c.subjectName).join(', ');
@@ -1094,9 +1096,7 @@ export default function StudyOSDashboard() {
             color: '#ef4444',
             channelId: 'pathwise-streak-v2',
           } as any,
-          trigger: {
-            channelId: 'pathwise-streak-v2',
-          } as any,
+          trigger: null,
         });
       } else {
         showToast('All course records verified with portal', {
@@ -1138,9 +1138,7 @@ export default function StudyOSDashboard() {
       }
       
       if (c) {
-        setTimeout(() => {
-          triggerSync(true);
-        }, 100);
+        // Handled by cold start effect
       }
     });
   }, []);
@@ -1406,66 +1404,85 @@ export default function StudyOSDashboard() {
         </View>
 
         {showFilters && (
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md, paddingHorizontal: 2 }}>
-            {['All', 'Danger', 'Safe'].map(f => (
-              <TouchableOpacity 
-                key={f}
-                onPress={() => setSubjectFilter(f)}
-                style={{ 
-                  paddingHorizontal: 12, 
-                  paddingVertical: 6, 
-                  borderRadius: 20, 
-                  backgroundColor: subjectFilter === f ? colors.primary : 'transparent',
-                  borderWidth: 1,
-                  borderColor: subjectFilter === f ? colors.primary : colors.border
-                }}
-              >
-                <Text style={{ color: subjectFilter === f ? '#fff' : colors.textMuted, fontSize: 12, fontFamily: 'Inter_600SemiBold' }}>
-                   {f === 'Danger' ? 'Danger (< 75%)' : f === 'Safe' ? 'Safe (>= 75%)' : 'All'}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={{ marginBottom: Spacing.md, paddingHorizontal: 2 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'Inter_600SemiBold', color: colors.textMuted }}>
+                Min Attendance: <Text style={{ color: colors.primary }}>{minPct}%</Text>
+              </Text>
+              {minPct > 0 && (
+                <TouchableOpacity onPress={() => setMinPct(0)}>
+                  <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: colors.primary }}>Reset</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <Slider
+              style={{ width: '100%', height: 36 }}
+              minimumValue={0}
+              maximumValue={100}
+              step={1}
+              value={minPct}
+              onValueChange={(v: number) => setMinPct(Math.round(v))}
+              minimumTrackTintColor={colors.primary}
+              maximumTrackTintColor={colors.border}
+              thumbTintColor={colors.primary}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 10, color: colors.textMuted, fontFamily: 'Inter_400Regular' }}>0%</Text>
+              <Text style={{ fontSize: 10, color: colors.textMuted, fontFamily: 'Inter_400Regular' }}>50%</Text>
+              <Text style={{ fontSize: 10, color: colors.textMuted, fontFamily: 'Inter_400Regular' }}>100%</Text>
+            </View>
           </View>
         )}
 
         {(() => {
-           const filteredSubjects = subjects?.filter(sub => {
-             if (subjectFilter === 'All') return true;
-             if (subjectFilter === 'Danger') return (sub.attendancePercentage || 0) < 75;
-             if (subjectFilter === 'Safe') return (sub.attendancePercentage || 0) >= 75;
-             return true;
-           });
-           
+           if (!subjects || subjects.length === 0) {
+             return null;
+           }
            if (!filteredSubjects || filteredSubjects.length === 0) {
              return <Text style={{ color: colors.textMuted, fontFamily: 'Inter_500Medium', textAlign: 'center', padding: 20 }}>No subjects match this filter.</Text>;
            }
 
            return filteredSubjects.map((sub, idx) => {
-          const prediction = getAttendancePrediction(sub.totalClasses || 0, sub.attendedClasses || 0);
-          const history = getHistoryStatuses(detailedAttendanceCache?.[sub.code]);
-          return (
-            <SubjectCard 
-              key={idx}
-              title={sub.name}
-              code={sub.code} 
-              credits={sub.credits && sub.credits !== '0' ? `${sub.credits} Credits` : ''}
-              status={prediction.text} 
-              statusType={prediction.type}
-              progress={sub.attendancePercentage || 0} 
-              attended={sub.attendedClasses || 0}
-              total={sub.totalClasses || 0}
-              history={history}
-              updateBadge={justUpdated[sub.code]}
-              onPress={() => {
-                setSelectedSubjectDetails({ code: sub.code, name: sub.name, viewActionTarget: sub.viewActionTarget });
-              }}
-            />
-          );
+             const prediction = getAttendancePrediction(sub.totalClasses || 0, sub.attendedClasses || 0);
+             const history = getHistoryStatuses(detailedAttendanceCache?.[sub.code]);
+             const formattedCredits = (() => {
+               if (!sub.credits || sub.credits === '0') return '';
+               const num = parseFloat(sub.credits);
+               return isNaN(num) ? `${sub.credits} Credits` : `${num} Credits`;
+             })();
+
+             return (
+               <SubjectCard 
+                 key={sub.code || idx}
+                 title={sub.name}
+                 code={sub.code} 
+                 credits={formattedCredits}
+                 status={prediction.text} 
+                 statusType={prediction.type}
+                 progress={sub.attendancePercentage || 0} 
+                 attended={sub.attendedClasses || 0}
+                 total={sub.totalClasses || 0}
+                 history={history}
+                 updateBadge={justUpdated[sub.code]}
+                 onPress={() => {
+                   setSelectedSubjectDetails({ code: sub.code, name: sub.name, viewActionTarget: sub.viewActionTarget });
+                 }}
+               />
+             );
            });
         })()}
         
         {(!subjects || subjects.length === 0) && (
-           <Text style={{ color: colors.textMuted, textAlign: 'center', marginVertical: 20 }}>Syncing subjects from ERP...</Text>
+           <View style={{ alignItems: 'center', marginVertical: 24, gap: 12 }}>
+             <ActivityIndicator size="small" color={colors.primary} />
+             <Text style={{ color: colors.textMuted, textAlign: 'center', fontFamily: 'Inter_500Medium' }}>Syncing subjects from ERP...</Text>
+             <TouchableOpacity
+               onPress={() => triggerSync(true)}
+               style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, borderWidth: 1, borderColor: colors.primary + '40' }}
+             >
+               <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Inter_600SemiBold' }}>Tap to Refresh</Text>
+             </TouchableOpacity>
+           </View>
         )}
 
       </ScrollView>
@@ -1546,6 +1563,8 @@ export default function StudyOSDashboard() {
 
 function SubjectCard({ title, code, credits, leaves, status, statusType, progress, attended, total, history, updateBadge, onPress }: any) {
   const colors = useThemeStore((s) => s.colors);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === 'black' || theme === 'emerald';
   const styles = useStyles(colors);
   const showHistoryDates = useStudyOSStore(s => s.showHistoryDates);
   const isDanger = statusType === 'danger';
@@ -1563,96 +1582,157 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
   else if (updateBadge) { badgeText = '✓ Refreshed'; }
   
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={StyleSheet.flatten([styles.subjectCard, { borderLeftWidth: 3, borderLeftColor: color }])}>
-      <View style={{ flex: 1, paddingRight: 12 }}>
-        <Text style={styles.subCardTitle}>{title}</Text>
-        <Text style={styles.subCardMeta}>{code}{credits ? ` • ${credits}` : ''}</Text>
-        {badgeText ? (
-          <View style={[styles.subCardStatusPill, { backgroundColor: badgeBg, marginTop: 4 }]}>
-            <Ionicons name={updateBadge === 'Absent' ? 'close-circle' : 'checkmark-circle'} size={13} color={badgeColor} />
-            <Text style={[styles.subCardStatusText, { color: badgeColor }]}>{badgeText}</Text>
+    <TouchableOpacity 
+      onPress={onPress} 
+      activeOpacity={0.82} 
+      style={styles.subjectCardWrapper}
+    >
+      <LinearGradient
+        colors={
+          isDark
+            ? ['rgba(255, 255, 255, 0.065)', 'rgba(255, 255, 255, 0.02)']
+            : ['rgba(255, 255, 255, 0.98)', 'rgba(255, 255, 255, 0.90)']
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[
+          styles.subjectCard,
+          {
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.20)' : 'rgba(255, 255, 255, 0.95)',
+          }
+        ]}
+      >
+        {/* Left Glowing Status Accent Bar */}
+        <View
+          style={[
+            styles.cardAccentBar,
+            {
+              backgroundColor: color,
+              shadowColor: color,
+            }
+          ]}
+        />
+
+        {/* Content Column */}
+        <View style={{ flex: 1, paddingRight: 10, paddingLeft: 6 }}>
+          {/* Top Tag Row: Subject Code & Credits */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+            <View style={[styles.codeBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }]}>
+              <Text style={[styles.codeBadgeText, { color: colors.text }]}>{code}</Text>
+            </View>
+            {credits ? (
+              <View style={[styles.creditBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }]}>
+                <Ionicons name="ribbon-outline" size={11} color={colors.textDim} style={{ marginRight: 3 }} />
+                <Text style={[styles.creditBadgeText, { color: colors.textDim }]}>{credits}</Text>
+              </View>
+            ) : null}
           </View>
-        ) : (
-          <View style={StyleSheet.flatten([styles.subCardStatusPill, { backgroundColor: isDanger ? '#ef444420' : isNeutral ? '#333333' : '#22c55e20' }])}>
-            <Ionicons name={isDanger ? "close-circle" : isNeutral ? "information-circle" : "checkmark-circle"} size={14} color={color} />
-            <Text style={StyleSheet.flatten([styles.subCardStatusText, { color }])}>{status}</Text>
-          </View>
-        )}
-      </View>
-      
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <CircularProgress value={progress} color={color} />
-          <Text style={styles.subCardFraction}>{attended}/{total}</Text>
+
+          {/* Subject Title */}
+          <Text style={styles.subCardTitle} numberOfLines={2}>{title}</Text>
+
+          {/* Prediction Status Pill */}
+          {badgeText ? (
+            <View style={[styles.subCardStatusPill, { backgroundColor: badgeBg, borderColor: badgeColor + '40' }]}>
+              <Ionicons name={updateBadge === 'Absent' ? 'close-circle' : 'checkmark-circle'} size={13} color={badgeColor} />
+              <Text style={[styles.subCardStatusText, { color: badgeColor }]}>{badgeText}</Text>
+            </View>
+          ) : (
+            <View style={[
+              styles.subCardStatusPill, 
+              { 
+                backgroundColor: isDanger ? 'rgba(239, 68, 68, 0.12)' : isNeutral ? (isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)') : 'rgba(16, 185, 129, 0.12)',
+                borderColor: isDanger ? 'rgba(239, 68, 68, 0.28)' : isNeutral ? 'transparent' : 'rgba(16, 185, 129, 0.28)'
+              }
+            ]}>
+              <Ionicons 
+                name={isDanger ? "alert-circle" : isNeutral ? "information-circle" : "checkmark-circle"} 
+                size={13} 
+                color={color} 
+              />
+              <Text style={[styles.subCardStatusText, { color }]}>{status}</Text>
+            </View>
+          )}
         </View>
         
-        {history && history.length > 0 && (
-          <View style={{ 
-            justifyContent: 'center', 
-            alignItems: showHistoryDates ? 'flex-start' : 'center', 
-            marginLeft: 10, 
-            gap: 3.5,
-            width: showHistoryDates ? 50 : undefined 
-          }}>
-            {history.map((h: any, idx: number) => {
-              const dateObj = new Date(h.parsedT);
-              const shortDate = !isNaN(dateObj.getTime()) ? dateObj.getDate() + ' ' + dateObj.toLocaleString('default', { month: 'short' }) : '?';
-
-              const dotContent = h.isToday ? (
-                <View 
-                  style={{ 
-                    width: 14, 
-                    height: 14, 
-                    borderRadius: 7, 
-                    borderWidth: 1.5,
-                    borderColor: h.color,
-                    backgroundColor: 'transparent',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: showHistoryDates ? 0 : 1
-                  }}
-                >
-                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: h.color }} />
-                </View>
-              ) : (
-                <View 
-                  style={{ 
-                    width: 8, 
-                    height: 8, 
-                    borderRadius: 2.5, 
-                    backgroundColor: h.color, 
-                    shadowColor: h.color,
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.4,
-                    shadowRadius: 1.5,
-                    elevation: 2,
-                    marginLeft: showHistoryDates && !h.isToday ? 3 : 0
-                  }}
-                />
-              );
-
-              if (showHistoryDates) {
-                return (
-                  <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    {dotContent}
-                    <Text style={{ fontSize: 9, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>{shortDate}</Text>
-                  </View>
-                );
-              }
-
-              return (
-                <React.Fragment key={idx}>
-                  {dotContent}
-                </React.Fragment>
-              );
-            })}
+        {/* Right Meter & Attendance Details */}
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+            <CircularProgress value={progress} color={color} size={50} />
+            <Text style={[styles.subCardFraction, { color: colors.textDim }]}>
+              <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>{attended}</Text>/{total}
+            </Text>
           </View>
-        )}
-      </View>
+          
+          {history && history.length > 0 && (
+            <View style={{ 
+              justifyContent: 'center', 
+              alignItems: showHistoryDates ? 'flex-start' : 'center', 
+              marginLeft: 8, 
+              gap: 3.5,
+              width: showHistoryDates ? 48 : undefined 
+            }}>
+              {history.map((h: any, idx: number) => {
+                const dateObj = new Date(h.parsedT);
+                const shortDate = !isNaN(dateObj.getTime()) ? dateObj.getDate() + ' ' + dateObj.toLocaleString('default', { month: 'short' }) : '?';
 
-      <View style={{ justifyContent: 'center', marginLeft: 6 }}>
-         <Ionicons name="chevron-forward" size={20} color="#666" />
-      </View>
+                const dotContent = h.isToday ? (
+                  <View 
+                    style={{ 
+                      width: 14, 
+                      height: 14, 
+                      borderRadius: 7, 
+                      borderWidth: 1.5,
+                      borderColor: h.color,
+                      backgroundColor: 'transparent',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: showHistoryDates ? 0 : 1
+                    }}
+                  >
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: h.color }} />
+                  </View>
+                ) : (
+                  <View 
+                    style={{ 
+                      width: 8, 
+                      height: 8, 
+                      borderRadius: 2.5, 
+                      backgroundColor: h.color, 
+                      shadowColor: h.color,
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 1.5,
+                      elevation: 2,
+                      marginLeft: showHistoryDates && !h.isToday ? 3 : 0
+                    }}
+                  />
+                );
+
+                if (showHistoryDates) {
+                  return (
+                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      {dotContent}
+                      <Text style={{ fontSize: 9, color: colors.textMuted, fontFamily: 'Inter_500Medium' }}>{shortDate}</Text>
+                    </View>
+                  );
+                }
+
+                return (
+                  <React.Fragment key={idx}>
+                    {dotContent}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        <View style={{ justifyContent: 'center', marginLeft: 4 }}>
+           <Ionicons name="chevron-forward" size={18} color={colors.textDim} />
+        </View>
+      </LinearGradient>
     </TouchableOpacity>
   );
 }
@@ -1727,7 +1807,63 @@ const useStyles = (colors: any) => StyleSheet.create({
   sectionTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold',  },
   filterText: { color: colors.textMuted, fontSize: 12 },
   
-  subjectCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'center' },
+  subjectCardWrapper: {
+    marginBottom: 10,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  subjectCard: {
+    borderRadius: Radius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  cardAccentBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    borderTopLeftRadius: Radius.lg,
+    borderBottomLeftRadius: Radius.lg,
+    shadowOffset: { width: 1, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  codeBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  codeBadgeText: {
+    fontSize: 10.5,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    letterSpacing: 0.3,
+  },
+  creditBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  creditBadgeText: {
+    fontSize: 10,
+    fontFamily: 'Inter_600SemiBold',
+  },
   subCardTitle: { color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 2 },
   subCardMeta: { color: colors.textDim, fontSize: 11.5, marginBottom: 6 },
   subCardStatusPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.full, alignSelf: 'flex-start', gap: 4, maxWidth: '100%' },

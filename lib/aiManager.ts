@@ -182,11 +182,13 @@ async function callCloudPool(
   courseName: string,
   courseCode?: string,
   userLearningProfile?: string,
-  imageAttachment?: { base64: string; mimeType: string }
+  imageAttachment?: { base64: string; mimeType: string },
+  isPro: boolean = false
 ): Promise<string> {
   const proxyUrl = process.env.EXPO_PUBLIC_AI_PROXY_URL || PROXY_URL || 'https://studyos-ai-proxy.piyushkushwaha2520.workers.dev';
   
-  // Daily Fair-Use check for Shared Pool (50 queries/day per device)
+  // Daily Fair-Use check: 15 queries/day for trial/free users, 40 queries/day for Pro users
+  const dailyLimit = isPro ? 40 : 15;
   const today = new Date().toISOString().split('T')[0];
   const usageRaw = await AsyncStorage.getItem('ai_daily_usage');
   let usage = usageRaw ? JSON.parse(usageRaw) : { date: today, count: 0 };
@@ -195,8 +197,8 @@ async function callCloudPool(
     usage = { date: today, count: 0 };
   }
 
-  if (usage.count >= 50) {
-    throw new Error('DAILY_LIMIT_REACHED');
+  if (usage.count >= dailyLimit) {
+    throw new Error(`DAILY_LIMIT_REACHED:${dailyLimit}`);
   }
 
   const maxRetries = 2;
@@ -277,7 +279,8 @@ export async function generateAiResponse(
   courseCode?: string,
   userLearningProfile?: string,
   activeProvider?: string,
-  imageAttachment?: { base64: string; mimeType: string }
+  imageAttachment?: { base64: string; mimeType: string },
+  isPro: boolean = false
 ): Promise<string> {
   // 1. Check if user selected Cloud Pool or has a personal BYOK key
   let personalKey: string | null = null;
@@ -309,7 +312,7 @@ export async function generateAiResponse(
   
   // If no personal key is configured or user selected 'pool', use Cloud Pool!
   if (!personalKey || personalKey.trim().length <= 10) {
-     return await callCloudPool(messages, syllabusText, courseName, courseCode, userLearningProfile, imageAttachment);
+     return await callCloudPool(messages, syllabusText, courseName, courseCode, userLearningProfile, imageAttachment, isPro);
   }
 
   // USE PERSONAL KEY DIRECTLY (BYOK Mode)
@@ -903,14 +906,15 @@ Do NOT output anything else except the bulleted list.`;
     }
 }
 
-export async function getDailyAiUsage(): Promise<{ used: number; limit: number; remaining: number }> {
+export async function getDailyAiUsage(isPro = false): Promise<{ used: number; limit: number; remaining: number }> {
+    const limit = isPro ? 40 : 15;
     const today = new Date().toISOString().split('T')[0];
     const usageRaw = await AsyncStorage.getItem('ai_daily_usage');
     const usage = usageRaw ? JSON.parse(usageRaw) : { date: today, count: 0 };
     const count = usage.date === today ? (usage.count || 0) : 0;
     return {
         used: count,
-        limit: 50,
-        remaining: Math.max(0, 50 - count)
+        limit,
+        remaining: Math.max(0, limit - count)
     };
 }
