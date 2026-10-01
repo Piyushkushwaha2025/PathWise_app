@@ -136,38 +136,32 @@ export default function AssignmentsScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: 'Assignments',
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.text,
-          headerShadowVisible: false,
-          headerLeft: () => (
-            <TouchableOpacity 
-              onPress={() => {
-                try { Haptics.selectionAsync(); } catch {}
-                router.navigate('/studyos' as any);
-              }} 
-              style={styles.headerBackBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="arrow-back" size={20} color={colors.text} />
-            </TouchableOpacity>
-          ),
-          headerRight: () => {
-            if (!activeSection) return null;
-            return (
-              <View style={styles.headerSectionBadge}>
-                <Ionicons name="school" size={13} color={colors.primary} style={{ marginRight: 5 }} />
-                <Text style={styles.headerSectionText}>
-                  Sec {activeSection}
-                </Text>
-              </View>
-            );
-          }
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
+      {/* Dedicated In-App Header */}
+      <View style={styles.headerBar}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity 
+            onPress={() => {
+              try { Haptics.selectionAsync(); } catch {}
+              router.navigate('/studyos' as any);
+            }} 
+            style={styles.headerBackBtn}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerBarTitle}>Assignments</Text>
+        </View>
+
+        {activeSection ? (
+          <View style={styles.headerSectionBadge}>
+            <Ionicons name="school" size={13} color={colors.primary} style={{ marginRight: 5 }} />
+            <Text style={styles.headerSectionText}>
+              Sec {activeSection}
+            </Text>
+          </View>
+        ) : null}
+      </View>
 
       {/* Show error if not CSE and not CR */}
       {!loading && !isCSE && !isCR && !activeSection && (
@@ -541,12 +535,28 @@ export default function AssignmentsScreen() {
 function useStyles(colors: any, isDark: boolean) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+    headerBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.xs,
+      paddingBottom: Spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    headerBarTitle: {
+      fontFamily: Typography.h2.fontFamily,
+      fontSize: 18,
+      color: colors.text,
+      fontWeight: '700',
+    },
     headerBackBtn: {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1, borderColor: colors.border,
       alignItems: 'center', justifyContent: 'center',
-      marginLeft: 12,
     },
     headerSectionBadge: {
       flexDirection: 'row', alignItems: 'center',
@@ -554,7 +564,6 @@ function useStyles(colors: any, isDark: boolean) {
       paddingHorizontal: 12, paddingVertical: 6,
       borderRadius: Radius.full,
       borderWidth: 1, borderColor: colors.primary + '35',
-      marginRight: 14,
     },
     headerSectionText: {
       color: colors.primary,
@@ -563,7 +572,7 @@ function useStyles(colors: any, isDark: boolean) {
     },
     scrollContent: {
       paddingHorizontal: Spacing.md,
-      paddingTop: 4,
+      paddingTop: Spacing.sm,
     },
     heroCardContainer: {
       borderRadius: Radius.xl,

@@ -9,6 +9,8 @@ const UserSchema = new mongoose.Schema({
 
   uid: { type: String, default: null },
   name: { type: String, default: null },
+  email: { type: String, default: null },
+  emailHash: { type: String, default: null },
   semester: { type: String, default: null },
 
   free_ai_subject_id: { type: String, default: null },

@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import { deleteUserAccountWithDB } from '../../../lib/db';
 import { LegalViewerModal } from '../../../components/modals/LegalViewerModal';
 import { DeleteAccountModal } from '../../../components/modals/DeleteAccountModal';
 import { PrivacyPinModal } from '../../../components/modals/PrivacyPinModal';
@@ -241,6 +242,9 @@ export default function StudyOSSettingsScreen() {
   const handleConfirmDelete = async () => {
     try {
       if (user) {
+        const userEmail = user?.primaryEmailAddress?.emailAddress;
+        const cachedTrial = await AsyncStorage.getItem(`@pathwise_trial_start_${user.id}`);
+        await deleteUserAccountWithDB(user.id, userEmail, cachedTrial || undefined).catch(() => {});
         await user.delete();
         await AsyncStorage.clear();
         await SecureStore.deleteItemAsync('culko_cookies');
@@ -263,7 +267,7 @@ export default function StudyOSSettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -590,7 +594,7 @@ export default function StudyOSSettingsScreen() {
         message={feedbackModal.message}
         onClose={() => setFeedbackModal((prev) => ({ ...prev, isVisible: false }))}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -605,7 +609,8 @@ const useStyles = (colors: any) =>
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.md,
+      paddingTop: Spacing.xs,
+      paddingBottom: Spacing.sm,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },

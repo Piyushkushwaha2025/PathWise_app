@@ -438,36 +438,30 @@ export default function LmsGradesSubjectListScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: 'Grades',
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.text,
-          headerShadowVisible: false,
-          headerLeft: () => (
-            <TouchableOpacity
-              onPress={() => {
-                try { Haptics.selectionAsync(); } catch {}
-                router.navigate('/studyos' as any);
-              }}
-              style={styles.headerBackBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="arrow-back" size={20} color={colors.text} />
-            </TouchableOpacity>
-          ),
-          headerRight: () => {
-            if (mainCourses.length === 0) return null;
-            return (
-              <View style={styles.headerCountBadge}>
-                <Ionicons name="school" size={13} color={colors.accent || '#8b5cf6'} style={{ marginRight: 5 }} />
-                <Text style={styles.headerCountText}>{mainCourses.length} Subjects</Text>
-              </View>
-            );
-          }
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
+      {/* Dedicated In-App Header */}
+      <View style={styles.headerBar}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity
+            onPress={() => {
+              try { Haptics.selectionAsync(); } catch {}
+              router.navigate('/studyos' as any);
+            }}
+            style={styles.headerBackBtn}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerBarTitle}>Grades</Text>
+        </View>
+
+        {mainCourses.length > 0 ? (
+          <View style={styles.headerCountBadge}>
+            <Ionicons name="school" size={13} color={colors.accent || '#8b5cf6'} style={{ marginRight: 5 }} />
+            <Text style={styles.headerCountText}>{mainCourses.length} Subjects</Text>
+          </View>
+        ) : null}
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -660,12 +654,28 @@ export default function LmsGradesSubjectListScreen() {
 const useStyles = (colors: any, isDark: boolean) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+    headerBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.xs,
+      paddingBottom: Spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    headerBarTitle: {
+      fontFamily: Typography.h2.fontFamily,
+      fontSize: 18,
+      color: colors.text,
+      fontWeight: '700',
+    },
     headerBackBtn: {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1, borderColor: colors.border,
       alignItems: 'center', justifyContent: 'center',
-      marginLeft: 12,
     },
     headerCountBadge: {
       flexDirection: 'row', alignItems: 'center',
@@ -673,7 +683,6 @@ const useStyles = (colors: any, isDark: boolean) =>
       paddingHorizontal: 12, paddingVertical: 6,
       borderRadius: Radius.full,
       borderWidth: 1, borderColor: (colors.accent || '#8b5cf6') + '35',
-      marginRight: 14,
     },
     headerCountText: {
       color: colors.accent || '#8b5cf6',
@@ -682,7 +691,7 @@ const useStyles = (colors: any, isDark: boolean) =>
     },
     scrollContent: {
       paddingHorizontal: Spacing.md,
-      paddingTop: 4,
+      paddingTop: Spacing.sm,
       paddingBottom: Spacing.xl * 2,
     },
     heroCardContainer: {

@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, TextInput, Modal, KeyboardAvoidingView, Platform
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@clerk/clerk-expo';
@@ -168,12 +168,13 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
       {/* Dedicated In-App Header */}
       <View
         style={{
-          paddingTop: Math.max(insets.top, Platform.OS === 'android' ? 24 : 14),
-          paddingBottom: Spacing.md,
-          paddingHorizontal: Spacing.lg,
+          paddingTop: Spacing.xs,
+          paddingBottom: Spacing.sm,
+          paddingHorizontal: Spacing.md,
           backgroundColor: colors.background,
           borderBottomWidth: 1,
           borderBottomColor: colors.border,

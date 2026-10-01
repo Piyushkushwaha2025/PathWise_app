@@ -91,11 +91,22 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
         }
 
         const fullName = `${evt.data.first_name || ''} ${evt.data.last_name || ''}`.trim() || null;
-        await User.create({
+        const emailHash = rawEmail ? crypto.createHash('sha256').update(rawEmail).digest('hex') : null;
+        const newUser = await User.create({
           clerkUserId: clerkId,
           name: fullName,
+          email: rawEmail || null,
+          emailHash: emailHash || null,
           trial_started_at: restoredTrialAt || new Date(),
         });
+
+        if (emailHash) {
+          await UsedTrialFingerprint.findOneAndUpdate(
+            { emailHash },
+            { emailHash, trial_started_at: newUser.trial_started_at },
+            { upsert: true, new: true }
+          ).catch(() => {});
+        }
         console.log(`âœ… Webhook: Created user ${clerkId} in MongoDB`);
       }
     } catch (err) {
@@ -114,12 +125,15 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
       const deletedUser = await User.findOneAndDelete({ clerkUserId: clerkId });
 
       // 1b. Save email fingerprint so re-registration can't get a fresh trial
-      if (deletedUser && rawEmail && deletedUser.trial_started_at) {
+      const targetEmail = (deletedUser?.email || rawEmail || '').toLowerCase().trim();
+      const targetHash = deletedUser?.emailHash || (targetEmail ? crypto.createHash('sha256').update(targetEmail).digest('hex') : null);
+
+      if (targetHash && (deletedUser?.trial_started_at || deletedUser?.createdAt)) {
         try {
-          const emailHash = crypto.createHash('sha256').update(rawEmail).digest('hex');
+          const trialAt = deletedUser.trial_started_at || deletedUser.createdAt || new Date();
           await UsedTrialFingerprint.findOneAndUpdate(
-            { emailHash },
-            { emailHash, trial_started_at: deletedUser.trial_started_at, deleted_at: new Date() },
+            { emailHash: targetHash },
+            { emailHash: targetHash, trial_started_at: trialAt, deleted_at: new Date() },
             { upsert: true, new: true }
           );
           console.log(`ðŸ”’ Webhook: Saved trial fingerprint for deleted user ${clerkId}`);
@@ -377,16 +391,38 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       const isCourseCode = incomingSection && /^[0-9A-Z]{2,6}-\d{3,4}[A-Z]?$/i.test(incomingSection);
       const validSection = (!isCourseCode && incomingSection) ? incomingSection : null;
 
+      const rawEmail = (req.body.email || '').toLowerCase().trim();
+      const emailHash = rawEmail ? crypto.createHash('sha256').update(rawEmail).digest('hex') : null;
+      let restoredTrialAt = null;
+
+      if (emailHash) {
+        const fingerprint = await UsedTrialFingerprint.findOne({ emailHash });
+        if (fingerprint) {
+          restoredTrialAt = fingerprint.trial_started_at;
+          console.log(`⚠️ /api/user/sync: Email re-registration detected. Restoring trial_started_at for ${req.clerkUserId}`);
+        }
+      }
+
       user = new User({
         clerkUserId: req.clerkUserId,
         uid: incomingUid,
         name: req.body.name || null,
+        email: rawEmail || null,
+        emailHash: emailHash || null,
         section_code: validSection || null,
         semester: req.body.semester ? String(req.body.semester) : null,
         expoPushToken: req.body.expoPushToken || null,
-        trial_started_at: new Date(),
+        trial_started_at: restoredTrialAt || new Date(),
       });
       await user.save();
+
+      if (emailHash) {
+        await UsedTrialFingerprint.findOneAndUpdate(
+          { emailHash },
+          { emailHash, trial_started_at: user.trial_started_at },
+          { upsert: true, new: true }
+        ).catch(() => {});
+      }
       return res.json(user);
     }
 
@@ -398,6 +434,21 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
     if (req.body.name && user.name !== req.body.name) {
       user.name = req.body.name;
       changed = true;
+    }
+    if (req.body.email) {
+      const cleanEmail = String(req.body.email).toLowerCase().trim();
+      if (!user.email || user.email !== cleanEmail) {
+        user.email = cleanEmail;
+        user.emailHash = crypto.createHash('sha256').update(cleanEmail).digest('hex');
+        changed = true;
+      }
+      if (user.emailHash && user.trial_started_at) {
+        UsedTrialFingerprint.findOneAndUpdate(
+          { emailHash: user.emailHash },
+          { emailHash: user.emailHash, trial_started_at: user.trial_started_at },
+          { upsert: true, new: true }
+        ).catch(() => {});
+      }
     }
 
     const incomingSection = req.body.section_code ? String(req.body.section_code).trim().toUpperCase() : null;
@@ -430,6 +481,34 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
     res.json(user);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Explicit user deletion route to guarantee UsedTrialFingerprint is stored immediately on user action
+app.post('/api/user/delete-account', getClerkId, async (req, res) => {
+  try {
+    const user = await User.findOne({ clerkUserId: req.clerkUserId });
+    const rawEmail = (req.body.email || user?.email || '').toLowerCase().trim();
+    const emailHash = user?.emailHash || (rawEmail ? crypto.createHash('sha256').update(rawEmail).digest('hex') : null);
+
+    if (emailHash && (user?.trial_started_at || req.body.trial_started_at)) {
+      const trialAt = user?.trial_started_at || new Date(req.body.trial_started_at);
+      await UsedTrialFingerprint.findOneAndUpdate(
+        { emailHash },
+        { emailHash, trial_started_at: trialAt, deleted_at: new Date() },
+        { upsert: true, new: true }
+      );
+      console.log(`🔒 Delete API: Saved trial fingerprint for ${req.clerkUserId}`);
+    }
+
+    if (user) {
+      await User.deleteOne({ clerkUserId: req.clerkUserId });
+      await UserAssignment.deleteMany({ clerkUserId: req.clerkUserId });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('delete-account error:', err);
+    return res.status(500).json({ error: 'Failed to process account deletion' });
   }
 });
 

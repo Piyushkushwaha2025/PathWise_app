@@ -29,6 +29,8 @@ export interface UserSyncPayload {
   expoPushToken?: string;
   name?: string;
   semester?: string;
+  email?: string;
+  trial_started_at?: string;
 }
 
 export interface AssignmentData {
@@ -129,6 +131,23 @@ export async function syncUserWithDB(
     if (err?.code === 'UID_ALREADY_LINKED') throw err;
     console.warn('syncUserWithDB non-fatal error:', err?.message);
     throw new Error(err?.code ? err.message : 'Unable to sync user data right now.');
+  }
+}
+
+export async function deleteUserAccountWithDB(
+  clerkId: string,
+  email?: string,
+  trialStartedAt?: string
+): Promise<void> {
+  try {
+    const headers = await getAuthHeaders(clerkId);
+    await fetch(`${API_URL}/user/delete-account`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ email, trial_started_at: trialStartedAt }),
+    });
+  } catch (e: any) {
+    console.warn('deleteUserAccountWithDB non-fatal notice:', e?.message);
   }
 }
 

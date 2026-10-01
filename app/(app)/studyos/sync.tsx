@@ -358,8 +358,8 @@ const SCRAPE_STEPS = [
       (function waitForData() {
         try {
           var attendanceData = {};
-          var maxWait = 7500;
-          var interval = 150;
+          var maxWait = 3500;
+          var interval = 60;
           var elapsed = 0;
 
           function viewActionTargetOf(row) {
@@ -952,8 +952,9 @@ export default function SyncScreen() {
               uid: effectiveUid,
               name: resolvedProfile.name || undefined,
               semester: resolvedProfile.semester ? String(resolvedProfile.semester) : undefined,
+              email: user?.primaryEmailAddress?.emailAddress || undefined,
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 4500))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 2500))
           ]);
         } catch (e: any) {
           if (e?.code === 'UID_ALREADY_LINKED') {
@@ -1065,10 +1066,10 @@ export default function SyncScreen() {
     }
   };
 
-  // Skip button appears after 4 seconds on any step
+  // Skip button appears after 2.5 seconds on any step
   useEffect(() => {
     setShowSkipButton(false);
-    const t = setTimeout(() => setShowSkipButton(true), 4000);
+    const t = setTimeout(() => setShowSkipButton(true), 2500);
     return () => clearTimeout(t);
   }, [currentStepIndex]);
 
@@ -1084,11 +1085,13 @@ export default function SyncScreen() {
         } catch(e) {}
 
         var hasDomContent = document.body && (
+          document.readyState === 'complete' ||
+          document.readyState === 'interactive' ||
           document.querySelector('table') || 
           document.querySelector('#SortTable') || 
           document.querySelector('#ContentPlaceHolder1_gvMyCourses') ||
           document.querySelector('#accordion') ||
-          document.querySelectorAll('td, span').length > 8
+          document.querySelectorAll('td, span').length > 5
         );
 
         if (hasDomContent) {
@@ -1103,7 +1106,7 @@ export default function SyncScreen() {
       var poller = setInterval(function() {
         if (hasScraped) { clearInterval(poller); return; }
         checkAndRun();
-      }, 150);
+      }, 70);
 
       setTimeout(function() {
         if (!hasScraped) {
@@ -1112,14 +1115,14 @@ export default function SyncScreen() {
             ${currentStep?.script || ''}
           } catch(err) {}
         }
-      }, 2500);
+      }, 1200);
     })();
     true;
   `;
 
-  // Per-step safety net: allow 9.5s for attendance/marks AJAX, 5s for fast pages
+  // Per-step safety net: allow 4.5s for attendance/marks AJAX, 2.8s for fast pages
   useEffect(() => {
-    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 9500 : 5000;
+    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 4500 : 2800;
     const timer = setTimeout(() => {
       if (!finishedRef.current && currentStep) {
         console.log('[Sync] Step safety timeout advancing:', currentStep.id);
