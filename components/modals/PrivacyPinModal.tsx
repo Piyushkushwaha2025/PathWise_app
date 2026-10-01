@@ -261,6 +261,16 @@ export function PrivacyPinModal({
                     placeholder="••••"
                     placeholderTextColor={colors.textDim}
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowPin(!showPin)}
+                    style={styles.eyeBtn}
+                  >
+                    <Ionicons
+                      name={showPin ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color={colors.textDim}
+                    />
+                  </TouchableOpacity>
                 </View>
               </View>
             </>
@@ -362,25 +372,34 @@ const useStyles = (colors: any) =>
       fontWeight: '600',
     },
     inputWrapper: {
-      flexDirection: 'row',
+      position: 'relative',
+      justifyContent: 'center',
       alignItems: 'center',
       backgroundColor: colors.background,
       borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      paddingHorizontal: Spacing.md,
       height: 48,
+      width: '100%',
     },
     input: {
-      flex: 1,
+      width: '100%',
+      height: '100%',
       color: colors.text,
       fontSize: 18,
       letterSpacing: 8,
       fontWeight: '700',
       textAlign: 'center',
+      paddingHorizontal: 44,
     },
     eyeBtn: {
-      padding: 6,
+      position: 'absolute',
+      right: 6,
+      top: 0,
+      bottom: 0,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 8,
     },
     biometricBtn: {
       flexDirection: 'row',

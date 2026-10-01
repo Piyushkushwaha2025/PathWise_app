@@ -1,3 +1,4 @@
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import * as SecureStore from 'expo-secure-store';
 
 export type SecurityType = 'biometric' | 'pin';
@@ -10,6 +11,13 @@ export interface BiometricStatus {
 
 function getLocalAuth(): typeof import('expo-local-authentication') | null {
   try {
+    // Only require expo-local-authentication if the native module is actually present in the installed APK
+    const nativeModule = typeof requireOptionalNativeModule === 'function'
+      ? requireOptionalNativeModule('ExpoLocalAuthentication')
+      : null;
+    if (!nativeModule) {
+      return null;
+    }
     return require('expo-local-authentication');
   } catch {
     return null;

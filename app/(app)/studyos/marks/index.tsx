@@ -1274,9 +1274,9 @@ export default function MarksScreen() {
             </Text>
           ) : null}
 
-          <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingHorizontal: Spacing.md, height: 50, marginBottom: Spacing.md }}>
+          <View style={{ width: '100%', position: 'relative', justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, borderRadius: 14, borderWidth: 1, borderColor: colors.border, height: 50, marginBottom: Spacing.md }}>
             <TextInput
-              style={{ flex: 1, color: colors.text, fontSize: 18, letterSpacing: 8, fontWeight: '700', textAlign: 'center' }}
+              style={{ width: '100%', height: '100%', color: colors.text, fontSize: 18, letterSpacing: 8, fontWeight: '700', textAlign: 'center', paddingHorizontal: 44 }}
               keyboardType="numeric"
               maxLength={4}
               secureTextEntry={!showPin}
@@ -1289,7 +1289,7 @@ export default function MarksScreen() {
               placeholderTextColor={colors.textDim}
               autoFocus={!hasBiometrics}
             />
-            <TouchableOpacity onPress={() => setShowPin(!showPin)} style={{ padding: 6 }}>
+            <TouchableOpacity onPress={() => setShowPin(!showPin)} style={{ position: 'absolute', right: 8, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 }}>
               <Ionicons name={showPin ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textDim} />
             </TouchableOpacity>
           </View>
