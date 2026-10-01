@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { setupAndroidChannels } from '../../../../lib/notifications';
 ﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator, RefreshControl, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Modal, ActivityIndicator, RefreshControl, Alert, Platform, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polygon, Line, Text as SvgText, Circle } from 'react-native-svg';
 import { WebView, WebViewNavigation } from 'react-native-webview';
@@ -149,6 +149,27 @@ export default function MarksScreen() {
       // Reset to default (current semester) whenever returning to the Marks tab
       setSelectedSemester('');
       setExpandedIndex(null);
+    }, [])
+  );
+
+  // Security PIN Lock State
+  const [isPinEnabled, setIsPinEnabled] = useState(false);
+  const [isMarksUnlocked, setIsMarksUnlocked] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [showPin, setShowPin] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      SecureStore.getItemAsync('studyos_pin_enabled').then((val) => {
+        const enabled = val === 'true';
+        setIsPinEnabled(enabled);
+        if (!enabled) {
+          setIsMarksUnlocked(true);
+        }
+      }).catch(() => {
+        setIsMarksUnlocked(true);
+      });
     }, [])
   );
   const [resultData, setResultData] = useState<{sgpa: string, subjects: any[]} | null>(null);
@@ -803,7 +824,15 @@ export default function MarksScreen() {
             }
           }
 
-          setScrapedData({ resultCache: newCache });
+          const currentProf = useStudyOSStore.getState().profile;
+          const updatedProf = currentProf ? {
+            ...currentProf,
+            cgpa: (data.cgpa && data.cgpa !== 'N/A') ? data.cgpa : currentProf.cgpa
+          } : null;
+          setScrapedData({
+            resultCache: newCache,
+            ...(updatedProf ? { profile: updatedProf } : {})
+          });
 
           // Only update resultData if the student is currently inspecting a past semester
           if (!isCurrentSemester && selectedSemester) {
@@ -1168,6 +1197,71 @@ export default function MarksScreen() {
   });
 
   const overallPercentage = grandTotalMax > 0 ? ((grandTotalObtained / grandTotalMax) * 100).toFixed(1) + '%' : '';
+
+  if (isPinEnabled && !isMarksUnlocked) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: Spacing.xl }]}>
+        <View style={{ width: '100%', maxWidth: 360, backgroundColor: colors.surface, borderRadius: 24, padding: Spacing.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
+          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: `${colors.primary}20`, justifyContent: 'center', alignItems: 'center', marginBottom: Spacing.md, borderWidth: 1, borderColor: `${colors.primary}40` }}>
+            <Ionicons name="lock-closed" size={32} color={colors.primary} />
+          </View>
+          <Text style={{ ...Typography.h2, color: colors.text, fontWeight: '700', textAlign: 'center', marginBottom: 4 }}>
+            Marks Tab Locked
+          </Text>
+          <Text style={{ ...Typography.small, color: colors.textDim, textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 18 }}>
+            Enter your 4-digit security PIN to view your academic marks and exam results
+          </Text>
+
+          {pinError ? (
+            <Text style={{ ...Typography.small, color: colors.error, textAlign: 'center', marginBottom: Spacing.md, fontWeight: '600' }}>
+              {pinError}
+            </Text>
+          ) : null}
+
+          <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: Spacing.md, height: 48, marginBottom: Spacing.lg }}>
+            <TextInput
+              style={{ flex: 1, color: colors.text, fontSize: 18, letterSpacing: 8, fontWeight: '700', textAlign: 'center' }}
+              keyboardType="numeric"
+              maxLength={4}
+              secureTextEntry={!showPin}
+              value={pinInput}
+              onChangeText={(t) => {
+                setPinInput(t);
+                setPinError('');
+              }}
+              placeholder="••••"
+              placeholderTextColor={colors.textDim}
+              autoFocus
+            />
+            <TouchableOpacity onPress={() => setShowPin(!showPin)} style={{ padding: 6 }}>
+              <Ionicons name={showPin ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textDim} />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={{ width: '100%', paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', marginBottom: Spacing.md }}
+            onPress={async () => {
+              const storedPin = await SecureStore.getItemAsync('studyos_privacy_pin');
+              if (storedPin && pinInput !== storedPin) {
+                setPinError('Incorrect PIN. Please try again.');
+                return;
+              }
+              setIsMarksUnlocked(true);
+            }}
+          >
+            <Text style={{ ...Typography.body, color: '#fff', fontWeight: '700' }}>Unlock Marks</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ width: '100%', paddingVertical: 12, borderRadius: 12, backgroundColor: colors.background, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
+            onPress={() => router.back()}
+          >
+            <Text style={{ ...Typography.body, color: colors.textDim, fontWeight: '600' }}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

@@ -27,6 +27,7 @@ const SCRAPE_STEPS = [
           var course = 'Unknown';
           var semester = 'N/A';
           var section = '';
+          var cgpa = 'N/A';
           
           var tds = document.querySelectorAll('td');
           for (var i = 0; i < tds.length; i++) {
@@ -149,10 +150,16 @@ const SCRAPE_STEPS = [
             }
           }
 
+          if (cgpa === 'N/A') {
+            var bodyText = document.body ? document.body.innerText : '';
+            var cgpaM = bodyText.match(/(?:C\\.?G\\.?P\\.?A\\.?|G\\.?P\\.?A\\.?|S\\.?G\\.?P\\.?A\\.?)\\s*[:\\-\\=]?\\s*([0-9]{1,2}\\.[0-9]{1,3})/i);
+            if (cgpaM && parseFloat(cgpaM[1]) <= 10) cgpa = cgpaM[1];
+          }
+
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'SCRAPE_RESULT',
             step: 'profile',
-            data: { name: name, uid: uid, course: course, cgpa: 'N/A', semester: semester, section: section, photoUrl: photoUrl }
+            data: { name: name, uid: uid, course: course, cgpa: cgpa, semester: semester, section: section, photoUrl: photoUrl }
           }));
         } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'profile', data: null }));

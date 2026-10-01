@@ -21,6 +21,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { LegalViewerModal } from '../../../components/modals/LegalViewerModal';
 import { DeleteAccountModal } from '../../../components/modals/DeleteAccountModal';
+import { PrivacyPinModal } from '../../../components/modals/PrivacyPinModal';
 
 export default function StudyOSSettingsScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -32,6 +33,24 @@ export default function StudyOSSettingsScreen() {
   const setShowHistoryDates = useStudyOSStore((s) => s.setShowHistoryDates);
   const roundAttendancePercentage = useStudyOSStore((s) => s.roundAttendancePercentage);
   const setRoundAttendancePercentage = useStudyOSStore((s) => s.setRoundAttendancePercentage);
+
+  // Security PIN State
+  const [isPinEnabled, setIsPinEnabled] = useState(false);
+  const [pinModalMode, setPinModalMode] = useState<'set' | 'verify' | 'change' | null>(null);
+
+  React.useEffect(() => {
+    SecureStore.getItemAsync('studyos_pin_enabled').then((val) => {
+      setIsPinEnabled(val === 'true');
+    }).catch(() => {});
+  }, []);
+
+  const handleTogglePin = () => {
+    if (isPinEnabled) {
+      setPinModalMode('verify');
+    } else {
+      setPinModalMode('set');
+    }
+  };
 
   // Legal Modal State
   const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'refund' | null>(null);
@@ -135,7 +154,35 @@ export default function StudyOSSettingsScreen() {
           </View>
         </View>
 
-        {/* Section 2: Legal & Policies */}
+        {/* Section 2: Privacy & Security */}
+        <Text style={styles.sectionHeader}>Privacy & Security</Text>
+        <View style={styles.sectionCard}>
+          <View style={[styles.settingRow, !isPinEnabled && { borderBottomWidth: 0 }]}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Lock GPA & Marks</Text>
+              <Text style={styles.settingDesc}>Require a 4-digit PIN to view GPA in profile and open the Marks tab</Text>
+            </View>
+            <Switch
+              value={isPinEnabled}
+              onValueChange={handleTogglePin}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={'#ffffff'}
+            />
+          </View>
+
+          {isPinEnabled && (
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => setPinModalMode('change')}
+            >
+              <Ionicons name="key-outline" size={20} color={colors.primary} />
+              <Text style={styles.menuTitle}>Change Security PIN</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Section 3: Legal & Policies */}
         <Text style={styles.sectionHeader}>Legal & Compliance</Text>
         <View style={styles.sectionCard}>
           <TouchableOpacity
@@ -218,6 +265,35 @@ export default function StudyOSSettingsScreen() {
         isVisible={isDeleteModalVisible}
         onClose={() => setIsDeleteModalVisible(false)}
         onConfirm={handleConfirmDelete}
+      />
+
+      {/* Security PIN Modal */}
+      <PrivacyPinModal
+        isVisible={pinModalMode !== null}
+        mode={pinModalMode || 'verify'}
+        title={
+          pinModalMode === 'verify' && isPinEnabled
+            ? 'Disable PIN Protection'
+            : undefined
+        }
+        subtitle={
+          pinModalMode === 'verify' && isPinEnabled
+            ? 'Enter your current PIN to turn off lock'
+            : undefined
+        }
+        onClose={() => setPinModalMode(null)}
+        onSuccess={async () => {
+          if (pinModalMode === 'verify') {
+            await SecureStore.setItemAsync('studyos_pin_enabled', 'false');
+            setIsPinEnabled(false);
+            Alert.alert('Security PIN Disabled', 'GPA and Marks are no longer locked with a PIN.');
+          } else if (pinModalMode === 'set') {
+            setIsPinEnabled(true);
+            Alert.alert('Security PIN Enabled', 'Your GPA and Marks are now locked and protected with your PIN.');
+          } else if (pinModalMode === 'change') {
+            Alert.alert('Success', 'Your security PIN has been updated.');
+          }
+        }}
       />
     </SafeAreaView>
   );
