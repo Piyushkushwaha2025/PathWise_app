@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,13 @@ import * as SecureStore from 'expo-secure-store';
 import { LegalViewerModal } from '../../../components/modals/LegalViewerModal';
 import { DeleteAccountModal } from '../../../components/modals/DeleteAccountModal';
 import { PrivacyPinModal } from '../../../components/modals/PrivacyPinModal';
+import { SecurityFeedbackModal } from '../../../components/ui/SecurityFeedbackModal';
+import {
+  checkBiometrics,
+  authenticateDevice,
+  BiometricStatus,
+  SecurityType,
+} from '../../../lib/security';
 
 export default function StudyOSSettingsScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -34,21 +41,171 @@ export default function StudyOSSettingsScreen() {
   const roundAttendancePercentage = useStudyOSStore((s) => s.roundAttendancePercentage);
   const setRoundAttendancePercentage = useStudyOSStore((s) => s.setRoundAttendancePercentage);
 
-  // Security PIN State
-  const [isPinEnabled, setIsPinEnabled] = useState(false);
+  // Security State
+  const [isGpaMarksLocked, setIsGpaMarksLocked] = useState(false);
+  const [isAppLockEnabled, setIsAppLockEnabled] = useState(false);
+  const [securityType, setSecurityType] = useState<SecurityType>('biometric');
+  const [biometrics, setBiometrics] = useState<BiometricStatus>({
+    hasHardware: false,
+    isEnrolled: false,
+    biometricName: 'Fingerprint / Screen Lock',
+  });
   const [pinModalMode, setPinModalMode] = useState<'set' | 'verify' | 'change' | null>(null);
+  const [pendingAction, setPendingAction] = useState<'toggle_gpa' | 'toggle_app' | null>(null);
 
-  React.useEffect(() => {
-    SecureStore.getItemAsync('studyos_pin_enabled').then((val) => {
-      setIsPinEnabled(val === 'true');
-    }).catch(() => {});
+  // Custom In-App Feedback Notification Modal State
+  const [feedbackModal, setFeedbackModal] = useState<{
+    isVisible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'warning' | 'info';
+  }>({
+    isVisible: false,
+    title: '',
+    message: '',
+    type: 'success',
+  });
+
+  useEffect(() => {
+    checkBiometrics().then(setBiometrics);
+
+    Promise.all([
+      SecureStore.getItemAsync('studyos_pin_enabled'),
+      SecureStore.getItemAsync('studyos_app_lock_enabled'),
+      SecureStore.getItemAsync('studyos_security_type'),
+    ])
+      .then(([pinVal, appLockVal, secVal]) => {
+        setIsGpaMarksLocked(pinVal === 'true');
+        setIsAppLockEnabled(appLockVal === 'true');
+        if (secVal === 'pin' || secVal === 'biometric') {
+          setSecurityType(secVal);
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  const handleTogglePin = () => {
-    if (isPinEnabled) {
-      setPinModalMode('verify');
+  const handleToggleGpaMarks = async () => {
+    if (isGpaMarksLocked) {
+      if (securityType === 'biometric' && biometrics.hasHardware && biometrics.isEnrolled) {
+        const ok = await authenticateDevice('Confirm to turn off GPA & Marks Lock');
+        if (ok) {
+          await SecureStore.setItemAsync('studyos_pin_enabled', 'false');
+          setIsGpaMarksLocked(false);
+          setFeedbackModal({
+            isVisible: true,
+            title: 'Security Disabled',
+            message: 'GPA in Profile and Marks tab are no longer protected with a lock.',
+            type: 'info',
+          });
+        }
+      } else {
+        setPendingAction('toggle_gpa');
+        setPinModalMode('verify');
+      }
     } else {
-      setPinModalMode('set');
+      if (securityType === 'biometric' && biometrics.hasHardware && biometrics.isEnrolled) {
+        const ok = await authenticateDevice('Confirm Fingerprint to enable GPA & Marks Lock');
+        if (ok) {
+          await SecureStore.setItemAsync('studyos_pin_enabled', 'true');
+          setIsGpaMarksLocked(true);
+          setFeedbackModal({
+            isVisible: true,
+            title: 'Security Enabled',
+            message: `GPA in Profile and Marks tab are now locked with ${biometrics.biometricName}.`,
+            type: 'success',
+          });
+        }
+      } else {
+        const hasPin = await SecureStore.getItemAsync('studyos_privacy_pin');
+        if (hasPin) {
+          await SecureStore.setItemAsync('studyos_pin_enabled', 'true');
+          setIsGpaMarksLocked(true);
+          setFeedbackModal({
+            isVisible: true,
+            title: 'PIN Lock Enabled',
+            message: 'GPA in Profile and Marks tab are now secured with your 4-digit PIN.',
+            type: 'success',
+          });
+        } else {
+          setPendingAction('toggle_gpa');
+          setPinModalMode('set');
+        }
+      }
+    }
+  };
+
+  const handleToggleAppLock = async () => {
+    if (isAppLockEnabled) {
+      if (securityType === 'biometric' && biometrics.hasHardware && biometrics.isEnrolled) {
+        const ok = await authenticateDevice('Confirm to turn off App Lock');
+        if (ok) {
+          await SecureStore.setItemAsync('studyos_app_lock_enabled', 'false');
+          setIsAppLockEnabled(false);
+          setFeedbackModal({
+            isVisible: true,
+            title: 'App Lock Disabled',
+            message: 'PathWise will no longer require authentication on launch.',
+            type: 'info',
+          });
+        }
+      } else {
+        setPendingAction('toggle_app');
+        setPinModalMode('verify');
+      }
+    } else {
+      if (securityType === 'biometric' && biometrics.hasHardware && biometrics.isEnrolled) {
+        const ok = await authenticateDevice('Confirm Fingerprint to enable App Lock');
+        if (ok) {
+          await SecureStore.setItemAsync('studyos_app_lock_enabled', 'true');
+          setIsAppLockEnabled(true);
+          setFeedbackModal({
+            isVisible: true,
+            title: 'App Lock Enabled',
+            message: `PathWise is now completely locked! Authenticate with ${biometrics.biometricName} upon launch.`,
+            type: 'success',
+          });
+        }
+      } else {
+        const hasPin = await SecureStore.getItemAsync('studyos_privacy_pin');
+        if (hasPin) {
+          await SecureStore.setItemAsync('studyos_app_lock_enabled', 'true');
+          setIsAppLockEnabled(true);
+          setFeedbackModal({
+            isVisible: true,
+            title: 'App Lock Enabled',
+            message: 'PathWise is now locked with your 4-digit PIN upon launch.',
+            type: 'success',
+          });
+        } else {
+          setPendingAction('toggle_app');
+          setPinModalMode('set');
+        }
+      }
+    }
+  };
+
+  const handleSelectSecurityType = async (type: SecurityType) => {
+    setSecurityType(type);
+    await SecureStore.setItemAsync('studyos_security_type', type);
+    if (type === 'pin') {
+      const hasPin = await SecureStore.getItemAsync('studyos_privacy_pin');
+      if (!hasPin) {
+        setPinModalMode('set');
+      } else {
+        setFeedbackModal({
+          isVisible: true,
+          title: 'Method Updated',
+          message: 'Security method set to 4-Digit Security PIN.',
+          type: 'info',
+        });
+      }
+    } else {
+      setFeedbackModal({
+        isVisible: true,
+        title: 'Method Updated',
+        message: `Security method set to ${biometrics.biometricName}.`,
+        type: 'info',
+      });
     }
   };
 
@@ -84,21 +241,18 @@ export default function StudyOSSettingsScreen() {
   const handleConfirmDelete = async () => {
     try {
       if (user) {
-        // 1. Delete from Clerk — triggers 'user.deleted' webhook on backend to CASCADE delete MongoDB data & B2 files
         await user.delete();
-
-        // 2. Clear all local storage/session data
         await AsyncStorage.clear();
         await SecureStore.deleteItemAsync('culko_cookies');
         await SecureStore.deleteItemAsync('culko_u');
         await SecureStore.deleteItemAsync('culko_p');
         await SecureStore.deleteItemAsync('gemini_api_key');
-
-        // 3. Reset theme preferences
         await SecureStore.deleteItemAsync('app_theme');
         await SecureStore.deleteItemAsync('app_primary_color');
+        await SecureStore.deleteItemAsync('studyos_pin_enabled');
+        await SecureStore.deleteItemAsync('studyos_app_lock_enabled');
+        await SecureStore.deleteItemAsync('studyos_privacy_pin');
         useThemeStore.getState().initTheme('black', undefined);
-
         await useStudySessionStore.getState().clearSession();
         router.replace('/(auth)/sign-in');
       }
@@ -157,28 +311,114 @@ export default function StudyOSSettingsScreen() {
         {/* Section 2: Privacy & Security */}
         <Text style={styles.sectionHeader}>Privacy & Security</Text>
         <View style={styles.sectionCard}>
-          <View style={[styles.settingRow, !isPinEnabled && { borderBottomWidth: 0 }]}>
+          {/* Lock Entire App */}
+          <View style={styles.settingRow}>
             <View style={styles.settingInfo}>
-              <Text style={styles.settingTitle}>Lock GPA & Marks</Text>
-              <Text style={styles.settingDesc}>Require a 4-digit PIN to view GPA in profile and open the Marks tab</Text>
+              <Text style={styles.settingTitle}>Lock Entire App</Text>
+              <Text style={styles.settingDesc}>
+                Require fingerprint or PIN whenever opening or returning to PathWise
+              </Text>
             </View>
             <Switch
-              value={isPinEnabled}
-              onValueChange={handleTogglePin}
+              value={isAppLockEnabled}
+              onValueChange={handleToggleAppLock}
               trackColor={{ false: colors.border, true: colors.primary }}
               thumbColor={'#ffffff'}
             />
           </View>
 
-          {isPinEnabled && (
-            <TouchableOpacity
-              style={styles.menuRow}
-              onPress={() => setPinModalMode('change')}
-            >
-              <Ionicons name="key-outline" size={20} color={colors.primary} />
-              <Text style={styles.menuTitle}>Change Security PIN</Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
+          {/* Lock GPA & Marks */}
+          <View
+            style={[
+              styles.settingRow,
+              !isAppLockEnabled && !isGpaMarksLocked && { borderBottomWidth: 0 },
+            ]}
+          >
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Lock GPA & Marks</Text>
+              <Text style={styles.settingDesc}>
+                Require authentication to view GPA in profile and open Marks tab
+              </Text>
+            </View>
+            <Switch
+              value={isGpaMarksLocked}
+              onValueChange={handleToggleGpaMarks}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={'#ffffff'}
+            />
+          </View>
+
+          {/* Security Unlock Method Choice */}
+          {(isAppLockEnabled || isGpaMarksLocked) && (
+            <>
+              <View style={styles.methodSection}>
+                <Text style={styles.methodHeaderTitle}>CHOOSE UNLOCK METHOD</Text>
+                <View style={styles.methodRow}>
+                  {biometrics.hasHardware && (
+                    <TouchableOpacity
+                      style={[
+                        styles.methodCard,
+                        securityType === 'biometric' && styles.methodCardActive,
+                      ]}
+                      onPress={() => handleSelectSecurityType('biometric')}
+                    >
+                      <Ionicons
+                        name="finger-print"
+                        size={20}
+                        color={
+                          securityType === 'biometric'
+                            ? colors.primary
+                            : colors.textDim
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.methodTitle,
+                          securityType === 'biometric' && {
+                            color: colors.primary,
+                          },
+                        ]}
+                      >
+                        {biometrics.biometricName}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.methodCard,
+                      securityType === 'pin' && styles.methodCardActive,
+                    ]}
+                    onPress={() => handleSelectSecurityType('pin')}
+                  >
+                    <Ionicons
+                      name="keypad-outline"
+                      size={20}
+                      color={
+                        securityType === 'pin' ? colors.primary : colors.textDim
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.methodTitle,
+                        securityType === 'pin' && { color: colors.primary },
+                      ]}
+                    >
+                      4-Digit PIN
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.menuRow}
+                onPress={() => setPinModalMode('change')}
+              >
+                <Ionicons name="key-outline" size={20} color={colors.primary} />
+                <Text style={styles.menuTitle}>Change 4-Digit Security PIN</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </>
           )}
         </View>
 
@@ -217,7 +457,7 @@ export default function StudyOSSettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Section 3: Support */}
+        {/* Section 4: Support */}
         <Text style={styles.sectionHeader}>Support & Feedback</Text>
         <View style={styles.sectionCard}>
           <TouchableOpacity style={styles.menuRow} onPress={handleOpenSupport}>
@@ -230,7 +470,7 @@ export default function StudyOSSettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Section 4: Danger Zone */}
+        {/* Section 5: Danger Zone */}
         <Text style={[styles.sectionHeader, { color: colors.error }]}>Danger Zone</Text>
         <View style={[styles.sectionCard, { borderColor: colors.error + '44' }]}>
           <TouchableOpacity
@@ -272,28 +512,81 @@ export default function StudyOSSettingsScreen() {
         isVisible={pinModalMode !== null}
         mode={pinModalMode || 'verify'}
         title={
-          pinModalMode === 'verify' && isPinEnabled
-            ? 'Disable PIN Protection'
-            : undefined
+          pinModalMode === 'verify'
+            ? 'Disable Security Lock'
+            : pinModalMode === 'set'
+            ? 'Set 4-Digit Security PIN'
+            : 'Change 4-Digit Security PIN'
         }
         subtitle={
-          pinModalMode === 'verify' && isPinEnabled
+          pinModalMode === 'verify'
             ? 'Enter your current PIN to turn off lock'
-            : undefined
+            : 'Choose a 4-digit PIN for security unlock'
         }
-        onClose={() => setPinModalMode(null)}
+        onClose={() => {
+          setPinModalMode(null);
+          setPendingAction(null);
+        }}
         onSuccess={async () => {
           if (pinModalMode === 'verify') {
-            await SecureStore.setItemAsync('studyos_pin_enabled', 'false');
-            setIsPinEnabled(false);
-            Alert.alert('Security PIN Disabled', 'GPA and Marks are no longer locked with a PIN.');
+            if (pendingAction === 'toggle_app') {
+              await SecureStore.setItemAsync('studyos_app_lock_enabled', 'false');
+              setIsAppLockEnabled(false);
+              setFeedbackModal({
+                isVisible: true,
+                title: 'App Lock Disabled',
+                message: 'PathWise will no longer require authentication on launch.',
+                type: 'info',
+              });
+            } else {
+              await SecureStore.setItemAsync('studyos_pin_enabled', 'false');
+              setIsGpaMarksLocked(false);
+              setFeedbackModal({
+                isVisible: true,
+                title: 'Security Disabled',
+                message: 'GPA in Profile and Marks tab are no longer locked.',
+                type: 'info',
+              });
+            }
           } else if (pinModalMode === 'set') {
-            setIsPinEnabled(true);
-            Alert.alert('Security PIN Enabled', 'Your GPA and Marks are now locked and protected with your PIN.');
+            if (pendingAction === 'toggle_app') {
+              await SecureStore.setItemAsync('studyos_app_lock_enabled', 'true');
+              setIsAppLockEnabled(true);
+              setFeedbackModal({
+                isVisible: true,
+                title: 'App Lock Enabled',
+                message: 'PathWise is now completely locked with your 4-digit PIN.',
+                type: 'success',
+              });
+            } else {
+              await SecureStore.setItemAsync('studyos_pin_enabled', 'true');
+              setIsGpaMarksLocked(true);
+              setFeedbackModal({
+                isVisible: true,
+                title: 'PIN Lock Enabled',
+                message: 'GPA in Profile and Marks tab are now locked with your 4-digit PIN.',
+                type: 'success',
+              });
+            }
           } else if (pinModalMode === 'change') {
-            Alert.alert('Success', 'Your security PIN has been updated.');
+            setFeedbackModal({
+              isVisible: true,
+              title: 'PIN Updated',
+              message: 'Your 4-digit security PIN has been updated successfully.',
+              type: 'success',
+            });
           }
+          setPendingAction(null);
         }}
+      />
+
+      {/* Custom In-App Feedback Notification Modal */}
+      <SecurityFeedbackModal
+        isVisible={feedbackModal.isVisible}
+        type={feedbackModal.type}
+        title={feedbackModal.title}
+        message={feedbackModal.message}
+        onClose={() => setFeedbackModal((prev) => ({ ...prev, isVisible: false }))}
       />
     </SafeAreaView>
   );
@@ -369,6 +662,46 @@ const useStyles = (colors: any) =>
     settingDesc: {
       ...Typography.small,
       color: colors.textMuted,
+      fontSize: 12,
+    },
+    methodSection: {
+      padding: Spacing.md,
+      backgroundColor: colors.surfaceHigh,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    methodHeaderTitle: {
+      fontSize: 10,
+      color: colors.textMuted,
+      fontWeight: '800',
+      letterSpacing: 1,
+      marginBottom: 10,
+    },
+    methodRow: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    methodCard: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 12,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    methodCardActive: {
+      borderColor: colors.primary,
+      backgroundColor: `${colors.primary}15`,
+    },
+    methodTitle: {
+      ...Typography.small,
+      fontWeight: '700',
+      color: colors.text,
+      flexShrink: 1,
       fontSize: 12,
     },
     menuRow: {

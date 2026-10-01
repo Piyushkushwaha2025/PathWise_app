@@ -12,6 +12,7 @@ import { CenterPopModal } from '../ui/CenterPopModal';
 import { useThemeStore } from '../../store/useThemeStore';
 import { Typography, Spacing } from '../../constants/theme';
 import * as SecureStore from 'expo-secure-store';
+import { authenticateDevice, checkBiometrics } from '../../lib/security';
 
 interface PrivacyPinModalProps {
   isVisible: boolean;
@@ -39,6 +40,7 @@ export function PrivacyPinModal({
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPin, setShowPin] = useState(false);
+  const [canUseBiometrics, setCanUseBiometrics] = useState(false);
 
   useEffect(() => {
     if (isVisible) {
@@ -47,8 +49,35 @@ export function PrivacyPinModal({
       setConfirmPin('');
       setErrorMsg('');
       setIsLoading(false);
+
+      if (mode === 'verify') {
+        checkBiometrics().then((res) => {
+          const available = res.hasHardware && res.isEnrolled;
+          setCanUseBiometrics(available);
+          if (available) {
+            SecureStore.getItemAsync('studyos_security_type').then((secType) => {
+              if (secType !== 'pin') {
+                authenticateDevice().then((success) => {
+                  if (success) {
+                    onSuccess();
+                    onClose();
+                  }
+                });
+              }
+            });
+          }
+        });
+      }
     }
-  }, [isVisible]);
+  }, [isVisible, mode]);
+
+  const handleBiometricPress = async () => {
+    const success = await authenticateDevice();
+    if (success) {
+      onSuccess();
+      onClose();
+    }
+  };
 
   const handleSubmit = async () => {
     setErrorMsg('');
@@ -130,8 +159,8 @@ export function PrivacyPinModal({
 
   const getModalSubtitle = () => {
     if (subtitle) return subtitle;
-    if (mode === 'verify') return 'Enter your 4-digit PIN to proceed';
-    if (mode === 'set') return 'Choose a 4-digit PIN to protect your GPA & Marks';
+    if (mode === 'verify') return 'Enter your 4-digit PIN or use biometrics';
+    if (mode === 'set') return 'Choose a 4-digit PIN to protect your academic data';
     return 'Enter your current PIN and choose a new 4-digit PIN';
   };
 
@@ -238,6 +267,17 @@ export function PrivacyPinModal({
           )}
         </View>
 
+        {canUseBiometrics && mode === 'verify' && (
+          <TouchableOpacity
+            style={styles.biometricBtn}
+            onPress={handleBiometricPress}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="finger-print" size={20} color={colors.primary} />
+            <Text style={styles.biometricBtnText}>Use Fingerprint / Phone Lock</Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.cancelBtn}
@@ -310,7 +350,7 @@ const useStyles = (colors: any) =>
     form: {
       width: '100%',
       gap: Spacing.md,
-      marginBottom: Spacing.xl,
+      marginBottom: Spacing.md,
     },
     inputGroup: {
       width: '100%',
@@ -341,6 +381,25 @@ const useStyles = (colors: any) =>
     },
     eyeBtn: {
       padding: 6,
+    },
+    biometricBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      backgroundColor: `${colors.primary}15`,
+      borderWidth: 1,
+      borderColor: `${colors.primary}35`,
+      marginBottom: Spacing.lg,
+      width: '100%',
+    },
+    biometricBtnText: {
+      ...Typography.small,
+      color: colors.primary,
+      fontWeight: '700',
     },
     actions: {
       flexDirection: 'row',

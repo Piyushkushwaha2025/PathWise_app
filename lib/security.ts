@@ -1,60 +1,81 @@
-/**
- * Security utilities
- */
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 
-/**
- * Check if token is expired
- */
-export function isTokenExpired(token: string): boolean {
+export type SecurityType = 'biometric' | 'pin';
+
+export interface BiometricStatus {
+  hasHardware: boolean;
+  isEnrolled: boolean;
+  biometricName: string;
+}
+
+export async function checkBiometrics(): Promise<BiometricStatus> {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    const exp = payload.exp * 1000; // Convert to milliseconds
-    return Date.now() >= exp;
-  } catch {
-    return true;
-  }
-}
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+    const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
 
-/**
- * Securely generate random ID
- */
-export function generateSecureId(): string {
-  return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Rate limiter for preventing brute force
- */
-class RateLimiter {
-  private attempts: Map<string, { count: number; resetAt: number }> = new Map();
-  private maxAttempts: number;
-  private windowMs: number;
-
-  constructor(maxAttempts = 5, windowMs = 15 * 60 * 1000) {
-    this.maxAttempts = maxAttempts;
-    this.windowMs = windowMs;
-  }
-
-  check(key: string): { allowed: boolean; remaining: number; resetAt: number } {
-    const now = Date.now();
-    const record = this.attempts.get(key);
-
-    if (!record || now > record.resetAt) {
-      this.attempts.set(key, { count: 1, resetAt: now + this.windowMs });
-      return { allowed: true, remaining: this.maxAttempts - 1, resetAt: now + this.windowMs };
+    let biometricName = 'Fingerprint / Screen Lock';
+    if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+      biometricName = 'Face ID / Biometrics';
+    } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+      biometricName = 'Fingerprint';
     }
 
-    if (record.count >= this.maxAttempts) {
-      return { allowed: false, remaining: 0, resetAt: record.resetAt };
-    }
-
-    record.count += 1;
-    return { allowed: true, remaining: this.maxAttempts - record.count, resetAt: record.resetAt };
-  }
-
-  reset(key: string): void {
-    this.attempts.delete(key);
+    return {
+      hasHardware,
+      isEnrolled,
+      biometricName,
+    };
+  } catch (e) {
+    return {
+      hasHardware: false,
+      isEnrolled: false,
+      biometricName: 'Fingerprint / Screen Lock',
+    };
   }
 }
 
-export const authRateLimiter = new RateLimiter(5, 15 * 60 * 1000);
+export async function authenticateDevice(promptMessage: string = 'Unlock to continue'): Promise<boolean> {
+  try {
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage,
+      fallbackLabel: 'Use PIN',
+      cancelLabel: 'Cancel',
+      disableDeviceFallback: false,
+    });
+    return result.success;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function getSecuritySettings(): Promise<{
+  isGpaMarksLocked: boolean;
+  isAppLocked: boolean;
+  securityType: SecurityType;
+  hasPin: boolean;
+}> {
+  try {
+    const [gpaMarksVal, appLockVal, secTypeVal, pinVal] = await Promise.all([
+      SecureStore.getItemAsync('studyos_pin_enabled'),
+      SecureStore.getItemAsync('studyos_app_lock_enabled'),
+      SecureStore.getItemAsync('studyos_security_type'),
+      SecureStore.getItemAsync('studyos_privacy_pin'),
+    ]);
+
+    return {
+      isGpaMarksLocked: gpaMarksVal === 'true',
+      isAppLocked: appLockVal === 'true',
+      securityType: (secTypeVal as SecurityType) || 'biometric',
+      hasPin: !!pinVal,
+    };
+  } catch (e) {
+    return {
+      isGpaMarksLocked: false,
+      isAppLocked: false,
+      securityType: 'biometric',
+      hasPin: false,
+    };
+  }
+}

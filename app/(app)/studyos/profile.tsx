@@ -11,6 +11,7 @@ import { GlassCard } from '../../../components/ui/GlassCard';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { PrivacyPinModal } from '../../../components/modals/PrivacyPinModal';
+import { checkBiometrics, authenticateDevice } from '../../../lib/security';
 
 export default function CollegeProfileScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -42,6 +43,15 @@ export default function CollegeProfileScreen() {
     try {
       const isPinEnabled = await SecureStore.getItemAsync('studyos_pin_enabled');
       if (isPinEnabled === 'true') {
+        const secType = await SecureStore.getItemAsync('studyos_security_type');
+        const bio = await checkBiometrics();
+        if (secType !== 'pin' && bio.hasHardware && bio.isEnrolled) {
+          const success = await authenticateDevice('Unlock GPA & SGPA');
+          if (success) {
+            setIsGpaVisible(true);
+            return;
+          }
+        }
         setIsPinModalVisible(true);
       } else {
         setIsGpaVisible(true);

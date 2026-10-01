@@ -15,6 +15,7 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import { checkBiometrics, authenticateDevice } from '../../../../lib/security';
 
 const { width } = Dimensions.get('window');
 const RADAR_SIZE = width - 180; // Adjusted size to make circle smaller
@@ -152,24 +153,71 @@ export default function MarksScreen() {
     }, [])
   );
 
-  // Security PIN Lock State
+  // Security Lock State
+  const [isCheckingLock, setIsCheckingLock] = useState(true);
   const [isPinEnabled, setIsPinEnabled] = useState(false);
   const [isMarksUnlocked, setIsMarksUnlocked] = useState(false);
+  const [hasBiometrics, setHasBiometrics] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [showPin, setShowPin] = useState(false);
 
+  const triggerBiometricUnlock = useCallback(async () => {
+    try {
+      const success = await authenticateDevice('Unlock Marks & Results');
+      if (success) {
+        setIsMarksUnlocked(true);
+      }
+    } catch (e) {}
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      SecureStore.getItemAsync('studyos_pin_enabled').then((val) => {
-        const enabled = val === 'true';
-        setIsPinEnabled(enabled);
-        if (!enabled) {
-          setIsMarksUnlocked(true);
-        }
-      }).catch(() => {
-        setIsMarksUnlocked(true);
-      });
+      let active = true;
+      setIsCheckingLock(true);
+      setPinInput('');
+      setPinError('');
+
+      Promise.all([
+        SecureStore.getItemAsync('studyos_pin_enabled'),
+        SecureStore.getItemAsync('studyos_security_type'),
+        checkBiometrics(),
+      ])
+        .then(([pinVal, secType, bioStatus]) => {
+          if (!active) return;
+          const enabled = pinVal === 'true';
+          setIsPinEnabled(enabled);
+
+          const bioOk = bioStatus.hasHardware && bioStatus.isEnrolled;
+          setHasBiometrics(bioOk);
+
+          if (enabled) {
+            setIsMarksUnlocked(false);
+            setIsCheckingLock(false);
+
+            if (secType !== 'pin' && bioOk) {
+              authenticateDevice('Unlock Marks & Results').then((success) => {
+                if (active && success) {
+                  setIsMarksUnlocked(true);
+                }
+              });
+            }
+          } else {
+            setIsMarksUnlocked(true);
+            setIsCheckingLock(false);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setIsMarksUnlocked(true);
+            setIsCheckingLock(false);
+          }
+        });
+
+      return () => {
+        active = false;
+        setIsMarksUnlocked(false);
+      };
     }, [])
   );
   const [resultData, setResultData] = useState<{sgpa: string, subjects: any[]} | null>(null);
@@ -1198,18 +1246,26 @@ export default function MarksScreen() {
 
   const overallPercentage = grandTotalMax > 0 ? ((grandTotalObtained / grandTotalMax) * 100).toFixed(1) + '%' : '';
 
+  if (isCheckingLock) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
   if (isPinEnabled && !isMarksUnlocked) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: Spacing.xl }]}>
-        <View style={{ width: '100%', maxWidth: 360, backgroundColor: colors.surface, borderRadius: 24, padding: Spacing.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
-          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: `${colors.primary}20`, justifyContent: 'center', alignItems: 'center', marginBottom: Spacing.md, borderWidth: 1, borderColor: `${colors.primary}40` }}>
+        <View style={{ width: '100%', maxWidth: 360, backgroundColor: colors.surface, borderRadius: 28, padding: Spacing.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
+          <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: `${colors.primary}18`, borderWidth: 1, borderColor: `${colors.primary}40`, justifyContent: 'center', alignItems: 'center', marginBottom: Spacing.md }}>
             <Ionicons name="lock-closed" size={32} color={colors.primary} />
           </View>
-          <Text style={{ ...Typography.h2, color: colors.text, fontWeight: '700', textAlign: 'center', marginBottom: 4 }}>
+          <Text style={{ ...Typography.h2, color: colors.text, fontWeight: '800', textAlign: 'center', marginBottom: 4 }}>
             Marks Tab Locked
           </Text>
           <Text style={{ ...Typography.small, color: colors.textDim, textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 18 }}>
-            Enter your 4-digit security PIN to view your academic marks and exam results
+            Authenticate with fingerprint or enter your 4-digit PIN to access marks and exam results
           </Text>
 
           {pinError ? (
@@ -1218,7 +1274,7 @@ export default function MarksScreen() {
             </Text>
           ) : null}
 
-          <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: Spacing.md, height: 48, marginBottom: Spacing.lg }}>
+          <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingHorizontal: Spacing.md, height: 50, marginBottom: Spacing.md }}>
             <TextInput
               style={{ flex: 1, color: colors.text, fontSize: 18, letterSpacing: 8, fontWeight: '700', textAlign: 'center' }}
               keyboardType="numeric"
@@ -1231,7 +1287,7 @@ export default function MarksScreen() {
               }}
               placeholder="••••"
               placeholderTextColor={colors.textDim}
-              autoFocus
+              autoFocus={!hasBiometrics}
             />
             <TouchableOpacity onPress={() => setShowPin(!showPin)} style={{ padding: 6 }}>
               <Ionicons name={showPin ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textDim} />
@@ -1239,7 +1295,7 @@ export default function MarksScreen() {
           </View>
 
           <TouchableOpacity
-            style={{ width: '100%', paddingVertical: 14, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', marginBottom: Spacing.md }}
+            style={{ width: '100%', paddingVertical: 14, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', marginBottom: Spacing.sm }}
             onPress={async () => {
               const storedPin = await SecureStore.getItemAsync('studyos_privacy_pin');
               if (storedPin && pinInput !== storedPin) {
@@ -1249,11 +1305,24 @@ export default function MarksScreen() {
               setIsMarksUnlocked(true);
             }}
           >
-            <Text style={{ ...Typography.body, color: '#fff', fontWeight: '700' }}>Unlock Marks</Text>
+            <Text style={{ ...Typography.body, color: '#fff', fontWeight: '700' }}>Unlock with PIN</Text>
           </TouchableOpacity>
 
+          {hasBiometrics && (
+            <TouchableOpacity
+              style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: `${colors.primary}35`, marginBottom: Spacing.sm }}
+              onPress={triggerBiometricUnlock}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="finger-print" size={20} color={colors.primary} />
+              <Text style={{ ...Typography.body, color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                Use Fingerprint / Phone Lock
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
-            style={{ width: '100%', paddingVertical: 12, borderRadius: 12, backgroundColor: colors.background, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
+            style={{ width: '100%', paddingVertical: 12, borderRadius: 14, backgroundColor: colors.background, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
             onPress={() => router.back()}
           >
             <Text style={{ ...Typography.body, color: colors.textDim, fontWeight: '600' }}>Go Back</Text>

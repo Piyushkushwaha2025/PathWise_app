@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import NewAssignmentNotification from "../components/studyos/NewAssignmentNotification";
 import { GlobalPaywallModal } from "../components/ui/GlobalPaywallModal";
+import { AppLockOverlay } from "../components/security/AppLockOverlay";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -241,6 +242,7 @@ function RootLayoutInner() {
         <Stack.Screen name="roadmap/[id]" />
       </Stack>
       <GlobalPaywallModal />
+      <AppLockOverlay />
     </View>
   );
 }
