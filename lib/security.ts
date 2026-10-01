@@ -24,6 +24,10 @@ function getLocalAuth(): typeof import('expo-local-authentication') | null {
   }
 }
 
+export function isDeviceAuthAvailable(): boolean {
+  return !!getLocalAuth();
+}
+
 export async function checkBiometrics(): Promise<BiometricStatus> {
   try {
     const LocalAuth = getLocalAuth();

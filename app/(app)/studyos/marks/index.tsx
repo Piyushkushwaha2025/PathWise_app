@@ -164,9 +164,12 @@ export default function MarksScreen() {
 
   const triggerBiometricUnlock = useCallback(async () => {
     try {
+      setPinError('');
       const success = await authenticateDevice('Unlock Marks & Results');
       if (success) {
         setIsMarksUnlocked(true);
+      } else {
+        setPinError('Biometric/Phone lock cancelled or unavailable. Use your 4-digit PIN.');
       }
     } catch (e) {}
   }, []);
@@ -1308,18 +1311,16 @@ export default function MarksScreen() {
             <Text style={{ ...Typography.body, color: '#fff', fontWeight: '700' }}>Unlock with PIN</Text>
           </TouchableOpacity>
 
-          {hasBiometrics && (
-            <TouchableOpacity
-              style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: `${colors.primary}35`, marginBottom: Spacing.sm }}
-              onPress={triggerBiometricUnlock}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="finger-print" size={20} color={colors.primary} />
-              <Text style={{ ...Typography.body, color: colors.primary, fontWeight: '700', fontSize: 13 }}>
-                Use Fingerprint / Phone Lock
-              </Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: `${colors.primary}35`, marginBottom: Spacing.sm }}
+            onPress={triggerBiometricUnlock}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="finger-print" size={20} color={colors.primary} />
+            <Text style={{ ...Typography.body, color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+              Use Fingerprint / Phone Lock
+            </Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={{ width: '100%', paddingVertical: 12, borderRadius: 14, backgroundColor: colors.background, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}

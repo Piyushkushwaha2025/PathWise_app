@@ -87,9 +87,12 @@ export function AppLockOverlay() {
   }, []);
 
   const handleBiometricPress = async () => {
+    setPinError('');
     const success = await authenticateDevice('Unlock PathWise');
     if (success) {
       setIsUnlocked(true);
+    } else {
+      setPinError('Biometric/Phone lock cancelled or unavailable. Use your 4-digit PIN.');
     }
   };
 
@@ -160,18 +163,16 @@ export function AppLockOverlay() {
             <Text style={styles.unlockBtnText}>Unlock with PIN</Text>
           </TouchableOpacity>
 
-          {hasBiometrics && (
-            <TouchableOpacity
-              style={styles.biometricBtn}
-              onPress={handleBiometricPress}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="finger-print" size={22} color={colors.primary} />
-              <Text style={styles.biometricBtnText}>
-                Use Fingerprint / Phone Lock
-              </Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.biometricBtn}
+            onPress={handleBiometricPress}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="finger-print" size={22} color={colors.primary} />
+            <Text style={styles.biometricBtnText}>
+              Use Fingerprint / Phone Lock
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>

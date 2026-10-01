@@ -354,35 +354,35 @@ export default function StudyOSSettingsScreen() {
               <View style={styles.methodSection}>
                 <Text style={styles.methodHeaderTitle}>CHOOSE UNLOCK METHOD</Text>
                 <View style={styles.methodRow}>
-                  {biometrics.hasHardware && (
-                    <TouchableOpacity
+                  <TouchableOpacity
+                    style={[
+                      styles.methodCard,
+                      securityType === 'biometric' && styles.methodCardActive,
+                    ]}
+                    onPress={() => handleSelectSecurityType('biometric')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="finger-print"
+                      size={20}
+                      color={
+                        securityType === 'biometric'
+                          ? colors.primary
+                          : colors.textDim
+                      }
+                    />
+                    <Text
                       style={[
-                        styles.methodCard,
-                        securityType === 'biometric' && styles.methodCardActive,
+                        styles.methodTitle,
+                        securityType === 'biometric' && {
+                          color: colors.primary,
+                        },
                       ]}
-                      onPress={() => handleSelectSecurityType('biometric')}
+                      numberOfLines={1}
                     >
-                      <Ionicons
-                        name="finger-print"
-                        size={20}
-                        color={
-                          securityType === 'biometric'
-                            ? colors.primary
-                            : colors.textDim
-                        }
-                      />
-                      <Text
-                        style={[
-                          styles.methodTitle,
-                          securityType === 'biometric' && {
-                            color: colors.primary,
-                          },
-                        ]}
-                      >
-                        {biometrics.biometricName}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                      Fingerprint / Phone Lock
+                    </Text>
+                  </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[
@@ -390,6 +390,7 @@ export default function StudyOSSettingsScreen() {
                       securityType === 'pin' && styles.methodCardActive,
                     ]}
                     onPress={() => handleSelectSecurityType('pin')}
+                    activeOpacity={0.7}
                   >
                     <Ionicons
                       name="keypad-outline"
@@ -403,6 +404,7 @@ export default function StudyOSSettingsScreen() {
                         styles.methodTitle,
                         securityType === 'pin' && { color: colors.primary },
                       ]}
+                      numberOfLines={1}
                     >
                       4-Digit PIN
                     </Text>

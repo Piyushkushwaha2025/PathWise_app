@@ -72,10 +72,13 @@ export function PrivacyPinModal({
   }, [isVisible, mode]);
 
   const handleBiometricPress = async () => {
-    const success = await authenticateDevice();
+    setErrorMsg('');
+    const success = await authenticateDevice('Unlock PathWise');
     if (success) {
       onSuccess();
       onClose();
+    } else {
+      setErrorMsg('Authentication cancelled or unavailable. Use your 4-digit PIN.');
     }
   };
 
@@ -277,7 +280,7 @@ export function PrivacyPinModal({
           )}
         </View>
 
-        {canUseBiometrics && mode === 'verify' && (
+        {mode === 'verify' && (
           <TouchableOpacity
             style={styles.biometricBtn}
             onPress={handleBiometricPress}
