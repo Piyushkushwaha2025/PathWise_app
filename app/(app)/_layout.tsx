@@ -153,7 +153,7 @@ export default function AppLayout() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <NetworkStatusBanner />
-      <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
+      <View ref={blurTargetRef} style={{ flex: 1 }}>
         <KeyboardAvoidingView 
           style={{ flex: 1 }} 
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -163,8 +163,6 @@ export default function AppLayout() {
           tabBar={(props) => <TabBar {...props} />}
           screenOptions={{ 
             headerShown: false,
-            freezeOnBlur: true,
-            lazy: true,
             sceneStyle: { backgroundColor: colors.background }
           }}
         >
@@ -175,7 +173,7 @@ export default function AppLayout() {
         <Tabs.Screen name="profile" options={{ title: "Profile" }} />
         </Tabs>
         </KeyboardAvoidingView>
-      </BlurTargetView>
+      </View>
       {isSwitchingMode && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 99999 }]}>
           <AppLoading />

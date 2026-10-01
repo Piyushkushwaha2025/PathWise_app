@@ -1,6 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Typography, Spacing, Radius } from '../constants/theme';
+import { Typography, Spacing, Radius, Themes } from '../constants/theme';
 import { useThemeStore } from '../store/useThemeStore';
 
 interface Props {
@@ -28,7 +28,7 @@ class ErrorBoundaryClass extends Component<Props & { colors: any }, State> {
 
   public render() {
     if (this.state.hasError) {
-      const colors = this.props.colors;
+      const colors = this.props.colors || Themes.black;
       return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
           <Text style={[styles.title, { color: colors.error }]}>Oops! Something went wrong.</Text>
