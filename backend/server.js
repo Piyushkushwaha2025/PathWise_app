@@ -268,39 +268,38 @@ const getClerkId = async (req, res, next) => {
       
       // Verify the Clerk JWT cryptographically
       const verified = await verifyToken(token, { secretKey });
-      req.clerkUserId = verified.sub; // Authenticated User ID
-      return next();
+      if (verified && verified.sub) {
+        req.clerkUserId = verified.sub; // Authenticated User ID
+        return next();
+      }
     } catch (error) {
       console.warn("JWT Verification failed:", error.message);
       const reqPath = req.path || '';
-      if (reqPath.startsWith('/api/payment') || reqPath.startsWith('/api/rewards') || reqPath.startsWith('/api/assignments') || reqPath.startsWith('/api/notifications') || reqPath.startsWith('/api/saturday-override') || (reqPath === '/api/user' && req.method === 'DELETE')) {
+      if (reqPath.startsWith('/api/payment') || reqPath.startsWith('/api/rewards/redeem') || (reqPath === '/api/user' && req.method === 'DELETE')) {
         return res.status(401).json({ error: 'Unauthorized: Invalid token' });
       }
     }
   }
 
-  // Sensitive & state-mutating paths strictly require a verified JWT
+  // Sensitive payment & token-to-pro redemption paths strictly require a verified JWT
   const path = req.path || '';
-  const isSensitivePath = 
+  const isStrictPath = 
     path.startsWith('/api/payment') ||
-    path.startsWith('/api/rewards') ||
-    path.startsWith('/api/assignments') ||
-    path.startsWith('/api/notifications') ||
-    path.startsWith('/api/saturday-override') ||
+    path.startsWith('/api/rewards/redeem') ||
     (path === '/api/user' && req.method === 'DELETE');
 
-  if (isSensitivePath) {
+  if (isStrictPath) {
     return res.status(401).json({ error: 'Unauthorized: Verified JWT token required for this action' });
   }
 
-  // Fallback only for non-sensitive read/sync operations during client token bootstrap
-  const fallbackId = req.headers['x-clerk-user-id'] || req.body.clerkUserId;
+  // Fallback for daily bonus, ad watching, rewards status, user sync, assignments and notifications
+  const fallbackId = req.headers['x-clerk-user-id'] || req.body?.clerkUserId;
   if (fallbackId) {
     req.clerkUserId = fallbackId;
     return next();
   }
 
-  return res.status(401).json({ error: 'Unauthorized: Missing JWT token' });
+  return res.status(401).json({ error: 'Unauthorized: Missing authentication credentials' });
 };
 
 const requireCR = async (req, res, next) => {

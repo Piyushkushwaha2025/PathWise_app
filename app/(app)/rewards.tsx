@@ -123,12 +123,13 @@ export default function RewardsScreen() {
         await new Promise(r => setTimeout(r, 300));
         token = await getToken();
       }
+      const getTodayIST = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
       const data = await getRewardStatus(user.id, token);
       setStatus(data);
       if (data && typeof data.daily_claimed_today === 'boolean') {
         setDailyClaimed(data.daily_claimed_today);
         if (data.daily_claimed_today) {
-          AsyncStorage.setItem('last_daily_claim', new Date().toDateString()).catch(() => {});
+          AsyncStorage.setItem('last_daily_claim', getTodayIST()).catch(() => {});
         } else {
           AsyncStorage.removeItem('last_daily_claim').catch(() => {});
         }
@@ -143,8 +144,9 @@ export default function RewardsScreen() {
 
   const checkDaily = async () => {
     try {
+      const getTodayIST = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
       const lastClaim = await AsyncStorage.getItem('last_daily_claim');
-      if (lastClaim === new Date().toDateString()) {
+      if (lastClaim === getTodayIST()) {
         setDailyClaimed(true);
       }
     } catch (e) {}
@@ -174,14 +176,16 @@ export default function RewardsScreen() {
       }
       const result = await claimDailyBonus(user.id, token);
       animateToken();
-      await AsyncStorage.setItem('last_daily_claim', new Date().toDateString());
+      const getTodayIST = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
+      await AsyncStorage.setItem('last_daily_claim', getTodayIST());
       setStatus(prev => prev ? { ...prev, token_balance: result.token_balance, daily_claimed_today: true } : prev);
       queryClient.invalidateQueries({ queryKey: ['rewardStatus'] });
       showToast('Daily Bonus! 🎁', `You collected your daily bonus! Balance: ${result.token_balance}`);
     } catch (e: any) {
+      const getTodayIST = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
       if (e.code === 'ALREADY_CLAIMED' || e.message?.toLowerCase().includes('already claimed')) {
         setDailyClaimed(true);
-        await AsyncStorage.setItem('last_daily_claim', new Date().toDateString());
+        await AsyncStorage.setItem('last_daily_claim', getTodayIST());
         showToast('Already Claimed 🎁', 'You already collected today\'s bonus. Come back tomorrow!');
       } else {
         setDailyClaimed(false); // Revert only on genuine failure
