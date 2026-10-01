@@ -1,4 +1,3 @@
-import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 
 export type SecurityType = 'biometric' | 'pin';
@@ -9,22 +8,38 @@ export interface BiometricStatus {
   biometricName: string;
 }
 
+function getLocalAuth(): typeof import('expo-local-authentication') | null {
+  try {
+    return require('expo-local-authentication');
+  } catch {
+    return null;
+  }
+}
+
 export async function checkBiometrics(): Promise<BiometricStatus> {
   try {
-    const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
+    const LocalAuth = getLocalAuth();
+    if (!LocalAuth || typeof LocalAuth.hasHardwareAsync !== 'function') {
+      return {
+        hasHardware: false,
+        isEnrolled: false,
+        biometricName: 'Fingerprint / Screen Lock',
+      };
+    }
+    const hasHardware = await LocalAuth.hasHardwareAsync();
+    const isEnrolled = await LocalAuth.isEnrolledAsync();
+    const types = (await LocalAuth.supportedAuthenticationTypesAsync?.()) || [];
 
     let biometricName = 'Fingerprint / Screen Lock';
-    if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+    if (types.includes(LocalAuth.AuthenticationType?.FACIAL_RECOGNITION)) {
       biometricName = 'Face ID / Biometrics';
-    } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+    } else if (types.includes(LocalAuth.AuthenticationType?.FINGERPRINT)) {
       biometricName = 'Fingerprint';
     }
 
     return {
-      hasHardware,
-      isEnrolled,
+      hasHardware: !!hasHardware,
+      isEnrolled: !!isEnrolled,
       biometricName,
     };
   } catch (e) {
@@ -38,13 +53,17 @@ export async function checkBiometrics(): Promise<BiometricStatus> {
 
 export async function authenticateDevice(promptMessage: string = 'Unlock to continue'): Promise<boolean> {
   try {
-    const result = await LocalAuthentication.authenticateAsync({
+    const LocalAuth = getLocalAuth();
+    if (!LocalAuth || typeof LocalAuth.authenticateAsync !== 'function') {
+      return false;
+    }
+    const result = await LocalAuth.authenticateAsync({
       promptMessage,
       fallbackLabel: 'Use PIN',
       cancelLabel: 'Cancel',
       disableDeviceFallback: false,
     });
-    return result.success;
+    return !!result.success;
   } catch (e) {
     return false;
   }

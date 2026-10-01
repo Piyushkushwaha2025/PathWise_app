@@ -156,6 +156,15 @@ const SCRAPE_STEPS = [
             if (cgpaM && parseFloat(cgpaM[1]) <= 10) cgpa = cgpaM[1];
           }
 
+          try {
+            var attA = Array.from(document.querySelectorAll('a')).find(function(a) {
+              return a.href && (a.href.toLowerCase().includes('attendancesummary') || a.innerText.toLowerCase().includes('attendance'));
+            });
+            if (attA && attA.href) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DYNAMIC_URL', step: 'attendance', url: attA.href }));
+            }
+          } catch(e){}
+
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'SCRAPE_RESULT',
             step: 'profile',
@@ -225,6 +234,15 @@ const SCRAPE_STEPS = [
               });
             }
           }
+
+          try {
+            var attA2 = Array.from(document.querySelectorAll('a')).find(function(a) {
+              return a.href && (a.href.toLowerCase().includes('attendancesummary') || a.innerText.toLowerCase().includes('attendance'));
+            });
+            if (attA2 && attA2.href) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DYNAMIC_URL', step: 'attendance', url: attA2.href }));
+            }
+          } catch(e){}
 
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'SCRAPE_RESULT',
@@ -340,58 +358,167 @@ const SCRAPE_STEPS = [
       (function waitForData() {
         try {
           var attendanceData = {};
-          var maxWait = 4500;
+          var maxWait = 7500;
           var interval = 150;
           var elapsed = 0;
-          
+
+          function viewActionTargetOf(row) {
+            var viewBtn = row.querySelector('input[value="VIEW"], input[value="View"], input[type="button"][chk]');
+            if (viewBtn && viewBtn.getAttribute('chk')) {
+              var chkVal = viewBtn.getAttribute('chk');
+              var hiddenInp = row.querySelector('input[type="hidden"]');
+              if (hiddenInp && hiddenInp.value) {
+                return hiddenInp.value + "|" + chkVal;
+              }
+            }
+            if (viewBtn) {
+              if (viewBtn.name) return viewBtn.name;
+              var ocb = viewBtn.getAttribute('onclick');
+              if (ocb && ocb.indexOf('__doPostBack') > -1) {
+                var mb = ocb.match(/__doPostBack\\('([^']+)'/);
+                if (mb) return mb[1];
+              }
+            }
+            var linkBtns = row.querySelectorAll('a, input, button');
+            for (var k = 0; k < linkBtns.length; k++) {
+              if (linkBtns[k].name && (linkBtns[k].name.indexOf('ctl00$') > -1 || linkBtns[k].name.indexOf('btn') > -1)) return linkBtns[k].name;
+              if (linkBtns[k].href && linkBtns[k].href.indexOf('__doPostBack') > -1) {
+                var mh = linkBtns[k].href.match(/__doPostBack\\('([^']+)'/);
+                if (mh) return mh[1];
+              }
+              var oc = linkBtns[k].getAttribute('onclick');
+              if (oc && oc.indexOf('__doPostBack') > -1) {
+                var mo = oc.match(/__doPostBack\\('([^']+)'/);
+                if (mo) return mo[1];
+              }
+            }
+            var anyBtns = row.querySelectorAll('a, input, button, [obj]');
+            for (var k2 = 0; k2 < anyBtns.length; k2++) {
+              var el = anyBtns[k2];
+              var tag = (el.tagName || '').toUpperCase();
+              var typ = (el.getAttribute('type') || '').toLowerCase();
+              if (tag === 'INPUT' && (typ === 'text' || typ === 'hidden' || typ === 'checkbox')) continue;
+              if (el.name) return el.name;
+              if (el.id) return el.id.replace(/_/g, '$');
+            }
+            return '';
+          }
+
           var tryParse = function() {
-            var rows = document.querySelectorAll('#SortTable tbody tr, #SortTable tr');
-            
-            if (rows.length === 0 && elapsed < maxWait) {
+            var tables = document.querySelectorAll('table');
+            for (var t = 0; t < tables.length; t++) {
+              var rows = tables[t].querySelectorAll('tr');
+              if (rows.length < 2) continue;
+
+              for (var i = 0; i < rows.length; i++) {
+                var cells = rows[i].querySelectorAll('td');
+                if (cells.length < 4) continue;
+
+                var textArr = Array.from(cells).map(function(c) { return c.innerText.trim(); });
+                var code = null;
+                for (var x = 0; x < textArr.length; x++) {
+                  if (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(textArr[x])) { code = textArr[x]; break; }
+                }
+                var altName = textArr[0] || '';
+                var altName2 = textArr[1] || '';
+
+                // Method A: Exact column positions from SortTable if present
+                var eligDelivered = cells.length >= 9 ? (parseFloat(cells[8].innerText.trim()) || 0) : 0;
+                var eligAttended = cells.length >= 10 ? (parseFloat(cells[9].innerText.trim()) || 0) : 0;
+                var eligPercText = cells.length >= 11 ? cells[10].innerText.trim().replace('%','') : '';
+                var eligPerc = parseFloat(eligPercText) || 0;
+                var totalDelv = cells.length >= 3 ? (parseFloat(cells[2].innerText.trim()) || 0) : 0;
+                var totalAttd = cells.length >= 4 ? (parseFloat(cells[3].innerText.trim()) || 0) : 0;
+
+                var total = eligDelivered > 0 ? eligDelivered : totalDelv;
+                var attended = eligAttended > 0 ? eligAttended : totalAttd;
+                var percentage = eligPerc > 0 ? eligPerc : (total > 0 ? Math.round((attended / total) * 100) : 0);
+
+                // Method B: Heuristic numbers search if columns didn't yield values
+                if (total === 0 && attended === 0) {
+                  var numArr = [];
+                  var explicitPerc = null;
+                  for (var j = 0; j < textArr.length; j++) {
+                    var rawVal = textArr[j].trim();
+                    if (rawVal.includes('%')) explicitPerc = Number(rawVal.replace('%', '').trim());
+                    var clean = rawVal.replace('%','').trim();
+                    if (clean !== '' && !isNaN(Number(clean))) numArr.push(Number(clean));
+                  }
+                  if (numArr.length >= 2) {
+                    percentage = (explicitPerc !== null && !isNaN(explicitPerc)) ? explicitPerc : numArr[numArr.length - 1];
+                    var bestMatch = null;
+                    var bestDiff = 999;
+                    if (percentage > 0) {
+                      for (var p1 = 0; p1 < numArr.length; p1++) {
+                        for (var p2 = 0; p2 < numArr.length; p2++) {
+                          var A = numArr[p1], B = numArr[p2];
+                          if (B > 0 && A <= B && B <= 500 && A !== percentage && B !== percentage) {
+                            var calc = (A / B) * 100;
+                            var diff = Math.abs(calc - percentage);
+                            if (diff <= 1.5) {
+                              if (diff < bestDiff - 0.01 || (Math.abs(diff - bestDiff) <= 0.01 && B > (bestMatch ? bestMatch.total : 0))) {
+                                bestDiff = diff;
+                                bestMatch = { attended: A, total: B };
+                              }
+                            }
+                          }
+                        }
+                      }
+                      if (bestMatch && bestDiff <= 1.5) {
+                        attended = bestMatch.attended;
+                        total = bestMatch.total;
+                      } else {
+                        var validCounts = numArr.slice(0, numArr.length - 1).filter(function(n) { return n >= 0 && n <= 500; });
+                        if (validCounts.length >= 2) {
+                          attended = Math.min(validCounts[validCounts.length - 1], validCounts[validCounts.length - 2]);
+                          total = Math.max(validCounts[validCounts.length - 1], validCounts[validCounts.length - 2]);
+                        } else {
+                          attended = numArr[numArr.length - 2] || 0;
+                          total = numArr[numArr.length - 3] || 0;
+                        }
+                      }
+                    }
+                  }
+                  if (total > 0 && attended > 0 && (percentage === 0 || isNaN(percentage))) {
+                    percentage = Number(((attended / total) * 100).toFixed(2));
+                  }
+                }
+
+                if (total > 0 || percentage > 0 || (code && code.length >= 4)) {
+                  var vTarget = viewActionTargetOf(rows[i]);
+                  var detectedTitle = altName || altName2 || code || "";
+                  var dataObj = { code: code || "", title: detectedTitle, total: total, attended: attended, percentage: percentage, viewActionTarget: vTarget };
+                  if (code) attendanceData[code] = dataObj;
+                  if (altName) attendanceData[altName] = dataObj;
+                  if (altName2 && altName2 !== altName) attendanceData[altName2] = dataObj;
+                }
+              }
+            }
+
+            var keys = Object.keys(attendanceData);
+            if (keys.length > 0) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SCRAPE_RESULT',
+                step: 'attendance',
+                data: attendanceData
+              }));
+              return;
+            }
+
+            if (elapsed < maxWait) {
               elapsed += interval;
               setTimeout(tryParse, interval);
               return;
             }
-            
-            for (var i = 0; i < rows.length; i++) {
-              var cells = rows[i].querySelectorAll('td');
-              if (cells.length < 4) continue;
-              
-              var code = cells[0].innerText.trim();
-              var title = cells[1].innerText.trim();
-              var eligDelivered = cells.length >= 9 ? (parseFloat(cells[8].innerText.trim()) || 0) : 0;
-              var eligAttended = cells.length >= 10 ? (parseFloat(cells[9].innerText.trim()) || 0) : 0;
-              var eligPercText = cells.length >= 11 ? cells[10].innerText.trim().replace('%','') : '';
-              var eligPerc = parseFloat(eligPercText) || 0;
-              
-              var totalDelv = cells.length >= 3 ? (parseFloat(cells[2].innerText.trim()) || 0) : 0;
-              var totalAttd = cells.length >= 4 ? (parseFloat(cells[3].innerText.trim()) || 0) : 0;
-              
-              var finalTotal = eligDelivered > 0 ? eligDelivered : totalDelv;
-              var finalAttended = eligAttended > 0 ? eligAttended : totalAttd;
-              var finalPerc = eligPerc > 0 ? eligPerc : (finalTotal > 0 ? Math.round((finalAttended / finalTotal) * 100) : 0);
-              
-              var viewActionTarget = '';
-              if (cells.length >= 12 && cells[11]) {
-                var btn = cells[11].querySelector('input[type="submit"], button, a');
-                if (btn) {
-                  viewActionTarget = btn.name || btn.id || '';
-                  if (!viewActionTarget) {
-                    var oc = btn.getAttribute('onclick') || btn.href || '';
-                    var m = oc.match(/__doPostBack\\('([^']+)'/);
-                    if (m) viewActionTarget = m[1];
-                  }
-                }
-              }
-              
-              var dataObj = { total: finalTotal, attended: finalAttended, percentage: finalPerc, viewActionTarget: viewActionTarget };
-              if (code) attendanceData[code] = dataObj;
-              if (title) attendanceData[title] = dataObj;
-            }
-            
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'attendance', data: attendanceData }));
+
+            // Timed out: return whatever we have or empty
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'SCRAPE_RESULT',
+              step: 'attendance',
+              data: attendanceData
+            }));
           };
-          
+
           tryParse();
         } catch(e) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'attendance', data: {} }));
@@ -601,17 +728,49 @@ export default function SyncScreen() {
 
       // Merge attendance into subjects
       const rawAttendance = newData.attendance || {};
-      const updatedSubjects = (baseSubjects || []).map((subj: any) => {
+      const hasScrapedAttendance = Object.keys(rawAttendance).length > 0;
+
+      let updatedSubjects = (baseSubjects || []).map((subj: any) => {
         let att = rawAttendance[subj.code];
-        if (!att && subj.code) {
-          const cleanCode = subj.code.replace(/^[A-Z]+_/, '').trim();
-          att = rawAttendance[cleanCode];
-          if (!att) {
-            const matchingKey = Object.keys(rawAttendance).find(k => subj.code?.includes(k) || k.includes(cleanCode));
-            if (matchingKey) att = rawAttendance[matchingKey];
+
+        const normSubjCode = (subj.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const normSubjName = (subj.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        if (!att && normSubjCode) {
+          for (const [key, val] of Object.entries(rawAttendance) as [string, any][]) {
+            const normKey = key.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            if (normKey && (normSubjCode.includes(normKey) || normKey.includes(normSubjCode))) {
+              att = val;
+              break;
+            }
+            const valCodeNorm = (val.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            if (valCodeNorm && (normSubjCode.includes(valCodeNorm) || valCodeNorm.includes(normSubjCode))) {
+              att = val;
+              break;
+            }
           }
         }
+
+        if (!att && normSubjName) {
+          for (const [key, val] of Object.entries(rawAttendance) as [string, any][]) {
+            const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normKey && (normSubjName.includes(normKey) || normKey.includes(normSubjName))) {
+              att = val;
+              break;
+            }
+            const valTitleNorm = (val.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (valTitleNorm && (normSubjName.includes(valTitleNorm) || valTitleNorm.includes(normSubjName))) {
+              att = val;
+              break;
+            }
+          }
+        }
+
         if (att) {
+          // Never overwrite existing valid attendance with 0 if scrape returned 0
+          if (subj.totalClasses > 0 && att.total === 0 && att.attended === 0) {
+            return subj;
+          }
           return {
             ...subj,
             attendancePercentage: att.percentage,
@@ -620,8 +779,66 @@ export default function SyncScreen() {
             viewActionTarget: att.viewActionTarget || subj.viewActionTarget
           };
         }
+
+        // If attendance was not in this scrape, retain existing attendance if available
+        if (!hasScrapedAttendance && existing.subjects) {
+          const ex = existing.subjects.find((s: any) => s.code === subj.code || s.name === subj.name);
+          if (ex && ex.totalClasses > 0) {
+            return {
+              ...subj,
+              attendancePercentage: ex.attendancePercentage,
+              attendedClasses: ex.attendedClasses,
+              totalClasses: ex.totalClasses,
+              viewActionTarget: ex.viewActionTarget || subj.viewActionTarget
+            };
+          }
+        }
+
         return subj;
       });
+
+      // If baseSubjects was empty or subjects list was missing, build subjects directly from attendance data!
+      if (updatedSubjects.length === 0 && hasScrapedAttendance) {
+        const createdSubjects: any[] = [];
+        const seenCodes = new Set<string>();
+        for (const [key, val] of Object.entries(rawAttendance) as [string, any][]) {
+          const code = val.code || (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(key) ? key : '');
+          if (code && !seenCodes.has(code)) {
+            seenCodes.add(code);
+            createdSubjects.push({
+              code: code,
+              name: val.title || key,
+              credits: '3.0',
+              attendancePercentage: val.percentage || 0,
+              attendedClasses: val.attended || 0,
+              totalClasses: val.total || 0,
+              viewActionTarget: val.viewActionTarget || '',
+            });
+          }
+        }
+        if (createdSubjects.length > 0) {
+          updatedSubjects = createdSubjects;
+        }
+      } else if (hasScrapedAttendance) {
+        // If some subjects in attendance were not in baseSubjects, add them!
+        const existingCodes = new Set(updatedSubjects.map((s: any) => (s.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()));
+        for (const [key, val] of Object.entries(rawAttendance) as [string, any][]) {
+          const code = val.code || (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(key) ? key : '');
+          const normCode = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+          if (normCode && !existingCodes.has(normCode) && (val.total > 0 || val.percentage > 0)) {
+            existingCodes.add(normCode);
+            updatedSubjects.push({
+              code: code,
+              name: val.title || key,
+              credits: '3.0',
+              attendancePercentage: val.percentage || 0,
+              attendedClasses: val.attended || 0,
+              totalClasses: val.total || 0,
+              viewActionTarget: val.viewActionTarget || '',
+            });
+          }
+        }
+      }
 
       // Resolved Profile
       const savedUid = await SecureStore.getItemAsync('culko_u').catch(() => null);
@@ -813,11 +1030,24 @@ export default function SyncScreen() {
           SecureStore.setItemAsync('culko_cookies', data.data).catch(() => {});
           AsyncStorage.setItem('culko_cookies', data.data).catch(() => {});
         }
+      } else if ((data.type === 'ATTENDANCE_URL' || data.type === 'DYNAMIC_URL') && data.url) {
+        let fullUrl = data.url;
+        if (!fullUrl.startsWith('http')) {
+          fullUrl = `https://student.culko.in/${fullUrl.replace(/^\//, '')}`;
+        }
+        const targetStepId = data.step || 'attendance';
+        const targetStep = SCRAPE_STEPS.find(s => s.id === targetStepId);
+        if (targetStep && (fullUrl.startsWith('http://') || fullUrl.startsWith('https://'))) {
+          console.log(`[Sync] Dynamic ${targetStepId} URL updated:`, fullUrl);
+          targetStep.url = fullUrl;
+        }
       } else if (data.type === 'SCRAPE_RESULT') {
         const expectedStep = SCRAPE_STEPS[stepIndexRef.current];
         if (!expectedStep || data.step !== expectedStep.id) {
           return;
         }
+
+        console.log('[Sync] Scraped step:', data.step, data.data ? `(${Object.keys(data.data).length} keys)` : '(null)');
 
         const newData = { ...scrapedDataRef.current, [data.step]: data.data };
         scrapedDataRef.current = newData;
@@ -835,10 +1065,10 @@ export default function SyncScreen() {
     }
   };
 
-  // Skip button appears after 3 seconds on any step
+  // Skip button appears after 4 seconds on any step
   useEffect(() => {
     setShowSkipButton(false);
-    const t = setTimeout(() => setShowSkipButton(true), 3000);
+    const t = setTimeout(() => setShowSkipButton(true), 4000);
     return () => clearTimeout(t);
   }, [currentStepIndex]);
 
@@ -887,14 +1117,15 @@ export default function SyncScreen() {
     true;
   `;
 
-  // Per-step safety net: if a step's page takes more than 3.8 seconds, advance immediately
+  // Per-step safety net: allow 9.5s for attendance/marks AJAX, 5s for fast pages
   useEffect(() => {
+    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 9500 : 5000;
     const timer = setTimeout(() => {
       if (!finishedRef.current && currentStep) {
         console.log('[Sync] Step safety timeout advancing:', currentStep.id);
         handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
       }
-    }, 3800);
+    }, timeoutMs);
     return () => clearTimeout(timer);
   }, [currentStepIndex]);
 
