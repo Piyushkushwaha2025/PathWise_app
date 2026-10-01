@@ -18,10 +18,12 @@ const SCRAPE_STEPS = [
   {
     id: 'profile',
     url: 'https://student.culko.in/frmStudentProfile.aspx',
-    msg: 'Extracting Profile...',
+    msg: 'Extracting Profile & Photo...',
     script: `
       (function() {
         var hasScraped = false;
+        var startTime = Date.now();
+
         function tryScrape() {
           if (hasScraped) return;
           try {
@@ -30,62 +32,142 @@ const SCRAPE_STEPS = [
             var course = 'Unknown';
             var semester = 'N/A';
             var section = '';
-            
+
+            // 1. Text cells
             var tds = document.querySelectorAll('td');
             for (var i = 0; i < tds.length; i++) {
-               var txt = tds[i].innerText.trim().toLowerCase();
+               var txt = (tds[i].innerText || '').trim().toLowerCase();
+               var nextVal = (tds[i+1]?.innerText || '').trim();
                if (txt.includes('name') && !txt.includes('father') && !txt.includes('mother')) {
-                 name = tds[i+1]?.innerText.trim() || name;
+                 if (nextVal) name = nextVal;
                }
                if (txt.includes('uid') || txt.includes('roll no')) {
-                 uid = tds[i+1]?.innerText.trim() || uid;
+                 if (nextVal) uid = nextVal;
                }
                if (txt.includes('course') || txt.includes('program')) {
-                 course = tds[i+1]?.innerText.trim() || course;
+                 if (nextVal) course = nextVal;
                }
                if (txt === 'semester' || txt.includes('semester :') || txt.includes('semester:-')) {
-                 semester = tds[i+1]?.innerText.trim() || semester;
+                 if (nextVal) semester = nextVal;
                }
-               var secMatch = tds[i].innerText.match(/(?:section|sec|class\/sec|class\s*\/\s*section)\s*[:\-\s]\s*([0-9A-Z\-]+)/i);
-               if (secMatch && !secMatch[1].match(/^\d{3,4}$/)) {
-                 section = secMatch[1].trim();
+               var secMatch = (tds[i].innerText || '').match(/(?:section|sec|class\/sec|class\s*\/\s*section)\s*[:\-\s]\s*([0-9A-Z\-]+)/i);
+               if (secMatch) {
+                 var secCand = secMatch[1].trim();
+                 if (!/^\d{3,4}$/.test(secCand) && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(secCand)) section = secCand;
                } else if (txt.includes('section')) {
-                 var nextVal = tds[i+1]?.innerText.trim() || '';
-                 if (nextVal && !nextVal.toLowerCase().includes('semester') && !nextVal.toLowerCase().includes('fee') && !nextVal.match(/^\d{3,4}$/)) {
+                 if (nextVal && !nextVal.toLowerCase().includes('semester') && !nextVal.toLowerCase().includes('fee') && !/^\d{3,4}$/.test(nextVal) && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(nextVal)) {
                    section = nextVal;
                  }
                }
             }
-            
-            var spans = document.querySelectorAll('span');
+
+            // 2. Spans / Labels
+            var spans = document.querySelectorAll('span, label');
             for (var k = 0; k < spans.length; k++) {
-               var id = spans[k].id.toLowerCase();
-               var val = spans[k].innerText.trim();
+               var id = (spans[k].id || '').toLowerCase();
+               var val = (spans[k].innerText || '').trim();
                if (val) {
-                 if (id.includes('name') && !id.includes('father') && !id.includes('mother')) name = val;
-                 if (id.includes('uid') || id.includes('roll')) uid = val;
-                 if (id.includes('course') || id.includes('program')) course = val;
-                 if (id.includes('semester')) semester = val;
-                 if (id.includes('section')) {
-                   if (val && !val.toLowerCase().includes('section') && !val.match(/^\d{3,4}$/)) section = val;
+                 if (id.includes('name') && !id.includes('father') && !id.includes('mother') && name === 'Unknown') name = val;
+                 if ((id.includes('uid') || id.includes('roll')) && uid === 'Unknown') uid = val;
+                 if ((id.includes('course') || id.includes('program')) && course === 'Unknown') course = val;
+                 if (id.includes('semester') && semester === 'N/A') semester = val;
+                 if (id.includes('section') && !section && !val.toLowerCase().includes('section') && !/^\d{3,4}$/.test(val) && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(val)) {
+                   section = val;
                  }
                }
             }
 
-            var photoUrl = '';
-            var imgs = document.querySelectorAll('img');
-            for (var m = 0; m < imgs.length; m++) {
-               var imgId = imgs[m].id.toLowerCase();
-               var imgSrc = imgs[m].src;
-               if (imgId.includes('photo') || imgId.includes('student') || imgId.includes('profile')) {
-                  if (imgSrc && !imgSrc.toLowerCase().includes('logo') && !imgSrc.toLowerCase().includes('header')) {
-                     photoUrl = imgSrc;
-                     break;
-                  }
+            // 3. Inputs
+            var inputs = document.querySelectorAll('input[type="text"]');
+            for (var inp = 0; inp < inputs.length; inp++) {
+               var inpId = (inputs[inp].id || '').toLowerCase();
+               var inpVal = (inputs[inp].value || '').trim();
+               if (inpVal) {
+                 if (inpId.includes('name') && !inpId.includes('father') && !inpId.includes('mother') && name === 'Unknown') name = inpVal;
+                 if ((inpId.includes('uid') || inpId.includes('roll')) && uid === 'Unknown') uid = inpVal;
+                 if ((inpId.includes('course') || inpId.includes('program')) && course === 'Unknown') course = inpVal;
+                 if (inpId.includes('semester') && semester === 'N/A') semester = inpVal;
+                 if (inpId.includes('section') && !section) section = inpVal;
                }
             }
 
-            if (name !== 'Unknown' || uid !== 'Unknown' || tds.length > 8) {
+            // 4. Photo Extraction with Base64 Canvas
+            var photoUrl = '';
+            var photoImg = null;
+            var imgs = document.querySelectorAll('img');
+            for (var m = 0; m < imgs.length; m++) {
+               var img = imgs[m];
+               var rawSrc = img.src || img.getAttribute('data-src') || img.getAttribute('src') || '';
+               var id = (img.id || '').toLowerCase();
+               var lowSrc = rawSrc.toLowerCase();
+               var className = (img.className || '').toLowerCase();
+
+               if (!lowSrc || lowSrc.includes('logo') || lowSrc.includes('header') || lowSrc.includes('banner') || lowSrc.includes('loader') || lowSrc.includes('icon')) {
+                 continue;
+               }
+
+               if (id.includes('photo') || id.includes('student') || id.includes('profile') || id.includes('image1') || id.includes('imgstudent') || id.includes('imgprofile') || lowSrc.includes('showimage') || lowSrc.includes('photo') || lowSrc.includes('upload') || className.includes('photo') || className.includes('student')) {
+                 photoImg = img;
+                 break;
+               }
+            }
+
+            if (!photoImg) {
+              var cph = document.querySelector('#ContentPlaceHolder1, [id*="ContentPlaceHolder"]');
+              if (cph) {
+                var cphImgs = cph.querySelectorAll('img');
+                for (var c = 0; c < cphImgs.length; c++) {
+                  var cSrc = cphImgs[c].src || '';
+                  var cLow = cSrc.toLowerCase();
+                  if (cLow && !cLow.includes('logo') && !cLow.includes('header') && !cLow.includes('banner') && !cLow.includes('icon')) {
+                    photoImg = cphImgs[c];
+                    break;
+                  }
+                }
+              }
+            }
+
+            var photoReady = false;
+            if (photoImg) {
+              var rawSrc = photoImg.src || photoImg.getAttribute('src') || '';
+              var fullSrc = '';
+              try {
+                fullSrc = new URL(rawSrc, window.location.href).href;
+                if (fullSrc.startsWith('http://')) fullSrc = fullSrc.replace('http://', 'https://');
+              } catch(e) {
+                fullSrc = rawSrc;
+              }
+
+              // Try canvas base64 conversion
+              try {
+                if (photoImg.complete && photoImg.naturalWidth > 0) {
+                  var canvas = document.createElement('canvas');
+                  canvas.width = photoImg.naturalWidth;
+                  canvas.height = photoImg.naturalHeight;
+                  var ctx = canvas.getContext('2d');
+                  ctx.drawImage(photoImg, 0, 0);
+                  var b64 = canvas.toDataURL('image/jpeg', 0.85);
+                  if (b64 && b64.length > 200) {
+                    photoUrl = b64;
+                    photoReady = true;
+                  }
+                }
+              } catch(e) {}
+
+              if (!photoUrl && fullSrc) {
+                photoUrl = fullSrc;
+                if (photoImg.complete || (Date.now() - startTime > 800)) {
+                  photoReady = true;
+                }
+              }
+            } else {
+              if (Date.now() - startTime > 800) photoReady = true;
+            }
+
+            var hasBasicInfo = (name !== 'Unknown' || uid !== 'Unknown' || tds.length > 6);
+            var timeElapsed = Date.now() - startTime;
+
+            if (hasBasicInfo && (photoReady || timeElapsed > 1200)) {
               hasScraped = true;
               window.ReactNativeWebView.postMessage(JSON.stringify({
                 type: 'SCRAPE_RESULT',
@@ -103,7 +185,7 @@ const SCRAPE_STEPS = [
         var timer = setInterval(function() {
           if (hasScraped) { clearInterval(timer); return; }
           tryScrape();
-        }, 80);
+        }, 100);
         setTimeout(function() {
           if (!hasScraped) {
             clearInterval(timer);
@@ -112,7 +194,7 @@ const SCRAPE_STEPS = [
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'profile', data: null }));
             }
           }
-        }, 2000);
+        }, 3000);
       })();
       true;
     `
@@ -124,12 +206,15 @@ const SCRAPE_STEPS = [
     script: `
       (function() {
         var hasScraped = false;
+        var startTime = Date.now();
+
         function tryScrape() {
           if (hasScraped) return;
           try {
             var attendanceData = {};
             var subjectsList = [];
             var seenCodes = {};
+            var section = '';
 
             var rows = document.querySelectorAll('#SortTable tbody tr, #SortTable tr, table.GridView tr, table tr');
             for (var i = 0; i < rows.length; i++) {
@@ -145,7 +230,7 @@ const SCRAPE_STEPS = [
                 var title = textArr[1] || textArr[0] || code;
                 var total = 0, attended = 0, percentage = 0;
 
-                // Check for eligible delivered / attended columns or fallback
+                // Check eligible delivered / attended columns or fallback
                 if (cells.length >= 11) {
                   var eligDelv = parseFloat(cells[8]?.innerText.trim()) || 0;
                   var eligAttd = parseFloat(cells[9]?.innerText.trim()) || 0;
@@ -198,6 +283,13 @@ const SCRAPE_STEPS = [
               }
             }
 
+            var pageText = document.body ? document.body.innerText : '';
+            var secMatch = pageText.match(/(?:section|sec|class\/sec)\s*[:\-\s]\s*([0-9A-Z\-]+)/i);
+            if (secMatch) {
+              var sCand = secMatch[1].trim();
+              if (!/^\d{3,4}$/.test(sCand) && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(sCand)) section = sCand;
+            }
+
             if (Object.keys(attendanceData).length > 0) {
               var sumDelv = 0, sumAttd = 0;
               for (var s = 0; s < subjectsList.length; s++) {
@@ -215,8 +307,16 @@ const SCRAPE_STEPS = [
                   subjects: subjectsList,
                   overallAttendance: overallPct,
                   totalDelivered: sumDelv,
-                  totalAttended: sumAttd
+                  totalAttended: sumAttd,
+                  section: section
                 }
+              }));
+            } else if (pageText.toLowerCase().includes('no attendance') || Date.now() - startTime > 2800) {
+              hasScraped = true;
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SCRAPE_RESULT',
+                step: 'attendance',
+                data: { attendance: {}, subjects: [], overallAttendance: 0, totalDelivered: 0, totalAttended: 0, section: '' }
               }));
             }
           } catch(e) {
@@ -229,7 +329,7 @@ const SCRAPE_STEPS = [
         var timer = setInterval(function() {
           if (hasScraped) { clearInterval(timer); return; }
           tryScrape();
-        }, 80);
+        }, 100);
         setTimeout(function() {
           if (!hasScraped) {
             clearInterval(timer);
@@ -238,7 +338,7 @@ const SCRAPE_STEPS = [
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'attendance', data: null }));
             }
           }
-        }, 2200);
+        }, 3000);
       })();
       true;
     `
@@ -250,6 +350,8 @@ const SCRAPE_STEPS = [
     script: `
       (function() {
         var hasScraped = false;
+        var startTime = Date.now();
+
         function tryScrape() {
           if (hasScraped) return;
           try {
@@ -266,7 +368,7 @@ const SCRAPE_STEPS = [
                var hText = (headerCells[h].innerText || '').toLowerCase().trim();
                if (hText.includes('credit') || hText === 'cr' || hText === 'cr.' || hText.includes('credit hour')) {
                   creditIdx = h;
-               } else if (hText.includes('section') || hText.includes('sec.')) {
+               } else if (hText.includes('section') || hText.includes('sec.') || hText === 'sec') {
                   sectionIdx = h;
                } else if (hText.includes('course code') || hText.includes('subject code') || hText === 'code') {
                   codeIdx = h;
@@ -293,7 +395,7 @@ const SCRAPE_STEPS = [
 
               if (!section && sectionIdx !== -1 && cells.length > sectionIdx) {
                  var secVal = cells[sectionIdx].innerText.trim();
-                 if (secVal && !/^\d{3,4}$/.test(secVal)) section = secVal;
+                 if (secVal && !/^\d{3,4}$/.test(secVal) && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(secVal)) section = secVal;
               }
 
               // Extract Credits with utmost accuracy
@@ -309,7 +411,6 @@ const SCRAPE_STEPS = [
                  }
               }
               if (!credits) {
-                 // Check non-first columns (never take column 0 Sr. No.!)
                  for (var c = 1; c < cells.length; c++) {
                     if (c === codeIdx || c === nameIdx || c === sectionIdx) continue;
                     var t = cells[c].innerText.trim();
@@ -340,7 +441,14 @@ const SCRAPE_STEPS = [
               var secSelect = document.querySelector('select[id*="Section" i], select[name*="Section" i]');
               if (secSelect && secSelect.selectedOptions && secSelect.selectedOptions[0]) {
                 var optText = secSelect.selectedOptions[0].text.trim();
-                if (optText && !optText.toLowerCase().includes('select')) section = optText;
+                if (optText && !optText.toLowerCase().includes('select') && !/^\d{3,4}$/.test(optText) && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(optText)) section = optText;
+              }
+            }
+            if (!section) {
+              var secEl = document.querySelector('[id*="lblSection" i], [id*="lblClass" i]');
+              if (secEl && secEl.innerText) {
+                var sTxt = secEl.innerText.trim();
+                if (sTxt && !sTxt.toLowerCase().includes('select') && !/^\d{3,4}$/.test(sTxt) && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(sTxt)) section = sTxt;
               }
             }
 
@@ -350,6 +458,13 @@ const SCRAPE_STEPS = [
                 type: 'SCRAPE_RESULT',
                 step: 'subjects',
                 data: { list: subjects, section: section }
+              }));
+            } else if (Date.now() - startTime > 2800) {
+              hasScraped = true;
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SCRAPE_RESULT',
+                step: 'subjects',
+                data: { list: [], section: section }
               }));
             }
           } catch(e) {
@@ -362,7 +477,7 @@ const SCRAPE_STEPS = [
         var timer = setInterval(function() {
           if (hasScraped) { clearInterval(timer); return; }
           tryScrape();
-        }, 80);
+        }, 100);
         setTimeout(function() {
           if (!hasScraped) {
             clearInterval(timer);
@@ -371,7 +486,7 @@ const SCRAPE_STEPS = [
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'subjects', data: { list: [], section: '' } }));
             }
           }
-        }, 2200);
+        }, 3000);
       })();
       true;
     `
@@ -383,72 +498,172 @@ const SCRAPE_STEPS = [
     script: `
       (function() {
         var hasScraped = false;
+        var startTime = Date.now();
+
         function tryScrape() {
           if (hasScraped) return;
           try {
             var timetable = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] };
-            var daysMap = [null, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            var dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-            var tableSelectors = [
-              '#ContentPlaceHolder1_grdMain tr',
-              'table[id*="grdMain"] tr',
-              'table[id*="TimeTable"] tr',
-              'table[id*="tblTimeTable"] tr',
-              '.table-responsive table tr',
-              'table.GridView tr',
-              'table tr'
-            ];
-            
+            // 1. Locate the timetable table
+            var tables = document.querySelectorAll('table');
             var rows = [];
-            for (var s = 0; s < tableSelectors.length; s++) {
-              var found = document.querySelectorAll(tableSelectors[s]);
-              if (found.length > 2) { rows = Array.from(found); break; }
-            }
-            
-            for (var i = 1; i < rows.length; i++) {
-              var cells = rows[i].querySelectorAll('td');
-              if (cells.length >= 7) {
-                var time = cells[0].innerText.trim();
-                for (var j = 1; j < cells.length && j < daysMap.length; j++) {
-                   var text = cells[j].innerText.trim();
-                   if (text && text.length > 3 && text !== '\u00a0' && text !== '-') {
-                     var parts = text.split(/\bBy\b/);
-                     var leftPart = parts[0];
-                     var rightPart = parts[1] || '';
-                     
-                     var leftSplit = leftPart.split(':');
-                     var subjectName = leftSplit[0] ? leftSplit[0].trim() : '';
-                     if (leftSplit[1] && leftSplit[1].trim() === 'P') subjectName += ' (Lab)';
-                     var group = leftSplit[3] ? leftSplit[3].trim() : '';
-                     
-                     var rightSplit = rightPart.split(/\bat\b/);
-                     var teacher = rightSplit[0] ? rightSplit[0].trim() : '';
-                     var room = rightSplit[1] ? rightSplit[1].trim() : '';
-                     
-                     if (daysMap[j] && timetable[daysMap[j]]) {
-                        timetable[daysMap[j]].push({
-                           subjectName: subjectName,
-                           teacher: teacher,
-                           time: time,
-                           room: room,
-                           group: group
-                        });
-                     }
-                   }
+            for (var t = 0; t < tables.length; t++) {
+              var tId = (tables[t].id || '').toLowerCase();
+              var tHtml = tables[t].innerHTML.toLowerCase();
+              if (tId.includes('grdmain') || tId.includes('timetable') || (tHtml.includes('monday') && (tHtml.includes('tuesday') || tHtml.includes('wednesday')))) {
+                var foundRows = Array.from(tables[t].querySelectorAll('tr'));
+                if (foundRows.length >= 2) {
+                  rows = foundRows;
+                  break;
                 }
               }
             }
-            
-            var detectedSection = '';
-            var headings = document.querySelectorAll('h1, h2, h3, h4, label, span, td');
-            for (var h = 0; h < headings.length; h++) {
-              var ht = headings[h].innerText || '';
-              var m = ht.match(/(?:section|sec|class\/sec)\s*[:\-\s]\s*([0-9A-Z\-]+)/i) || (!/^25(CSH|CST|MTT|UCT)/i.test(ht) ? ht.match(/\b(\d{2}[A-Z]{2,5}-[A-Z0-9\-]+)\b/) : null);
-              if (m && !/^\d{3,4}$/.test(m[1].trim()) && !/^25(CSH|CST|MTT|UCT|ECH|AMP)/i.test(m[1].trim())) { detectedSection = m[1].trim(); break; }
+
+            if (rows.length < 2) {
+              for (var t2 = 0; t2 < tables.length; t2++) {
+                var r2 = Array.from(tables[t2].querySelectorAll('tr'));
+                if (r2.length >= 2) {
+                  var txt2 = tables[t2].innerText.toLowerCase();
+                  if (txt2.includes('monday') || txt2.includes('tuesday')) {
+                    rows = r2;
+                    break;
+                  }
+                }
+              }
             }
-            
+
+            // 2. Check layout (days in columns vs days in rows)
+            var daysInColumns = false;
+            var colDaysMap = [];
+            var headerCells = rows[0] ? Array.from(rows[0].querySelectorAll('th, td')) : [];
+
+            for (var c = 0; c < headerCells.length; c++) {
+              var hText = headerCells[c].innerText.trim().toLowerCase();
+              var matchedCol = null;
+              for (var d = 0; d < dayNames.length; d++) {
+                if (hText.includes(dayNames[d])) {
+                  matchedCol = dayNames[d].charAt(0).toUpperCase() + dayNames[d].slice(1);
+                  daysInColumns = true;
+                  break;
+                }
+              }
+              colDaysMap.push(matchedCol);
+            }
+
+            // 3. Extract class cells
+            for (var i = 1; i < rows.length; i++) {
+              var cells = Array.from(rows[i].querySelectorAll('td'));
+              if (cells.length < 2) continue;
+
+              var firstCellText = cells[0].innerText.trim();
+              var firstCellLower = firstCellText.toLowerCase();
+
+              var rowDayMatch = null;
+              for (var d2 = 0; d2 < dayNames.length; d2++) {
+                if (firstCellLower.includes(dayNames[d2])) {
+                  rowDayMatch = dayNames[d2].charAt(0).toUpperCase() + dayNames[d2].slice(1);
+                  break;
+                }
+              }
+
+              for (var j = 1; j < cells.length; j++) {
+                var rawText = cells[j].innerText.replace(/\\r?\\n|\\r/g, ' ').replace(/\\s+/g, ' ').trim();
+                if (!rawText || rawText.length < 3 || rawText === '-' || rawText === '\\u00a0') continue;
+                var lowRaw = rawText.toLowerCase();
+                if (lowRaw === 'free' || lowRaw === 'lunch' || lowRaw === 'break' || lowRaw === 'recess') continue;
+
+                var targetDay = daysInColumns ? colDaysMap[j] : rowDayMatch;
+                if (!targetDay || !timetable[targetDay]) continue;
+
+                var targetTime = daysInColumns ? firstCellText : (headerCells[j] ? headerCells[j].innerText.replace(/\\r?\\n|\\r/g, ' ').trim() : '');
+
+                var subjectName = '';
+                var teacher = '';
+                var room = '';
+                var group = '';
+
+                if (/\\bby\\b/i.test(rawText)) {
+                  var parts = rawText.split(/\\bby\\b/i);
+                  var left = parts[0].trim();
+                  var right = parts[1] || '';
+
+                  var atSplit = right.split(/\\b(?:at|in|room)\\b/i);
+                  teacher = atSplit[0].trim();
+                  room = atSplit[1] ? atSplit[1].trim() : '';
+
+                  var colSplit = left.split(':');
+                  subjectName = colSplit[0] ? colSplit[0].trim() : left;
+                  if (colSplit[1] && /^(P|LAB|PRACT)/i.test(colSplit[1].trim())) subjectName += ' (Lab)';
+                  if (colSplit[2] && colSplit[2].trim().length <= 10) group = colSplit[2].trim();
+                  if (colSplit[3] && colSplit[3].trim().length <= 10) group = colSplit[3].trim();
+                } else if (rawText.includes(':')) {
+                  var colParts = rawText.split(':').map(function(s) { return s.trim(); });
+                  subjectName = colParts[0] || '';
+                  if (colParts[1] && /^(P|LAB|PRACT)/i.test(colParts[1])) subjectName += ' (Lab)';
+                  if (colParts.length >= 3) teacher = colParts[2];
+                  if (colParts.length >= 4) room = colParts[3];
+                  if (colParts.length >= 5) group = colParts[4];
+                } else {
+                  subjectName = rawText;
+                }
+
+                if (subjectName) {
+                  timetable[targetDay].push({
+                    subjectName: subjectName,
+                    teacher: teacher || 'Assigned Faculty',
+                    time: targetTime || 'Scheduled',
+                    room: room || 'Campus',
+                    group: group || ''
+                  });
+                }
+              }
+            }
+
+            // 4. Section detection on timetable page
+            var detectedSection = '';
+            var secDropdown = document.querySelector('select[id*="ddlSection" i], select[name*="ddlSection" i], select[id*="Section" i]');
+            if (secDropdown && secDropdown.selectedOptions && secDropdown.selectedOptions[0]) {
+              var optVal = secDropdown.selectedOptions[0].text.trim();
+              if (optVal && !optVal.toLowerCase().includes('select') && !/^\\d{3,4}$/.test(optVal) && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(optVal)) {
+                detectedSection = optVal;
+              }
+            }
+            if (!detectedSection) {
+              var secEl = document.querySelector('[id*="lblSection" i], [id*="lblClass" i], [id*="lblStudentSection" i]');
+              if (secEl && secEl.innerText) {
+                var tVal = secEl.innerText.trim();
+                if (tVal && !tVal.toLowerCase().includes('select') && !/^\\d{3,4}$/.test(tVal) && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(tVal)) {
+                  detectedSection = tVal;
+                }
+              }
+            }
+            if (!detectedSection) {
+              var headings = document.querySelectorAll('h1, h2, h3, h4, label, span, td, b, strong');
+              for (var h = 0; h < headings.length; h++) {
+                var ht = (headings[h].innerText || '').trim();
+                var m = ht.match(/(?:section|sec|class\\/sec|class\\s*\\/\\s*section)\\s*[:\\-\\s]\\s*([0-9A-Z\\-]+)/i);
+                if (m && m[1]) {
+                  var cand = m[1].trim();
+                  if (!/^\\d{3,4}$/.test(cand) && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(cand)) {
+                    detectedSection = cand;
+                    break;
+                  }
+                }
+                var mSec = ht.match(/\\b(\\d{2}[A-Z]{2,5}(?:-[A-Z0-9]+)?-[0-9]{1,2}[A-Z]?)\\b/i);
+                if (mSec && mSec[1]) {
+                  detectedSection = mSec[1].trim();
+                  break;
+                }
+              }
+            }
+
             var hasClasses = Object.values(timetable).some(function(arr) { return arr.length > 0; });
-            if (hasClasses) {
+            var bodyTxt = (document.body ? document.body.innerText : '').toLowerCase();
+            var hasNoRecord = bodyTxt.includes('no time table') || bodyTxt.includes('no record') || bodyTxt.includes('no schedule') || bodyTxt.includes('not found');
+
+            if (hasClasses || hasNoRecord || Date.now() - startTime > 2800) {
               hasScraped = true;
               window.ReactNativeWebView.postMessage(JSON.stringify({
                 type: 'SCRAPE_RESULT',
@@ -459,7 +674,7 @@ const SCRAPE_STEPS = [
             }
           } catch(e) {
             hasScraped = true;
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: null }));
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: {}, section: '' }));
           }
         }
 
@@ -467,16 +682,16 @@ const SCRAPE_STEPS = [
         var timer = setInterval(function() {
           if (hasScraped) { clearInterval(timer); return; }
           tryScrape();
-        }, 80);
+        }, 100);
         setTimeout(function() {
           if (!hasScraped) {
             clearInterval(timer);
             tryScrape();
             if (!hasScraped) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: null }));
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: {}, section: '' }));
             }
           }
-        }, 2000);
+        }, 3000);
       })();
       true;
     `
@@ -488,6 +703,8 @@ const SCRAPE_STEPS = [
     script: `
       (function() {
         var hasScraped = false;
+        var startTime = Date.now();
+
         function tryScrape() {
           if (hasScraped) return;
           try {
@@ -507,9 +724,9 @@ const SCRAPE_STEPS = [
               }
 
               if (tbl) {
-                var codeMatch = hText.match(/\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\)/i);
+                var codeMatch = hText.match(/\\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\\)/i);
                 var code = codeMatch ? codeMatch[1] : '';
-                var sName = hText.replace(/\s*\([0-9A-Z]{2,8}[-_]?[0-9]{3}\)/i, '').trim() || hText;
+                var sName = hText.replace(/\\s*\\([0-9A-Z]{2,8}[-_]?[0-9]{3}\\)/i, '').trim() || hText;
 
                 var tRows = tbl.querySelectorAll('tr');
                 var exams = [];
@@ -558,7 +775,34 @@ const SCRAPE_STEPS = [
               }
             }
 
-            if (marksData.length > 0) {
+            if (marksData.length === 0) {
+              var gridRows = document.querySelectorAll('table.GridView tr, #ContentPlaceHolder1_gvMarks tr, table tr');
+              var subIdx = 1, mstIdx = 3, pracIdx = 4;
+              if (gridRows.length > 1) {
+                var ths = Array.from(gridRows[0].querySelectorAll('th, td')).map(function(h) { return h.innerText.toLowerCase(); });
+                for (var h2 = 0; h2 < ths.length; h2++) {
+                  if (ths[h2].includes('subject') || ths[h2].includes('course')) subIdx = h2;
+                  if (ths[h2].includes('mst') || ths[h2].includes('mid')) mstIdx = h2;
+                  if (ths[h2].includes('prac') || ths[h2].includes('lab')) pracIdx = h2;
+                }
+                for (var r2 = 1; r2 < gridRows.length; r2++) {
+                  var c2 = gridRows[r2].querySelectorAll('td');
+                  if (c2.length > subIdx) {
+                    var sNm = c2[subIdx].innerText.trim();
+                    var mM = c2.length > mstIdx ? c2[mstIdx].innerText.trim() : 'N/A';
+                    var pM = c2.length > pracIdx ? c2[pracIdx].innerText.trim() : 'N/A';
+                    if (sNm && sNm !== '') {
+                      marksData.push({ subjectName: sNm, mstMarks: mM, practicalMarks: pM, exams: [] });
+                    }
+                  }
+                }
+              }
+            }
+
+            var pageTxt = (document.body ? document.body.innerText : '').toLowerCase();
+            var hasNoMarks = pageTxt.includes('no record') || pageTxt.includes('not found') || pageTxt.includes('no marks');
+
+            if (marksData.length > 0 || hasNoMarks || Date.now() - startTime > 2800) {
               hasScraped = true;
               window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
             }
@@ -572,27 +816,19 @@ const SCRAPE_STEPS = [
         var timer = setInterval(function() {
           if (hasScraped) { clearInterval(timer); return; }
           tryScrape();
-        }, 80);
+        }, 100);
         setTimeout(function() {
           if (!hasScraped) {
             clearInterval(timer);
             tryScrape();
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: [] }));
           }
-        }, 2000);
+        }, 3000);
       })();
       true;
     `
   },
 ];
-
-const STEP_PAGES: Record<string, string> = {
-  profile: 'frmstudentprofile',
-  attendance: 'frmstudentcoursewiseattendancesummary',
-  subjects: 'frmmycourse',
-  timetable: 'frmmytimetable',
-  marks: 'frmstudentmarksview',
-};
 
 export default function SyncScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -611,7 +847,8 @@ export default function SyncScreen() {
   const cookieRef = useRef<string>('');
   const finishedRef = useRef(false);
   const stepIndexRef = useRef(0);
-  const hasExecutedStepRef = useRef(false);
+  const stepCompletedRef = useRef(false);
+  const cachedDataRef = useRef<any>(null);
   const [showSkipButton, setShowSkipButton] = useState(false);
   const [cookiesLoaded, setCookiesLoaded] = useState(false);
 
@@ -621,10 +858,13 @@ export default function SyncScreen() {
       cookieRef.current = '';
       finishedRef.current = false;
       stepIndexRef.current = 0;
-      hasExecutedStepRef.current = false;
+      stepCompletedRef.current = false;
       setCurrentStepIndex(0);
       setShowSkipButton(false);
       setCookiesLoaded(false);
+
+      // Snapshot existing store for resilient fallback
+      cachedDataRef.current = useStudyOSStore.getState();
 
       SecureStore.getItemAsync('culko_cookies').then((c) => {
         if (c) {
@@ -640,22 +880,11 @@ export default function SyncScreen() {
 
   useEffect(() => {
     stepIndexRef.current = currentStepIndex;
-    hasExecutedStepRef.current = false;
+    stepCompletedRef.current = false;
   }, [currentStepIndex]);
 
-  const executeCurrentStepScript = (url?: string) => {
-    if (hasExecutedStepRef.current) return;
-    const step = SCRAPE_STEPS[stepIndexRef.current];
-    if (!step) return;
-
-    const targetPage = STEP_PAGES[step.id];
-    const checkUrl = (url || '').toLowerCase();
-    // Guard against running scraper on the previous or wrong page!
-    if (targetPage && checkUrl && !checkUrl.includes(targetPage)) {
-      return;
-    }
-
-    hasExecutedStepRef.current = true;
+  const injectStepScript = (step: typeof SCRAPE_STEPS[0]) => {
+    if (!step || stepCompletedRef.current || finishedRef.current) return;
 
     let cookieInject = '';
     if (cookieRef.current) {
@@ -676,6 +905,93 @@ export default function SyncScreen() {
     `;
 
     webViewRef.current?.injectJavaScript(scriptToRun);
+  };
+
+  // Keep-alive pulse and watchdog per step for snappy, reliable extraction
+  useEffect(() => {
+    if (!cookiesLoaded) return;
+    const step = SCRAPE_STEPS[currentStepIndex];
+    if (!step || finishedRef.current) return;
+
+    stepCompletedRef.current = false;
+
+    // Run scraper after 150ms
+    const t0 = setTimeout(() => {
+      injectStepScript(step);
+    }, 150);
+
+    // Keep-alive pulse every 600ms to catch dynamic tables
+    const pulse = setInterval(() => {
+      if (stepCompletedRef.current || finishedRef.current) return;
+      injectStepScript(step);
+    }, 600);
+
+    // Watchdog: 4.5s max per step
+    const watchdog = setTimeout(() => {
+      if (stepCompletedRef.current || finishedRef.current) return;
+      console.log(`[Sync] Watchdog auto-advancing step "${step.id}" (4.5s cap)`);
+      advanceStep(step.id, null);
+    }, 4500);
+
+    return () => {
+      clearTimeout(t0);
+      clearInterval(pulse);
+      clearTimeout(watchdog);
+    };
+  }, [currentStepIndex, cookiesLoaded]);
+
+  // Show skip button after 2.5s on any step
+  useEffect(() => {
+    setShowSkipButton(false);
+    const t = setTimeout(() => setShowSkipButton(true), 2500);
+    return () => clearTimeout(t);
+  }, [currentStepIndex]);
+
+  const advanceStep = async (stepId: string, data: any) => {
+    const liveIndex = stepIndexRef.current;
+    const liveStep = SCRAPE_STEPS[liveIndex];
+    if (!liveStep || stepId !== liveStep.id || stepCompletedRef.current || finishedRef.current) {
+      return;
+    }
+
+    stepCompletedRef.current = true;
+
+    // Use cached fallback if data is null/empty
+    const cached = cachedDataRef.current;
+    let effectiveData = data;
+    if (!effectiveData) {
+      if (stepId === 'attendance') effectiveData = cached?.detailedAttendanceCache || null;
+      else if (stepId === 'marks') effectiveData = cached?.marks || [];
+      else if (stepId === 'timetable') effectiveData = cached?.timetable || {};
+      else if (stepId === 'subjects') effectiveData = { list: cached?.subjects || [], section: '' };
+      else if (stepId === 'profile') effectiveData = cached?.profile || null;
+    }
+
+    if (effectiveData) {
+      scrapedDataRef.current[stepId] = effectiveData;
+      // Incremental persistence
+      if (stepId === 'attendance' && effectiveData.subjects?.length) {
+        useStudyOSStore.getState().setScrapedData({ subjects: effectiveData.subjects });
+      } else if (stepId === 'subjects' && effectiveData.list?.length) {
+        useStudyOSStore.getState().setScrapedData({ subjects: effectiveData.list });
+      } else if (stepId === 'profile' && effectiveData.name) {
+        useStudyOSStore.getState().setScrapedData({ profile: effectiveData });
+      } else if (stepId === 'timetable' && effectiveData && Object.keys(effectiveData).length > 0) {
+        useStudyOSStore.getState().setScrapedData({ timetable: effectiveData });
+      } else if (stepId === 'marks' && effectiveData?.length) {
+        useStudyOSStore.getState().setScrapedData({ marks: effectiveData });
+      }
+    }
+
+    const nextIndex = liveIndex + 1;
+    if (nextIndex < SCRAPE_STEPS.length) {
+      stepIndexRef.current = nextIndex;
+      setCurrentStepIndex(nextIndex);
+      const nextStep = SCRAPE_STEPS[nextIndex];
+      webViewRef.current?.injectJavaScript(`window.location.href = ${JSON.stringify(nextStep.url)}; true;`);
+    } else {
+      await finalizeSync();
+    }
   };
 
   const finalizeSync = async () => {
@@ -739,12 +1055,14 @@ export default function SyncScreen() {
       });
 
       // Helper to clean and validate section string directly from portal
-      const cleanSection = (rawSec: string | undefined): string => {
+      const cleanSection = (rawSec: string | undefined | null): string => {
         if (!rawSec) return '';
-        let s = rawSec.trim().toUpperCase();
-        // Reject corrupted course-code prefixes (e.g. 25CSH-21, 25CST-20, etc.)
-        if (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(s)) return '';
-        if (/^[0-9A-Z]{2,6}-\d{3,4}/i.test(s)) return ''; // course code like 25CSH-214
+        let s = String(rawSec).trim().toUpperCase();
+        s = s.replace(/^(?:SECTION|SEC|CLASS\s*\/\s*SEC|CLASS\s*SECTION)\s*[:\-\s]+/i, '').trim();
+        if (!s || s === 'N/A' || s === 'NA' || s === 'NONE' || s === 'NULL' || s === 'UNDEFINED' || s === 'SELECT' || s === '--SELECT--') return '';
+        if (/^[0-9A-Z]{2,6}-\d{3,4}[A-Z]?$/i.test(s)) return ''; // course code like 25CSH-214
+        if (/^(SEMESTER|SEM|FEE|CREDIT|SR|NO)/i.test(s)) return '';
+        if (/^\d{3,4}$/.test(s)) return '';
         return s;
       };
 
@@ -758,13 +1076,20 @@ export default function SyncScreen() {
       const resolvedSection =
         cleanSection(newData.timetable?.section) ||
         cleanSection(newData.subjects?.section) ||
+        cleanSection(newData.attendance?.section) ||
         cleanSection(newData.profile?.section) ||
         cleanSection(existing.profile?.section) ||
         '';
 
+      const resolvedPhotoUrl =
+        (newData.profile?.photoUrl && newData.profile.photoUrl.trim() !== '')
+          ? newData.profile.photoUrl
+          : (existing.profile?.photoUrl || '');
+
       const resolvedProfile = {
         ...(existing.profile || {}),
         ...(newData.profile || {}),
+        photoUrl: resolvedPhotoUrl,
         name: (newData.profile?.name && newData.profile.name !== 'Unknown' && newData.profile.name !== 'Error')
           ? newData.profile.name
           : (existing.profile?.name || user?.fullName || 'Student'),
@@ -780,12 +1105,17 @@ export default function SyncScreen() {
 
       const findBestTimetableSection = (sec: string) => {
         const keys = Object.keys(timetableData as any);
-        if (!sec) return '';
-        if ((timetableData as any)[sec]) return sec;
-        const prefix = sec.replace(/-\d+$/, '');
-        const prefixMatch = keys.find(k => k.startsWith(prefix));
-        if (prefixMatch) return prefixMatch;
-        return '';
+        if (!sec) return keys[0] || '';
+        const clean = sec.trim().toUpperCase();
+        if ((timetableData as any)[clean]) return clean;
+        const prefix = clean.replace(/-\d+[A-Z]?$/, '');
+        const matched = keys.find(k => k === clean || k.startsWith(clean) || clean.startsWith(k));
+        if (matched) return matched;
+        if (prefix) {
+          const prefixMatch = keys.find(k => k.startsWith(prefix));
+          if (prefixMatch) return prefixMatch;
+        }
+        return keys[0] || '';
       };
 
       let finalTimetable: any = {};
@@ -804,10 +1134,11 @@ export default function SyncScreen() {
         profile: resolvedProfile,
         subjects: updatedSubjects,
         timetable: finalTimetable,
-        marks: (newData.marks && newData.marks.length) ? newData.marks : existing.marks,
+        marks: (newData.marks && newData.marks.length) ? newData.marks : (existing.marks || []),
         datesheet: existing.datesheet || [],
         isScrapedDataLoaded: true
       });
+
       // Trigger notification if new internal marks were uploaded
       if (newData.marks && Array.isArray(newData.marks) && newData.marks.length > 0) {
         const newMarksSig = newData.marks.map((m: any) => `${m.code || m.subjectName}:${(m.exams || []).length}:${m.mstMarks || ""}:${m.practicalMarks || ""}`).sort().join("|");
@@ -902,61 +1233,14 @@ export default function SyncScreen() {
         }
       } else if (data.type === 'SCRAPE_RESULT') {
         const expectedStep = SCRAPE_STEPS[stepIndexRef.current];
-
-        // Always save valid data if present
-        if (data.data && data.step) {
-          scrapedDataRef.current[data.step] = data.data;
-          // Incremental persistence
-          if (data.step === 'attendance' && data.data.subjects?.length) {
-            useStudyOSStore.getState().setScrapedData({ subjects: data.data.subjects });
-          } else if (data.step === 'subjects' && data.data.list?.length) {
-            useStudyOSStore.getState().setScrapedData({ subjects: data.data.list });
-          } else if (data.step === 'profile' && data.data.name) {
-            useStudyOSStore.getState().setScrapedData({ profile: data.data });
-          } else if (data.step === 'timetable' && data.data) {
-            useStudyOSStore.getState().setScrapedData({ timetable: data.data });
-          } else if (data.step === 'marks' && data.data?.length) {
-            useStudyOSStore.getState().setScrapedData({ marks: data.data });
-          }
-        }
-
-        // Only advance step if response matches expected step
         if (expectedStep && data.step === expectedStep.id) {
-          const nextIndex = stepIndexRef.current + 1;
-          if (nextIndex < SCRAPE_STEPS.length) {
-            hasExecutedStepRef.current = false;
-            stepIndexRef.current = nextIndex;
-            setCurrentStepIndex(nextIndex);
-            // Navigate the single warm webview to the next step URL immediately
-            const nextStep = SCRAPE_STEPS[nextIndex];
-            webViewRef.current?.injectJavaScript(`window.location.href = ${JSON.stringify(nextStep.url)}; true;`);
-          } else {
-            await finalizeSync();
-          }
+          advanceStep(data.step, data.data);
         }
       }
     } catch (e) {
       console.log('Error parsing scrape message', e);
     }
   };
-
-  // Safety net: 6.0 seconds per step
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!finishedRef.current && currentStep) {
-        console.log('[Sync] Step safety timeout:', currentStep.id);
-        handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
-      }
-    }, 6000);
-    return () => clearTimeout(timer);
-  }, [currentStepIndex]);
-
-  // Show skip button after 4s
-  useEffect(() => {
-    setShowSkipButton(false);
-    const t = setTimeout(() => setShowSkipButton(true), 4000);
-    return () => clearTimeout(t);
-  }, [currentStepIndex]);
 
   return (
     <View style={styles.container}>
@@ -994,12 +1278,14 @@ export default function SyncScreen() {
                 : undefined
             }
             onNavigationStateChange={(navState: WebViewNavigation) => {
-              if (!navState.loading) {
-                executeCurrentStepScript(navState.url);
+              if (!navState.loading && currentStep) {
+                injectStepScript(currentStep);
               }
             }}
-            onLoadEnd={(e) => {
-              executeCurrentStepScript(e.nativeEvent.url);
+            onLoadEnd={() => {
+              if (currentStep) {
+                injectStepScript(currentStep);
+              }
             }}
             onMessage={handleMessage}
             javaScriptEnabled={true}
@@ -1010,13 +1296,13 @@ export default function SyncScreen() {
             onError={(e) => {
               console.log('[Sync] WebView Error on step:', currentStep?.id, e.nativeEvent.description);
               if (currentStep) {
-                handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
+                advanceStep(currentStep.id, null);
               }
             }}
             onHttpError={(e) => {
               console.log('[Sync] WebView HTTP Error on step:', currentStep?.id, e.nativeEvent.statusCode);
               if (currentStep) {
-                handleMessage({ nativeEvent: { data: JSON.stringify({ type: 'SCRAPE_RESULT', step: currentStep.id, data: null }) } });
+                advanceStep(currentStep.id, null);
               }
             }}
           />

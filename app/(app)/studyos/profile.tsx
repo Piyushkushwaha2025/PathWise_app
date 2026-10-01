@@ -19,6 +19,13 @@ export default function CollegeProfileScreen() {
   const { setStudyOSMode, clearSession, universityId } = useStudySessionStore();
   
   const [isDisconnectModalVisible, setDisconnectModalVisible] = useState(false);
+  const [cookies, setCookies] = useState('');
+
+  React.useEffect(() => {
+    SecureStore.getItemAsync('culko_cookies').then((c) => {
+      if (c) setCookies(c);
+    }).catch(() => {});
+  }, []);
 
   const handleSwitch = () => {
     // Show loading immediately, navigate, then change mode
@@ -69,13 +76,16 @@ export default function CollegeProfileScreen() {
             <View style={styles.idBody}>
               {profile?.photoUrl ? (
                 <Image 
-                  source={{ uri: profile.photoUrl }} 
+                  source={{ 
+                    uri: profile.photoUrl,
+                    ...(profile.photoUrl.startsWith('http') && cookies ? { headers: { Cookie: cookies } } : {})
+                  }} 
                   style={{ width: 80, height: 100, borderRadius: 8, backgroundColor: colors.surfaceHigh }} 
                   resizeMode="cover"
                 />
               ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Ionicons name="person" size={40} color={colors.background} />
+                <View style={[styles.avatarPlaceholder, { backgroundColor: colors.surfaceHigh, alignItems: 'center', justifyContent: 'center' }]}>
+                  <Ionicons name="person" size={40} color={colors.primary} />
                 </View>
               )}
               <View style={styles.infoCol}>
@@ -84,6 +94,9 @@ export default function CollegeProfileScreen() {
                 {profile?.semester && profile.semester !== 'N/A' && (
                   <Text style={styles.infoText}>Semester {profile.semester}</Text>
                 )}
+                {profile?.section ? (
+                  <Text style={styles.infoText}>Section: {profile.section}</Text>
+                ) : null}
                 <Text style={styles.infoText}>{profile?.uid ? `UID: ${profile.uid}` : 'UID: N/A'}</Text>
               </View>
             </View>

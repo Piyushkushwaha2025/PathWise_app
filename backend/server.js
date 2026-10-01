@@ -374,8 +374,9 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       }
 
       const incomingSection = req.body.section_code ? String(req.body.section_code).trim().toUpperCase() : null;
-      const isCorruptedSection = incomingSection && (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(incomingSection) || /^[0-9A-Z]{2,6}-\d{3,4}/i.test(incomingSection));
-      const validSection = (!isCorruptedSection && incomingSection) ? incomingSection : null;
+      // Only reject course codes (which have 3 or 4 digits like 25CSH-214, 25CST-208, 25UCT-201)
+      const isCourseCode = incomingSection && /^[0-9A-Z]{2,6}-\d{3,4}[A-Z]?$/i.test(incomingSection);
+      const validSection = (!isCourseCode && incomingSection) ? incomingSection : null;
 
       user = new User({
         clerkUserId: req.clerkUserId,
@@ -401,13 +402,13 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
     }
 
     const incomingSection = req.body.section_code ? String(req.body.section_code).trim().toUpperCase() : null;
-    const isCorruptedSection = incomingSection && (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(incomingSection) || /^[0-9A-Z]{2,6}-\d{3,4}/i.test(incomingSection));
-    const validSection = (!isCorruptedSection && incomingSection) ? incomingSection : null;
+    const isCourseCode = incomingSection && /^[0-9A-Z]{2,6}-\d{3,4}[A-Z]?$/i.test(incomingSection);
+    const validSection = (!isCourseCode && incomingSection) ? incomingSection : null;
 
     if (validSection && user.section_code !== validSection) {
       user.section_code = validSection;
       changed = true;
-    } else if (user.section_code && (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(user.section_code) || /^[0-9A-Z]{2,6}-\d{3,4}/i.test(user.section_code))) {
+    } else if (user.section_code && /^[0-9A-Z]{2,6}-\d{3,4}[A-Z]?$/i.test(user.section_code)) {
       user.section_code = validSection;
       changed = true;
     }

@@ -1169,7 +1169,11 @@ export default function StudyOSDashboard() {
         {/* Header */}
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
-            <View style={[styles.owlIcon, { backgroundColor: '#000' }]}>
+            <TouchableOpacity 
+              activeOpacity={0.8}
+              onPress={() => router.push('/(app)/studyos/profile' as any)}
+              style={[styles.owlIcon, { backgroundColor: colors.surfaceHigh, overflow: 'hidden' }]}
+            >
               {profile?.photoUrl ? (
                 <Image 
                   source={{ 
@@ -1178,12 +1182,16 @@ export default function StudyOSDashboard() {
                   }} 
                   style={{ width: '100%', height: '100%', borderRadius: 12 }} 
                 />
-              ) : null}
-            </View>
+              ) : (
+                <Ionicons name="person" size={22} color={colors.primary} />
+              )}
+            </TouchableOpacity>
             <View style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
               <Text style={styles.greeting} numberOfLines={1}>{greetingText}</Text>
               <Text style={styles.userName} numberOfLines={1} ellipsizeMode="tail">{profile?.name || 'Student'}</Text>
-              <Text style={styles.sectionText} numberOfLines={1} ellipsizeMode="tail">{profile?.course || 'No Course Synced'}</Text>
+              <Text style={styles.sectionText} numberOfLines={1} ellipsizeMode="tail">
+                {[profile?.course, (profile?.section || dbUser?.section_code) ? `Sec: ${profile?.section || dbUser?.section_code}` : null].filter(Boolean).join(' • ') || 'No Course Synced'}
+              </Text>
             </View>
           </View>
 
