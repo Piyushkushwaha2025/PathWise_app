@@ -162,8 +162,12 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
   res.status(200).json({ success: true });
 });
 
-// Standard JSON middleware for other routes
-app.use(express.json());
+// Standard JSON middleware with rawBody preservation for webhooks
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/studyos';
@@ -269,7 +273,7 @@ const getClerkId = async (req, res, next) => {
     } catch (error) {
       console.warn("JWT Verification failed:", error.message);
       const reqPath = req.path || '';
-      if (reqPath.startsWith('/api/payment') || reqPath.startsWith('/api/rewards/redeem') || (reqPath === '/api/user' && req.method === 'DELETE')) {
+      if (reqPath.startsWith('/api/payment') || reqPath.startsWith('/api/rewards') || reqPath.startsWith('/api/assignments') || reqPath.startsWith('/api/notifications') || reqPath.startsWith('/api/saturday-override') || (reqPath === '/api/user' && req.method === 'DELETE')) {
         return res.status(401).json({ error: 'Unauthorized: Invalid token' });
       }
     }
@@ -279,7 +283,10 @@ const getClerkId = async (req, res, next) => {
   const path = req.path || '';
   const isSensitivePath = 
     path.startsWith('/api/payment') ||
-    path.startsWith('/api/rewards/redeem') ||
+    path.startsWith('/api/rewards') ||
+    path.startsWith('/api/assignments') ||
+    path.startsWith('/api/notifications') ||
+    path.startsWith('/api/saturday-override') ||
     (path === '/api/user' && req.method === 'DELETE');
 
   if (isSensitivePath) {
@@ -652,8 +659,17 @@ app.post(['/api/assignments/upload-pdf', '/api/upload-document'], getClerkId, re
 // 8. Create Assignment (CR only)
 app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
   try {
-    const { title, subject, description, dueDate, pdf_key, pdf_filename } = req.body;
+    const { title, subject, description, dueDate, pdf_key, pdf_filename, section_code } = req.body;
     if (!title || !subject || !dueDate) return res.status(400).json({ error: 'title, subject, dueDate required' });
+
+    const finalSection = section_code || req.crUser.section_code;
+    if (!finalSection) {
+      return res.status(400).json({ error: 'Section code is missing. Please sync your profile.' });
+    }
+    if (!req.crUser.section_code || req.crUser.section_code !== finalSection) {
+      req.crUser.section_code = finalSection;
+      await req.crUser.save().catch(() => {});
+    }
 
     const dueDateObj = new Date(dueDate);
     const expiresAt = new Date(dueDateObj);
@@ -665,7 +681,7 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
       description: description || '',
       dueDate: dueDateObj,
       created_by: req.clerkUserId,
-      section_code: req.crUser.section_code,
+      section_code: finalSection,
       pdf_key: pdf_key || null,
       pdf_filename: pdf_filename || null,
       expiresAt: expiresAt,
@@ -675,7 +691,7 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
     // Send push notifications to all students in this section (excluding creator)
     try {
       const students = await User.find({
-        section_code: req.crUser.section_code,
+        section_code: finalSection,
         clerkUserId: { $ne: req.clerkUserId },
         expoPushToken: { $ne: null }
       });
@@ -808,7 +824,7 @@ app.get('/api/notifications', getClerkId, async (req, res) => {
       const user = await User.findOne({ clerkUserId: req.clerkUserId });
       if (user) targetSection = user.section_code;
     }
-    if (!targetSection) return res.status(400).json({ error: 'Section code required' });
+    if (!targetSection) return res.json([]);
 
     const notifications = await Notification.find({ section_code: targetSection })
       .sort({ createdAt: -1 })
@@ -838,6 +854,10 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
     const finalSection = section_code || req.crUser.section_code;
     if (!finalSection) {
       return res.status(400).json({ error: 'Section code is missing. Please sync your profile.' });
+    }
+    if (!req.crUser.section_code || req.crUser.section_code !== finalSection) {
+      req.crUser.section_code = finalSection;
+      await req.crUser.save().catch(() => {});
     }
 
     const notification = new Notification({
@@ -1056,8 +1076,8 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), asyn
     if (!secret) return res.status(500).json({ error: 'Webhook secret not configured' });
 
     const signature = req.headers['x-razorpay-signature'];
-    // req.body is a raw Buffer from express.raw(). Use directly for exact byte-for-byte HMAC verification
-    const rawPayload = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '', 'utf8');
+    // Use pristine raw buffer captured before JSON parsing for byte-for-byte HMAC verification
+    const rawPayload = req.rawBody || (Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}), 'utf8'));
     const expectedSignature = crypto.createHmac('sha256', secret)
       .update(rawPayload).digest('hex');
 
@@ -1101,21 +1121,6 @@ app.get('/api/users/count', getClerkId, async (req, res) => {
     res.json({ count });
   } catch (error) {
     res.status(500).json({ error: error.message });
-  }
-});
-
-// Delete User Profile
-app.delete('/api/user', getClerkId, async (req, res) => {
-  try {
-    const user = await User.findOneAndDelete({ clerkUserId: req.clerkUserId });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    // Optional: Delete related data
-    res.json({ success: true, message: 'User deleted from DB' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -1247,7 +1252,7 @@ app.post('/api/rewards/watch-ad', getClerkId, rewardRateLimiter, async (req, res
       await user.save();
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split('T')[0]; // Indian Standard Time (IST)
 
     if (user.last_ad_watch_date !== today) {
       user.ads_watched_today = 0;

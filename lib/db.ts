@@ -497,6 +497,7 @@ export async function uploadPdf(clerkId: string, file: { uri: string; name: stri
 export async function createAssignment(clerkId: string, payload: {
   title: string; subject: string; description: string;
   dueDate: string; pdf_key?: string; pdf_filename?: string;
+  section_code?: string;
 }): Promise<AssignmentData> {
   const headers = await getAuthHeaders(clerkId);
   const res = await fetch(`${API_URL}/assignments`, {

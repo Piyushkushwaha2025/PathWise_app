@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Calendar } from 'react-native-calendars';
 import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
-import { uploadPdf, createAssignment } from '../../../../lib/db';
+import { uploadPdf, createAssignment, useDBProfile } from '../../../../lib/db';
 import { useStudyOSStore } from '../../../../store/studyosStore';
 import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
@@ -36,6 +36,9 @@ export default function CreateAssignmentScreen() {
   const router = useRouter();
   useHardwareBack('/studyos/assignments');
   const { userId } = useAuth();
+  const { dbUser } = useDBProfile();
+  const profile = useStudyOSStore((s) => s.profile);
+  const activeSection = dbUser?.section_code || profile?.section || undefined;
 
   const userSubjects = useStudyOSStore((s) => s.subjects) || [];
 
@@ -186,6 +189,7 @@ export default function CreateAssignmentScreen() {
         dueDate: dueDate.toISOString(),
         pdf_key,
         pdf_filename,
+        section_code: activeSection,
       });
 
       try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}

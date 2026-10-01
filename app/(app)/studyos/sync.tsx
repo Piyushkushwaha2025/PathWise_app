@@ -443,8 +443,8 @@ const SCRAPE_STEPS = [
             var headings = document.querySelectorAll('h1, h2, h3, h4, label, span, td');
             for (var h = 0; h < headings.length; h++) {
               var ht = headings[h].innerText || '';
-              var m = ht.match(/\b(\d{2}[A-Z]{2,5}-[A-Z]{0,6}-?\d{1,2})\b/);
-              if (m) { detectedSection = m[1]; break; }
+              var m = ht.match(/(?:section|sec|class\/sec)\s*[:\-\s]\s*([0-9A-Z\-]+)/i) || (!/^25(CSH|CST|MTT|UCT)/i.test(ht) ? ht.match(/\b(\d{2}[A-Z]{2,5}-[A-Z0-9\-]+)\b/) : null);
+              if (m && !/^\d{3,4}$/.test(m[1].trim()) && !/^25(CSH|CST|MTT|UCT|ECH|AMP)/i.test(m[1].trim())) { detectedSection = m[1].trim(); break; }
             }
             
             var hasClasses = Object.values(timetable).some(function(arr) { return arr.length > 0; });
@@ -738,23 +738,13 @@ export default function SyncScreen() {
         return subj;
       });
 
-      // Helper to clean and validate section string
-      const cleanSection = (rawSec: string | undefined, uid?: string, courseName?: string): string => {
+      // Helper to clean and validate section string directly from portal
+      const cleanSection = (rawSec: string | undefined): string => {
         if (!rawSec) return '';
         let s = rawSec.trim().toUpperCase();
         // Reject corrupted course-code prefixes (e.g. 25CSH-21, 25CST-20, etc.)
         if (/^25(CSH|CST|MTT|UCT|ECH|ECP|AMP)/i.test(s)) return '';
         if (/^[0-9A-Z]{2,6}-\d{3,4}/i.test(s)) return ''; // course code like 25CSH-214
-        
-        // Single digit or letter section (e.g. "1", "2", "A", "B")
-        if (/^\d{1,2}$/.test(s) && uid) {
-          const uidPrefix = uid.match(/^(\d{2}[A-Z]{2,4})/i)?.[1]?.toUpperCase();
-          if (uidPrefix) {
-            if (courseName && /artificial|aiml|ai\s*&/i.test(courseName)) return `${uidPrefix}-AIML-${s}`;
-            if (courseName && /data science|ds/i.test(courseName)) return `${uidPrefix}-DS-${s}`;
-            return `${uidPrefix}-${s}`;
-          }
-        }
         return s;
       };
 
@@ -766,10 +756,10 @@ export default function SyncScreen() {
           : (savedUid || existing.profile?.uid || undefined);
 
       const resolvedSection =
-        cleanSection(newData.subjects?.section, effectiveUid, newData.profile?.course) ||
-        cleanSection(newData.timetable?.section, effectiveUid, newData.profile?.course) ||
-        cleanSection(newData.profile?.section, effectiveUid, newData.profile?.course) ||
-        cleanSection(existing.profile?.section, effectiveUid, existing.profile?.course) ||
+        cleanSection(newData.timetable?.section) ||
+        cleanSection(newData.subjects?.section) ||
+        cleanSection(newData.profile?.section) ||
+        cleanSection(existing.profile?.section) ||
         '';
 
       const resolvedProfile = {
