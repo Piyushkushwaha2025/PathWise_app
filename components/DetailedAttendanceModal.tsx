@@ -632,6 +632,18 @@ export function DetailedAttendanceModal({
   const navAttempts = useRef(0);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [canMountWebView, setCanMountWebView] = useState(false);
+
+  useEffect(() => {
+    if (visible && !cacheHit.current) {
+      const timer = setTimeout(() => {
+        setCanMountWebView(true);
+      }, 400);
+      return () => clearTimeout(timer);
+    } else {
+      setCanMountWebView(false);
+    }
+  }, [visible]);
 
   const handleSetPredictDays = (val: number) => {
     if (val > 3 && isSubscriptionRequired) {
@@ -672,54 +684,64 @@ export function DetailedAttendanceModal({
       }
 
       if (uidVal && chkVal && cookies) {
-        const res = await fetch('https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx/GetFullReport', {
-          method: 'POST',
-          headers: {
-            'Cookie': cookies,
-            'Content-Type': 'application/json; charset=utf-8',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          },
-          body: JSON.stringify({
-            course: chkVal,
-            UID: uidVal,
-            fromDate: '0',
-            toDate: '0',
-            type: '0',
-            Session: '',
-          }),
-        });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
 
-        if (res.ok) {
-          const resJson = await res.json();
-          if (resJson?.d?.Result) {
-            const rawRecords = JSON.parse(resJson.d.Result);
-            if (Array.isArray(rawRecords) && rawRecords.length > 0) {
-              const records = rawRecords.map((r: any) => ({
-                date: r["AttDate"] || '',
-                type: r["AttendanceType"] || '',
-                time: r["Timing"] || '',
-                status: r["AttendanceCode"] || '',
-                markedBy: r["Name"] || '',
-              }));
+        try {
+          const res = await fetch('https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx/GetFullReport', {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Cookie': cookies,
+              'Content-Type': 'application/json; charset=utf-8',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
+            body: JSON.stringify({
+              course: chkVal,
+              UID: uidVal,
+              fromDate: '0',
+              toDate: '0',
+              type: '0',
+              Session: '',
+            }),
+          });
+          clearTimeout(timeoutId);
 
-              cacheHit.current = true;
-              setAttendanceData(records);
-              const currentCache = useStudyOSStore.getState().detailedAttendanceCache || {};
-              setScrapedData({
-                detailedAttendanceCache: {
-                  ...currentCache,
-                  [subjectCode]: records,
-                  ...(subjectName ? { [subjectName]: records } : {}),
-                },
-              });
-              setLoading(false);
-              return;
+          if (res.ok) {
+            const resJson = await res.json();
+            if (resJson?.d?.Result) {
+              const rawRecords = JSON.parse(resJson.d.Result);
+              if (Array.isArray(rawRecords) && rawRecords.length > 0) {
+                const records = rawRecords.map((r: any) => ({
+                  date: r["AttDate"] || '',
+                  type: r["AttendanceType"] || '',
+                  time: r["Timing"] || '',
+                  status: r["AttendanceCode"] || '',
+                  markedBy: r["Name"] || '',
+                }));
+
+                cacheHit.current = true;
+                setAttendanceData(records);
+                const currentCache = useStudyOSStore.getState().detailedAttendanceCache || {};
+                setScrapedData({
+                  detailedAttendanceCache: {
+                    ...currentCache,
+                    [subjectCode]: records,
+                    ...(subjectName ? { [subjectName]: records } : {}),
+                  },
+                });
+                setLoading(false);
+                return;
+              }
             }
           }
+        } catch (fetchErr) {
+          clearTimeout(timeoutId);
+          console.log('[DetailModal] Direct API fetch error/timed out, will use WebView:', fetchErr);
         }
       }
     } catch (apiErr) {
-      console.log('[DetailModal] Direct API fetch error, will fallback to WebView:', apiErr);
+      console.log('[DetailModal] Direct API setup error:', apiErr);
     }
 
     // Headless WebView Fallback
@@ -1338,7 +1360,7 @@ export function DetailedAttendanceModal({
           </View>
         )}
 
-        {visible && !cacheHit.current && cookieInjectScript !== null && (
+        {visible && !cacheHit.current && canMountWebView && cookieInjectScript !== null && (
           <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden' }}>
             <WebView
               ref={webViewRef}
@@ -1940,16 +1962,17 @@ export function DetailedAttendanceModal({
     </GestureHandlerRootView>
   );
 
+  if (!visible) return null;
+
   if (!asModal) {
-    if (!visible) return null;
     return content;
   }
 
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'}
+      transparent={true}
+      animationType="fade"
       statusBarTranslucent={true}
       onRequestClose={onClose}
     >

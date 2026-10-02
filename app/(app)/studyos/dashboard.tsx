@@ -1474,6 +1474,7 @@ export default function StudyOSDashboard() {
                  history={history}
                  updateBadge={justUpdated[sub.code]}
                  onPress={() => {
+                   try { Haptics.selectionAsync().catch(() => {}); } catch {}
                    setSelectedSubjectDetails({ code: sub.code, name: sub.name, viewActionTarget: sub.viewActionTarget });
                  }}
                />
