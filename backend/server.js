@@ -27,7 +27,7 @@ const { Webhook } = require('svix');
 const UsedTrialFingerprintSchema = new mongoose.Schema({
   emailHash: { type: String, required: true, unique: true },
   trial_started_at: { type: Date, required: true },
-  deleted_at: { type: Date, default: Date.now },
+  deleted_at: { type: Date, default: null },
 });
 const UsedTrialFingerprint = mongoose.model('UsedTrialFingerprint', UsedTrialFingerprintSchema);
 
@@ -103,7 +103,7 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
         if (emailHash) {
           await UsedTrialFingerprint.findOneAndUpdate(
             { emailHash },
-            { emailHash, trial_started_at: newUser.trial_started_at },
+            { emailHash, trial_started_at: newUser.trial_started_at, deleted_at: null },
             { upsert: true, new: true }
           ).catch(() => {});
         }
@@ -425,7 +425,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       if (emailHash) {
         await UsedTrialFingerprint.findOneAndUpdate(
           { emailHash },
-          { emailHash, trial_started_at: user.trial_started_at },
+          { emailHash, trial_started_at: user.trial_started_at, deleted_at: null },
           { upsert: true, new: true }
         ).catch(() => {});
       }
@@ -451,7 +451,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
       if (user.emailHash && user.trial_started_at) {
         UsedTrialFingerprint.findOneAndUpdate(
           { emailHash: user.emailHash },
-          { emailHash: user.emailHash, trial_started_at: user.trial_started_at },
+          { emailHash: user.emailHash, trial_started_at: user.trial_started_at, deleted_at: null },
           { upsert: true, new: true }
         ).catch(() => {});
       }
@@ -624,7 +624,20 @@ app.delete(['/api/user', '/user'], getClerkId, async (req, res) => {
     const clerkId = req.clerkUserId;
     await connectDB();
 
-    // 1. Delete User profile
+    // 1. Delete User profile and record deletion fingerprint
+    const existingUser = await User.findOne({ clerkUserId: clerkId });
+    if (existingUser) {
+      const email = (existingUser.email || '').toLowerCase().trim();
+      const emailHash = existingUser.emailHash || (email ? crypto.createHash('sha256').update(email).digest('hex') : null);
+      if (emailHash) {
+        const trialAt = existingUser.trial_started_at || existingUser.createdAt || new Date();
+        await UsedTrialFingerprint.findOneAndUpdate(
+          { emailHash },
+          { emailHash, trial_started_at: trialAt, deleted_at: new Date() },
+          { upsert: true, new: true }
+        ).catch(() => {});
+      }
+    }
     await User.findOneAndDelete({ clerkUserId: clerkId });
 
     // 2. Delete all UserAssignment tracking records

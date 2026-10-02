@@ -253,10 +253,7 @@ export default function ProfileScreen() {
           console.warn("Backend user delete note:", dbErr);
         }
 
-        // Step 2: Delete from Clerk (triggers cascade webhook as well)
-        await user.delete();
-        
-        // Step 3: Clear all local storage/session data
+        // Step 2: Clear all local storage/session data before auth state change
         await AsyncStorage.clear();
         await AsyncStorage.setItem('auth_was_signed_in', 'false');
         await SecureStore.deleteItemAsync('culko_cookies');
@@ -264,14 +261,13 @@ export default function ProfileScreen() {
         await SecureStore.deleteItemAsync('culko_p');
         await SecureStore.deleteItemAsync('gemini_api_key');
         await useStudyOSStore.getState().resetScrapedData();
-
-        // Step 4: Clear theme preferences and reset to default black
         await SecureStore.deleteItemAsync('app_theme');
         await SecureStore.deleteItemAsync('app_primary_color');
         useThemeStore.getState().initTheme('black', undefined);
-
         await useStudySessionStore.getState().clearSession();
-        router.replace("/(auth)/sign-in");
+
+        // Step 3: Delete from Clerk (triggers cascade webhook as well)
+        await user.delete();
       }
     } catch (error) {
       console.error("Delete account error:", error);

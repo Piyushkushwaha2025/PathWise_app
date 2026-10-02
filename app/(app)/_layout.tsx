@@ -147,9 +147,15 @@ export default function AppLayout() {
     return () => sub.remove();
   }, [isStudyOSMode, pathname, router]);
 
-  // Route Protection: Placed strictly AFTER all hooks execute unconditionally to avoid React hook count mismatch
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.replace("/(auth)/sign-in");
+    }
+  }, [isLoaded, isSignedIn, router]);
+
+  // Route Protection: Placed strictly AFTER all hooks execute unconditionally
   if (isLoaded && !isSignedIn) {
-    return <Redirect href="/(auth)/sign-in" />;
+    return null;
   }
 
   return (
