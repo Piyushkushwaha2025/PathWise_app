@@ -371,8 +371,8 @@ const SCRAPE_STEPS = [
       (function waitForData() {
         try {
           var attendanceData = {};
-          var maxWait = 3500;
-          var interval = 60;
+          var maxWait = 2500;
+          var interval = 35;
           var elapsed = 0;
 
           function viewActionTargetOf(row) {
@@ -956,7 +956,7 @@ export default function SyncScreen() {
         }).catch(() => {});
       }
 
-      // Sync user profile to backend MongoDB
+      // Sync user profile to backend MongoDB (fast race, non-blocking fallback)
       if (userId && (effectiveUid || resolvedSection)) {
         try {
           await Promise.race([
@@ -967,7 +967,7 @@ export default function SyncScreen() {
               semester: resolvedProfile.semester ? String(resolvedProfile.semester) : undefined,
               email: user?.primaryEmailAddress?.emailAddress || undefined,
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 10000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 2500))
           ]);
         } catch (e: any) {
           if (e?.code === 'UID_ALREADY_LINKED' || e?.code === 'ACCOUNT_ALREADY_BOUND') {
@@ -1032,7 +1032,7 @@ export default function SyncScreen() {
           ${step.script}
         `;
         webViewRef.current?.injectJavaScript(captureAndScrape);
-      }, 100);
+      }, 25);
     }
   };
 
@@ -1081,10 +1081,10 @@ export default function SyncScreen() {
     }
   };
 
-  // Skip button appears after 2.5 seconds on any step
+  // Skip button appears after 1.5 seconds on any step
   useEffect(() => {
     setShowSkipButton(false);
-    const t = setTimeout(() => setShowSkipButton(true), 2500);
+    const t = setTimeout(() => setShowSkipButton(true), 1500);
     return () => clearTimeout(t);
   }, [currentStepIndex]);
 
@@ -1121,7 +1121,7 @@ export default function SyncScreen() {
       var poller = setInterval(function() {
         if (hasScraped) { clearInterval(poller); return; }
         checkAndRun();
-      }, 70);
+      }, 35);
 
       setTimeout(function() {
         if (!hasScraped) {
@@ -1130,14 +1130,14 @@ export default function SyncScreen() {
             ${currentStep?.script || ''}
           } catch(err) {}
         }
-      }, 1200);
+      }, 800);
     })();
     true;
   `;
 
-  // Per-step safety net: allow 4.5s for attendance/marks AJAX, 2.8s for fast pages
+  // Per-step safety net: allow 3.2s for attendance/marks AJAX, 1.8s for fast pages
   useEffect(() => {
-    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 4500 : 2800;
+    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 3200 : 1800;
     const timer = setTimeout(() => {
       if (!finishedRef.current && currentStep) {
         console.log('[Sync] Step safety timeout advancing:', currentStep.id);
@@ -1179,6 +1179,7 @@ export default function SyncScreen() {
             }}
             onNavigationStateChange={handleNavigationStateChange}
             onMessage={handleMessage}
+            injectedJavaScriptBeforeContentLoaded={fastScrapeScript}
             injectedJavaScript={fastScrapeScript}
             javaScriptEnabled={true}
             domStorageEnabled={true}

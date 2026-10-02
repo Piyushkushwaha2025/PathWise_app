@@ -66,11 +66,6 @@ export default function AppLayout() {
   const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode, customError, setCustomError } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
   
-  // Route Protection: If Clerk is loaded and user is not signed in, redirect to sign-in
-  if (isLoaded && !isSignedIn) {
-    return <Redirect href="/(auth)/sign-in" />;
-  }
-
   // Initialize background sync and polling
   useBackgroundSync();
 
@@ -100,18 +95,20 @@ export default function AppLayout() {
 
 
   useEffect(() => {
+    if (!isSignedIn) return;
     loadGamification().catch(() => {});
     checkConnection().catch(() => {});
-  }, []);
+  }, [isSignedIn]);
 
   useEffect(() => {
+    if (!isSignedIn) return;
     // Single auto-check on app load — delayed so app fully renders first
     // Manual check is available in Profile → "Check for Updates"
     const timer = setTimeout(() => {
       checkForUpdates(false); // false = auto, respects cooldown
     }, 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isSignedIn]);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -149,6 +146,11 @@ export default function AppLayout() {
     const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => sub.remove();
   }, [isStudyOSMode, pathname, router]);
+
+  // Route Protection: Placed strictly AFTER all hooks execute unconditionally to avoid React hook count mismatch
+  if (isLoaded && !isSignedIn) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>

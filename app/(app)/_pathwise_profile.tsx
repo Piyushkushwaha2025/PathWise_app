@@ -244,19 +244,28 @@ export default function ProfileScreen() {
 
   const handleConfirmDelete = async () => {
     try {
+      setDeleteAccountVisible(false);
       if (user) {
-        // Step 1: Delete from Clerk — this triggers the 'user.deleted' webhook
-        // which automatically CASCADE deletes ALL MongoDB data (User, UserAssignments, Assignments, Notifications)
+        // Step 1: Delete from MongoDB directly while auth token is active
+        try {
+          await deleteUserFromDB(user.id);
+        } catch (dbErr) {
+          console.warn("Backend user delete note:", dbErr);
+        }
+
+        // Step 2: Delete from Clerk (triggers cascade webhook as well)
         await user.delete();
         
-        // Step 2: Clear all local storage/session data
+        // Step 3: Clear all local storage/session data
         await AsyncStorage.clear();
+        await AsyncStorage.setItem('auth_was_signed_in', 'false');
         await SecureStore.deleteItemAsync('culko_cookies');
         await SecureStore.deleteItemAsync('culko_u');
         await SecureStore.deleteItemAsync('culko_p');
         await SecureStore.deleteItemAsync('gemini_api_key');
+        await useStudyOSStore.getState().resetScrapedData();
 
-        // Step 3: Clear theme preferences and reset to default black
+        // Step 4: Clear theme preferences and reset to default black
         await SecureStore.deleteItemAsync('app_theme');
         await SecureStore.deleteItemAsync('app_primary_color');
         useThemeStore.getState().initTheme('black', undefined);
