@@ -1188,7 +1188,7 @@ export default function StudyOSDashboard() {
             </TouchableOpacity>
             <View style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
               <Text style={styles.greeting} numberOfLines={1}>{greetingText}</Text>
-              <Text style={styles.userName} numberOfLines={1} ellipsizeMode="tail">{profile?.name || 'Student'}</Text>
+              <Text style={styles.userName} numberOfLines={1} ellipsizeMode="tail">{profile?.name || (dbUser?.uid ? dbUser?.name : '') || ''}</Text>
               <Text style={styles.sectionText} numberOfLines={1} ellipsizeMode="tail">
                 {[profile?.course, (profile?.section || dbUser?.section_code) ? `Sec: ${profile?.section || dbUser?.section_code}` : null].filter(Boolean).join(' • ') || 'No Course Synced'}
               </Text>

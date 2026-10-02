@@ -151,12 +151,21 @@ function RootLayoutInner() {
       // Proactively ensure user profile exists in MongoDB Atlas on login / app launch
       const email = user.primaryEmailAddress?.emailAddress;
       const emailPrefix = email ? email.split('@')[0].toLowerCase() : null;
-      let name = (user.fullName || user.firstName || '').trim();
-      if (!name || (emailPrefix && name.toLowerCase() === emailPrefix)) {
-        name = 'Learner';
-      }
+      const rawName = (user.fullName || user.firstName || '').trim();
+      const stProfile = useStudyOSStore.getState().profile;
+      const collegeName = (stProfile?.name || '').trim();
+
+      const isCustomName = rawName && 
+        (!emailPrefix || rawName.toLowerCase() !== emailPrefix) &&
+        rawName.toLowerCase() !== 'learner' &&
+        rawName.toLowerCase() !== 'student';
+
+      const effectiveName = isCustomName 
+        ? rawName 
+        : (collegeName && collegeName !== 'Unknown' && collegeName !== 'Error' && !collegeName.includes('@') ? collegeName : undefined);
+
       syncUserWithDB(user.id, {
-        name,
+        name: effectiveName,
         email,
       }).catch((err) => {
         console.warn('Initial user Atlas sync notice:', err?.message);

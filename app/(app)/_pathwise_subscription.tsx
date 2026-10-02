@@ -111,7 +111,7 @@ export default function SubscriptionScreen() {
         prefill: {
           email: user.primaryEmailAddress?.emailAddress || 'test@pathwise.com',
           contact: validContact,
-          name: user.fullName || 'Student'
+          name: user.fullName || ''
         },
         theme: { color: colors.primary }
       };

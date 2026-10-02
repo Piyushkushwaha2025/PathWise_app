@@ -127,14 +127,17 @@ export default function SignUpScreen() {
     setLoading(true);
 
     const trimmedName = name.trim();
-    const effectiveName = trimmedName || "Learner";
-    const nameParts = effectiveName.split(/\s+/).filter(Boolean);
-    const firstName = nameParts[0] || "Learner";
-    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
+    let firstName: string | undefined = undefined;
+    let lastName: string | undefined = undefined;
+    if (trimmedName) {
+      const nameParts = trimmedName.split(/\s+/).filter(Boolean);
+      firstName = nameParts[0] || undefined;
+      lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
+    }
 
     try {
       await signUp.create({
-        firstName,
+        ...(firstName ? { firstName } : {}),
         ...(lastName ? { lastName } : {}),
         emailAddress: email.trim(),
         password,

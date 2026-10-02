@@ -61,7 +61,6 @@ export default function AppLayout() {
       setAuthTokenGetter(getToken);
     }
   }, [getToken]);
-  const blurTargetRef = useRef<View>(null);
   const { checkForUpdates } = useUpdateStore();
   const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode, customError, setCustomError } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
@@ -161,7 +160,7 @@ export default function AppLayout() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <NetworkStatusBanner />
-      <View ref={blurTargetRef} style={{ flex: 1 }}>
+      <View style={{ flex: 1 }}>
         <KeyboardAvoidingView 
           style={{ flex: 1 }} 
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -188,7 +187,7 @@ export default function AppLayout() {
         </View>
       )}
 
-      <ProfileArcSwitcher colors={colors} blurTargetRef={blurTargetRef} />
+      <ProfileArcSwitcher colors={colors} />
       {isStudyOSMode && isSessionDisconnected && !isSessionExpired && (
         <DisconnectedBubble onPress={() => setSessionExpired(true)} colors={colors} />
       )}

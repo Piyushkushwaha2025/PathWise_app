@@ -10,7 +10,7 @@ const defaultOrigin = {
     y: height - 25,
 };
 
-export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
+export const ProfileArcSwitcher = ({ colors }: any) => {
     const [visible, setVisible] = useState(false);
     const [hovered, setHovered] = useState<'studyos' | 'pathwise' | null>(null);
     const [origin, setOrigin] = useState(defaultOrigin);
@@ -114,16 +114,23 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
                 }
             ]}
         >
-            {/* Full Screen High-Performance Blur Backdrop */}
+            {/* Full Screen High-Performance Frosted Blur Backdrop */}
             <View style={StyleSheet.absoluteFill}>
                 <BlurView 
-                    blurTarget={blurTargetRef} 
-                    blurMethod="dimezisBlurView" 
-                    intensity={28} 
+                    intensity={Platform.OS === 'ios' ? 70 : 85} 
                     style={StyleSheet.absoluteFill} 
                     tint={isDark ? 'dark' : 'light'} 
                 />
-                <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(0,0,0,0.40)' : 'rgba(255,255,255,0.40)' }]} />
+                <View 
+                    style={[
+                        StyleSheet.absoluteFill, 
+                        { 
+                            backgroundColor: isDark 
+                                ? 'rgba(11, 15, 25, 0.72)' 
+                                : 'rgba(255, 255, 255, 0.72)' 
+                        }
+                    ]} 
+                />
             </View>
             
             {/* The Origin Container exactly centered on the User's Thumb! */}

@@ -549,13 +549,22 @@ export function useDBProfile() {
   useEffect(() => {
     if (userId) {
       const email = user?.primaryEmailAddress?.emailAddress;
-      const name = user?.fullName || (user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : undefined) || undefined;
+      const emailPrefix = email ? email.split('@')[0].toLowerCase() : null;
+      const rawName = (user?.fullName || (user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : '') || '').trim();
+      const isCustomName = rawName && 
+        (!emailPrefix || rawName.toLowerCase() !== emailPrefix) &&
+        rawName.toLowerCase() !== 'learner' &&
+        rawName.toLowerCase() !== 'student';
+
       const stProfile = useStudyOSStore.getState().profile;
+      const collegeName = (stProfile?.name && stProfile.name !== 'Unknown' && stProfile.name !== 'Error' && !stProfile.name.includes('@')) 
+        ? stProfile.name.trim() 
+        : undefined;
 
       syncUserWithDB(userId, {
         section_code: stProfile?.section || undefined,
         uid: (stProfile?.uid && stProfile.uid !== 'Unknown' && stProfile.uid !== 'Error') ? stProfile.uid : (user?.unsafeMetadata?.studyOsId as string || undefined),
-        name: stProfile?.name || name || undefined,
+        name: isCustomName ? rawName : (collegeName || undefined),
         semester: stProfile?.semester || undefined,
       })
         .then(setDbUser)

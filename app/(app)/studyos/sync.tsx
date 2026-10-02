@@ -867,7 +867,7 @@ export default function SyncScreen() {
 
       const rawUserFull = user?.fullName?.trim();
       const ep = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
-      const safeFallbackName = (rawUserFull && (!ep || rawUserFull.toLowerCase() !== ep)) ? rawUserFull : 'Student';
+      const safeFallbackName = (rawUserFull && (!ep || rawUserFull.toLowerCase() !== ep) && rawUserFull.toLowerCase() !== 'learner' && rawUserFull.toLowerCase() !== 'student') ? rawUserFull : '';
 
       const resolvedProfile = {
         ...(existing.profile || {}),

@@ -284,7 +284,7 @@ export default function CollegeProfileScreen() {
                 </View>
               )}
               <View style={styles.infoCol}>
-                <Text style={styles.studentName} numberOfLines={1}>{profile?.name || 'Student Name'}</Text>
+                <Text style={styles.studentName} numberOfLines={1}>{profile?.name || ''}</Text>
                 <Text style={styles.infoText} numberOfLines={1}>{profile?.course || 'No Course'}</Text>
                 {profile?.semester && profile.semester !== 'N/A' && (
                   <Text style={styles.infoText}>Semester {profile.semester}</Text>
