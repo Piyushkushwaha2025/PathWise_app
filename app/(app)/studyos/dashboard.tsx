@@ -424,7 +424,8 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
   let suffix = rawSubjectName.substring(baseCode.length); // " (Lab)"
   
   const matchedSubject = subjects?.find(s => s.code === baseCode || (s.code && baseCode.includes(s.code.replace(/^[A-Z]+_/, ''))));
-  const fullNameToDisplay = matchedSubject ? `${matchedSubject.name}${suffix}` : rawSubjectName;
+  const hasValidMatchedName = matchedSubject?.name && !/^\d+$/.test(matchedSubject.name) && matchedSubject.name !== matchedSubject.code;
+  const fullNameToDisplay = hasValidMatchedName ? `${matchedSubject.name}${suffix}` : (rawSubjectName || matchedSubject?.code || 'Class');
   const history = matchedSubject ? getHistoryStatuses(detailedAttendanceCache?.[matchedSubject.code]) : [];
 
   // Determine attendance status specifically for this class slot (prevents multiple classes of the same subject on the same day from falsely inheriting earlier attendance)
@@ -1638,7 +1639,9 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
           </View>
 
           {/* Subject Title */}
-          <Text style={styles.subCardTitle} numberOfLines={2}>{title}</Text>
+          <Text style={styles.subCardTitle} numberOfLines={2}>
+            {title && !/^\d+$/.test(title) ? title : (code || 'Subject')}
+          </Text>
 
           {/* Prediction Status Pill */}
           {badgeText ? (

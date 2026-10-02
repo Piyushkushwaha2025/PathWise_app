@@ -10,7 +10,7 @@ const defaultOrigin = {
     y: height - 25,
 };
 
-export const ProfileArcSwitcher = ({ colors }: any) => {
+export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
     const [visible, setVisible] = useState(false);
     const [hovered, setHovered] = useState<'studyos' | 'pathwise' | null>(null);
     const [origin, setOrigin] = useState(defaultOrigin);
@@ -104,30 +104,32 @@ export const ProfileArcSwitcher = ({ colors }: any) => {
     const pathWiseOpacity = anim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 0.7, 1] });
 
     return (
-        <Animated.View 
+        <View 
             pointerEvents="none"
             style={[
                 StyleSheet.absoluteFill, 
                 { 
                     zIndex: 9999, 
-                    opacity: anim 
                 }
             ]}
         >
             {/* Full Screen High-Performance Frosted Blur Backdrop */}
             <View style={StyleSheet.absoluteFill}>
                 <BlurView 
-                    intensity={Platform.OS === 'ios' ? 70 : 85} 
+                    blurTarget={blurTargetRef}
+                    blurMethod="dimezisBlurView"
+                    intensity={35} 
                     style={StyleSheet.absoluteFill} 
                     tint={isDark ? 'dark' : 'light'} 
                 />
-                <View 
+                <Animated.View 
                     style={[
                         StyleSheet.absoluteFill, 
                         { 
                             backgroundColor: isDark 
-                                ? 'rgba(11, 15, 25, 0.72)' 
-                                : 'rgba(255, 255, 255, 0.72)' 
+                                ? 'rgba(0, 0, 0, 0.38)' 
+                                : 'rgba(255, 255, 255, 0.35)',
+                            opacity: anim
                         }
                     ]} 
                 />
@@ -181,7 +183,7 @@ export const ProfileArcSwitcher = ({ colors }: any) => {
                 <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', fontSize: 24, color: colors.text }}>Switch Profile</Text>
                 <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 14, color: colors.textDim, marginTop: 8 }}>Slide Up for StudyOS, Left for PathWise</Text>
             </Animated.View>
-        </Animated.View>
+        </View>
     );
 };
 

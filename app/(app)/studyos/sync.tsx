@@ -200,14 +200,29 @@ const SCRAPE_STEPS = [
              }
           }
 
-          var rows = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr');
+          var courseTable = document.querySelector('#ContentPlaceHolder1_gvMyCourses, table[id*="gvMyCourse"], table[id*="Course"], table[id*="course"]');
+          var rows = courseTable ? courseTable.querySelectorAll('tr') : document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr');
+          if (!rows || rows.length < 2) {
+             var allTables = document.querySelectorAll('table');
+             for (var tb = 0; tb < allTables.length; tb++) {
+                var tRows = allTables[tb].querySelectorAll('tr');
+                if (tRows.length >= 2) {
+                   var fRowTxt = (tRows[0].innerText || '').toLowerCase();
+                   if (fRowTxt.includes('course') || fRowTxt.includes('subject') || fRowTxt.includes('code')) {
+                      rows = tRows;
+                      break;
+                   }
+                }
+             }
+          }
+
           for (var i = 1; i < rows.length; i++) {
             var cells = rows[i].querySelectorAll('td');
             if (cells.length < 2) continue;
 
-            var code = rows[i].querySelector('span[id*="lblCourseCode"]')?.innerText.trim();
-            var name = rows[i].querySelector('span[id*="lblCourseName"]')?.innerText.trim();
-            var type = rows[i].querySelector('span[id*="lblType"]')?.innerText.trim();
+            var code = rows[i].querySelector('span[id*="lblCourseCode"], span[id*="CourseCode"], [id*="CourseCode"]')?.innerText.trim();
+            var name = rows[i].querySelector('span[id*="lblCourseName"], span[id*="CourseName"], span[id*="lblTitle"], [id*="CourseName"], [id*="Subject"]')?.innerText.trim();
+            var type = rows[i].querySelector('span[id*="lblType"], [id*="Type"]')?.innerText.trim();
             
             if (!code) {
               for (var c = 0; c < cells.length; c++) {
@@ -217,9 +232,20 @@ const SCRAPE_STEPS = [
               }
             }
 
+            // Fallback for name if span was not found: scan cells for course title text
+            if (!name) {
+              for (var cn = 0; cn < cells.length; cn++) {
+                var cellTxt = cells[cn].innerText.trim();
+                if (cellTxt && cellTxt !== code && !/^\d+$/.test(cellTxt) && !['theory', 'practical', 'core', 'elective'].includes(cellTxt.toLowerCase()) && cellTxt.length > 2) {
+                  name = cellTxt;
+                  break;
+                }
+              }
+            }
+
             if (!section && sectionIdx !== -1 && cells.length > sectionIdx) {
                var secVal = cells[sectionIdx].innerText.trim();
-               if (secVal && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(secVal)) {
+               if (secVal && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(secVal)) {
                  section = secVal;
                }
             }
@@ -236,10 +262,15 @@ const SCRAPE_STEPS = [
               }
             }
 
-            if (code && name) {
+            if (code) {
+              name = name || code;
+              var fullSubjName = name;
+              if (type && !fullSubjName.toLowerCase().includes(type.toLowerCase())) {
+                fullSubjName += ' (' + type + ')';
+              }
               subjects.push({ 
                  code: code, 
-                 name: name + (type ? ' (' + type + ')' : ''), 
+                 name: fullSubjName, 
                  credits: credits, 
                  totalClasses: 0, 
                  attendedClasses: 0, 
@@ -432,8 +463,20 @@ const SCRAPE_STEPS = [
                 for (var x = 0; x < textArr.length; x++) {
                   if (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(textArr[x])) { code = textArr[x]; break; }
                 }
-                var altName = textArr[0] || '';
-                var altName2 = textArr[1] || '';
+
+                // Robust course title detection: search cells for actual course name, never accept row serial numbers or percentages
+                var detectedTitle = "";
+                for (var a = 0; a < textArr.length; a++) {
+                  var tItem = textArr[a];
+                  if (tItem && tItem !== code && !/^\d+$/.test(tItem) && !tItem.includes('%') && !/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(tItem) && /[a-zA-Z]{3,}/.test(tItem)) {
+                    var lowT = tItem.toLowerCase();
+                    if (!['view', 'theory', 'practical', 'lecture', 'tutorial', 'regular', 'attendance', 'details'].includes(lowT)) {
+                      if (!detectedTitle || detectedTitle.length < tItem.length) {
+                        detectedTitle = tItem;
+                      }
+                    }
+                  }
+                }
 
                 // Method A: Exact column positions from SortTable if present
                 var eligDelivered = cells.length >= 9 ? (parseFloat(cells[8].innerText.trim()) || 0) : 0;
@@ -499,11 +542,10 @@ const SCRAPE_STEPS = [
 
                 if (total > 0 || percentage > 0 || (code && code.length >= 4)) {
                   var vTarget = viewActionTargetOf(rows[i]);
-                  var detectedTitle = altName || altName2 || code || "";
-                  var dataObj = { code: code || "", title: detectedTitle, total: total, attended: attended, percentage: percentage, viewActionTarget: vTarget };
+                  var finalTitle = detectedTitle || code || "";
+                  var dataObj = { code: code || "", title: finalTitle, total: total, attended: attended, percentage: percentage, viewActionTarget: vTarget };
                   if (code) attendanceData[code] = dataObj;
-                  if (altName) attendanceData[altName] = dataObj;
-                  if (altName2 && altName2 !== altName) attendanceData[altName2] = dataObj;
+                  if (detectedTitle && detectedTitle !== code) attendanceData[detectedTitle] = dataObj;
                 }
               }
             }
@@ -852,6 +894,89 @@ export default function SyncScreen() {
           }
         }
       }
+
+      // Build a title dictionary from marks, timetable, previous subjects, and lmsCourses to ensure all subjects have authentic titles
+      const titleDictionary: Record<string, string> = {};
+
+      const registerTitle = (c: string | undefined, title: string | undefined) => {
+        if (!c || !title) return;
+        const normCode = c.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const cleanTitle = title.trim();
+        if (normCode && cleanTitle && !/^\d+$/.test(cleanTitle) && cleanTitle.length > 2 && cleanTitle.toUpperCase() !== normCode) {
+          if (!titleDictionary[normCode] || titleDictionary[normCode].length < cleanTitle.length) {
+            titleDictionary[normCode] = cleanTitle;
+          }
+        }
+      };
+
+      // 1. From Marks
+      const allMarks = [...(newData.marks || []), ...(existing.marks || [])];
+      for (const m of allMarks) {
+        if (m.code) {
+          registerTitle(m.code, m.subjectName || m.fullName);
+        } else if (m.fullName) {
+          const mCode = m.fullName.match(/\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\)/i);
+          if (mCode) registerTitle(mCode[1], m.subjectName);
+        }
+      }
+
+      // 2. From Timetable
+      const allTimetable = { ...(existing.timetable || {}), ...(newData.timetable || {}) };
+      for (const daySlots of Object.values(allTimetable) as any[]) {
+        if (Array.isArray(daySlots)) {
+          for (const slot of daySlots) {
+            if (slot?.subjectName) {
+              const parts = slot.subjectName.split(' ');
+              const possibleCode = parts[0];
+              if (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/i.test(possibleCode)) {
+                const restOfName = parts.slice(1).join(' ').trim();
+                registerTitle(possibleCode, restOfName);
+              }
+            }
+          }
+        }
+      }
+
+      // 3. From Attendance raw titles
+      for (const [key, val] of Object.entries(rawAttendance) as [string, any][]) {
+        const c = val.code || (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/.test(key) ? key : '');
+        if (c && val.title && !/^\d+$/.test(val.title)) {
+          registerTitle(c, val.title);
+        }
+      }
+
+      // 4. From Existing subjects
+      if (existing.subjects && Array.isArray(existing.subjects)) {
+        for (const es of existing.subjects) {
+          if (es.code && es.name && !/^\d+$/.test(es.name) && es.name !== es.code) {
+            registerTitle(es.code, es.name);
+          }
+        }
+      }
+
+      // 5. From LMS Courses
+      if (existing.lmsCourses && Array.isArray(existing.lmsCourses)) {
+        for (const lms of existing.lmsCourses) {
+          if (lms.shortname && lms.fullname) {
+            registerTitle(lms.shortname, lms.fullname);
+          }
+        }
+      }
+
+      // Resolve and heal subject names
+      updatedSubjects = updatedSubjects.map((sub: any) => {
+        const normCode = (sub.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const currentName = (sub.name || '').trim();
+        const isCorruptOrMissing = !currentName || /^\d+$/.test(currentName) || currentName === sub.code || currentName === '1';
+
+        if (isCorruptOrMissing && titleDictionary[normCode]) {
+          return { ...sub, name: titleDictionary[normCode] };
+        }
+        if (isCorruptOrMissing) {
+          return { ...sub, name: currentName && !/^\d+$/.test(currentName) ? currentName : (sub.code || 'Subject') };
+        }
+        return sub;
+      });
 
       // Resolved Profile
       const savedUid = await SecureStore.getItemAsync('culko_u').catch(() => null);

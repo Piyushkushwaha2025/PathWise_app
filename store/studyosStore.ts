@@ -196,6 +196,62 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
           }
           return sub;
         });
+
+        // Auto-heal missing or corrupted subject names (e.g. "1", blank, or equal to code)
+        const titleHealingMap: Record<string, string> = {};
+        if (parsedScraped.marks && Array.isArray(parsedScraped.marks)) {
+          for (const m of parsedScraped.marks) {
+            const mCode = (m.code || (m.fullName ? m.fullName.match(/\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\)/i)?.[1] : '') || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+            const mName = (m.subjectName || m.fullName || '').trim();
+            if (mCode && mName && !/^\d+$/.test(mName) && mName.length > 2) {
+              titleHealingMap[mCode] = mName;
+            }
+          }
+        }
+        if (parsedScraped.resultCache) {
+          for (const semObj of Object.values(parsedScraped.resultCache) as any[]) {
+            if (semObj?.subjects && Array.isArray(semObj.subjects)) {
+              for (const rSub of semObj.subjects) {
+                const rCode = (rSub.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                const rName = (rSub.name || rSub.title || '').trim();
+                if (rCode && rName && !/^\d+$/.test(rName) && rName.length > 2) {
+                  titleHealingMap[rCode] = rName;
+                }
+              }
+            }
+          }
+        }
+        if (parsedScraped.timetable) {
+          for (const daySlots of Object.values(parsedScraped.timetable) as any[]) {
+            if (Array.isArray(daySlots)) {
+              for (const slot of daySlots) {
+                if (slot?.subjectName) {
+                  const parts = slot.subjectName.split(' ');
+                  const possibleCode = (parts[0] || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                  if (/^[0-9A-Z]{2,8}[-_]?[0-9]{3}/i.test(parts[0])) {
+                    const restName = parts.slice(1).join(' ').trim();
+                    if (restName && !/^\d+$/.test(restName) && restName.length > 2) {
+                      titleHealingMap[possibleCode] = restName;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        parsedScraped.subjects = parsedScraped.subjects.map((sub: any) => {
+          const normCode = (sub.code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+          const curName = (sub.name || '').trim();
+          const isBadName = !curName || /^\d+$/.test(curName) || curName === sub.code || curName === '1';
+          if (isBadName && titleHealingMap[normCode]) {
+            return { ...sub, name: titleHealingMap[normCode] };
+          }
+          if (isBadName && sub.code) {
+            return { ...sub, name: sub.code };
+          }
+          return sub;
+        });
       }
 
       set({
@@ -276,9 +332,18 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
         ? { ...(state.profile || {}), ...data.profile }
         : (state.profile || data.profile);
 
-      const mergedSubjects = (data.subjects && Array.isArray(data.subjects) && data.subjects.length > 0)
+      let mergedSubjects = (data.subjects && Array.isArray(data.subjects) && data.subjects.length > 0)
         ? data.subjects
         : state.subjects;
+
+      if (mergedSubjects && Array.isArray(mergedSubjects)) {
+        mergedSubjects = mergedSubjects.map((sub: any) => {
+          if (!sub.name || /^\d+$/.test(sub.name) || sub.name === '1') {
+            return { ...sub, name: sub.code || 'Subject' };
+          }
+          return sub;
+        });
+      }
 
       const mergedTimetable = (data.timetable && Object.keys(data.timetable).length > 0)
         ? data.timetable

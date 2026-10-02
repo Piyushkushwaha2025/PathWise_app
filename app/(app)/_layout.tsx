@@ -61,6 +61,7 @@ export default function AppLayout() {
       setAuthTokenGetter(getToken);
     }
   }, [getToken]);
+  const blurTargetRef = useRef<View>(null);
   const { checkForUpdates } = useUpdateStore();
   const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode, customError, setCustomError } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
@@ -160,7 +161,7 @@ export default function AppLayout() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <NetworkStatusBanner />
-      <View style={{ flex: 1 }}>
+      <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
         <KeyboardAvoidingView 
           style={{ flex: 1 }} 
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -180,14 +181,14 @@ export default function AppLayout() {
         <Tabs.Screen name="profile" options={{ title: "Profile" }} />
         </Tabs>
         </KeyboardAvoidingView>
-      </View>
+      </BlurTargetView>
       {isSwitchingMode && (
         <View style={[StyleSheet.absoluteFill, { zIndex: 99999 }]}>
           <AppLoading />
         </View>
       )}
 
-      <ProfileArcSwitcher colors={colors} />
+      <ProfileArcSwitcher colors={colors} blurTargetRef={blurTargetRef} />
       {isStudyOSMode && isSessionDisconnected && !isSessionExpired && (
         <DisconnectedBubble onPress={() => setSessionExpired(true)} colors={colors} />
       )}
