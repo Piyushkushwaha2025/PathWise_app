@@ -96,7 +96,13 @@ export function PrivacyPinModal({
           return;
         }
 
-        if (storedPin && currentPin !== storedPin) {
+        if (!storedPin) {
+          setErrorMsg('No PIN configured. Use your fingerprint / screen lock.');
+          setIsLoading(false);
+          return;
+        }
+
+        if (currentPin !== storedPin) {
           setErrorMsg('Incorrect PIN. Please try again.');
           setIsLoading(false);
           return;
@@ -124,7 +130,7 @@ export function PrivacyPinModal({
         onSuccess();
         onClose();
       } else if (mode === 'change') {
-        if (storedPin && currentPin !== storedPin) {
+        if (!storedPin || currentPin !== storedPin) {
           setErrorMsg('Current PIN is incorrect.');
           setIsLoading(false);
           return;

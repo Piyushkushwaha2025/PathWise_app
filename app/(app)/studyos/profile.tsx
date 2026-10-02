@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, Pressable, Image } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useThemeStore } from '../../../store/useThemeStore';
@@ -8,7 +8,7 @@ import { Typography, Spacing } from '../../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { GlassCard } from '../../../components/ui/GlassCard';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { PrivacyPinModal } from '../../../components/modals/PrivacyPinModal';
 import { checkBiometrics, authenticateDevice } from '../../../lib/security';
@@ -28,6 +28,16 @@ export default function CollegeProfileScreen() {
   const [isGpaVisible, setIsGpaVisible] = useState(false);
   const [isPinModalVisible, setIsPinModalVisible] = useState(false);
 
+  // Automatically re-hide GPA whenever user navigates away or switches tabs
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setIsGpaVisible(false);
+        setIsPinModalVisible(false);
+      };
+    }, [])
+  );
+
   useEffect(() => {
     SecureStore.getItemAsync('culko_cookies').then((c) => {
       if (c) setCookies(c);
@@ -44,20 +54,41 @@ export default function CollegeProfileScreen() {
       const isPinEnabled = await SecureStore.getItemAsync('studyos_pin_enabled');
       if (isPinEnabled === 'true') {
         const secType = await SecureStore.getItemAsync('studyos_security_type');
+        const storedPin = await SecureStore.getItemAsync('studyos_privacy_pin');
         const bio = await checkBiometrics();
-        if (secType !== 'pin' && bio.hasHardware && bio.isEnrolled) {
+        const bioOk = bio.hasHardware && bio.isEnrolled;
+
+        // If biometric method is chosen (or no PIN was configured)
+        if (secType !== 'pin' && bioOk) {
           const success = await authenticateDevice('Unlock GPA & SGPA');
           if (success) {
             setIsGpaVisible(true);
             return;
           }
+          // If biometric failed or was cancelled, only offer PIN if user actually set a PIN
+          if (storedPin && storedPin.length >= 4) {
+            setIsPinModalVisible(true);
+          }
+          return;
         }
-        setIsPinModalVisible(true);
+
+        // If PIN mode is active and a PIN is stored
+        if (storedPin && storedPin.length >= 4) {
+          setIsPinModalVisible(true);
+        } else if (bioOk) {
+          // Fallback to biometric if no PIN exists
+          const success = await authenticateDevice('Unlock GPA & SGPA');
+          if (success) {
+            setIsGpaVisible(true);
+          }
+        } else {
+          setIsGpaVisible(true);
+        }
       } else {
         setIsGpaVisible(true);
       }
     } catch (e) {
-      setIsGpaVisible(true);
+      setIsGpaVisible(false);
     }
   };
 

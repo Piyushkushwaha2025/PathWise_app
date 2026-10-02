@@ -99,7 +99,11 @@ export function AppLockOverlay() {
   const handlePinSubmit = async () => {
     try {
       const storedPin = await SecureStore.getItemAsync('studyos_privacy_pin');
-      if (storedPin && pinInput !== storedPin) {
+      if (!storedPin) {
+        setPinError('No PIN configured. Unlock with Fingerprint.');
+        return;
+      }
+      if (!pinInput || pinInput.length < 4 || pinInput !== storedPin) {
         setPinError('Incorrect PIN. Please try again.');
         return;
       }

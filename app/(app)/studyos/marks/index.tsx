@@ -157,7 +157,10 @@ export default function MarksScreen() {
   const [isCheckingLock, setIsCheckingLock] = useState(true);
   const [isPinEnabled, setIsPinEnabled] = useState(false);
   const [isMarksUnlocked, setIsMarksUnlocked] = useState(false);
+  const [securityType, setSecurityType] = useState<'pin' | 'biometric'>('biometric');
+  const [hasStoredPin, setHasStoredPin] = useState(false);
   const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [showPinFallback, setShowPinFallback] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [showPin, setShowPin] = useState(false);
@@ -169,7 +172,7 @@ export default function MarksScreen() {
       if (success) {
         setIsMarksUnlocked(true);
       } else {
-        setPinError('Biometric/Phone lock cancelled or unavailable. Use your 4-digit PIN.');
+        setPinError('Biometric authentication cancelled. Please try again.');
       }
     } catch (e) {}
   }, []);
@@ -180,25 +183,35 @@ export default function MarksScreen() {
       setIsCheckingLock(true);
       setPinInput('');
       setPinError('');
+      setShowPinFallback(false);
 
       Promise.all([
         SecureStore.getItemAsync('studyos_pin_enabled'),
         SecureStore.getItemAsync('studyos_security_type'),
+        SecureStore.getItemAsync('studyos_privacy_pin'),
         checkBiometrics(),
       ])
-        .then(([pinVal, secType, bioStatus]) => {
+        .then(([pinVal, secType, storedPin, bioStatus]) => {
           if (!active) return;
           const enabled = pinVal === 'true';
           setIsPinEnabled(enabled);
 
+          const hasPin = Boolean(storedPin && storedPin.length >= 4);
+          setHasStoredPin(hasPin);
+
           const bioOk = bioStatus.hasHardware && bioStatus.isEnrolled;
           setHasBiometrics(bioOk);
+
+          // If secType is explicitly 'pin' AND user actually configured a PIN, use PIN mode.
+          // Otherwise, default to 'biometric'.
+          const currentSecType = (secType === 'pin' && hasPin) ? 'pin' : 'biometric';
+          setSecurityType(currentSecType);
 
           if (enabled) {
             setIsMarksUnlocked(false);
             setIsCheckingLock(false);
 
-            if (secType !== 'pin' && bioOk) {
+            if (currentSecType === 'biometric' && bioOk) {
               authenticateDevice('Unlock Marks & Results').then((success) => {
                 if (active && success) {
                   setIsMarksUnlocked(true);
@@ -1273,17 +1286,21 @@ export default function MarksScreen() {
   }
 
   if (isPinEnabled && !isMarksUnlocked) {
+    const isBiometricMode = securityType === 'biometric' && !showPinFallback;
+
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: Spacing.xl }]}>
         <View style={{ width: '100%', maxWidth: 360, backgroundColor: colors.surface, borderRadius: 28, padding: Spacing.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
           <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: `${colors.primary}18`, borderWidth: 1, borderColor: `${colors.primary}40`, justifyContent: 'center', alignItems: 'center', marginBottom: Spacing.md }}>
-            <Ionicons name="lock-closed" size={32} color={colors.primary} />
+            <Ionicons name={isBiometricMode ? "finger-print" : "lock-closed"} size={32} color={colors.primary} />
           </View>
           <Text style={{ ...Typography.h2, color: colors.text, fontWeight: '800', textAlign: 'center', marginBottom: 4 }}>
             Marks Tab Locked
           </Text>
           <Text style={{ ...Typography.small, color: colors.textDim, textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 18 }}>
-            Authenticate with fingerprint or enter your 4-digit PIN to access marks and exam results
+            {isBiometricMode
+              ? 'Authenticate with your fingerprint or screen lock to access marks'
+              : 'Enter your 4-digit PIN to access marks and exam results'}
           </Text>
 
           {pinError ? (
@@ -1292,53 +1309,95 @@ export default function MarksScreen() {
             </Text>
           ) : null}
 
-          <View style={{ width: '100%', position: 'relative', justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, borderRadius: 14, borderWidth: 1, borderColor: colors.border, height: 50, marginBottom: Spacing.md }}>
-            <TextInput
-              style={{ width: '100%', height: '100%', color: colors.text, fontSize: 18, letterSpacing: 8, fontWeight: '700', textAlign: 'center', paddingHorizontal: 44 }}
-              keyboardType="numeric"
-              maxLength={4}
-              secureTextEntry={!showPin}
-              value={pinInput}
-              onChangeText={(t) => {
-                setPinInput(t);
-                setPinError('');
-              }}
-              placeholder="••••"
-              placeholderTextColor={colors.textDim}
-              autoFocus={!hasBiometrics}
-            />
-            <TouchableOpacity onPress={() => setShowPin(!showPin)} style={{ position: 'absolute', right: 8, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 }}>
-              <Ionicons name={showPin ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textDim} />
-            </TouchableOpacity>
-          </View>
+          {isBiometricMode ? (
+            <>
+              <TouchableOpacity
+                style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14, backgroundColor: colors.primary, marginBottom: Spacing.md }}
+                onPress={triggerBiometricUnlock}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="finger-print" size={22} color="#fff" />
+                <Text style={{ ...Typography.body, color: '#fff', fontWeight: '700' }}>
+                  Unlock with Fingerprint
+                </Text>
+              </TouchableOpacity>
+
+              {hasStoredPin && (
+                <TouchableOpacity
+                  style={{ width: '100%', paddingVertical: 12, borderRadius: 14, backgroundColor: `${colors.primary}12`, borderWidth: 1, borderColor: `${colors.primary}30`, alignItems: 'center', marginBottom: Spacing.sm }}
+                  onPress={() => {
+                    setPinError('');
+                    setShowPinFallback(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ ...Typography.body, color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                    Use 4-Digit PIN Instead
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          ) : (
+            <>
+              <View style={{ width: '100%', position: 'relative', justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, borderRadius: 14, borderWidth: 1, borderColor: colors.border, height: 50, marginBottom: Spacing.md }}>
+                <TextInput
+                  style={{ width: '100%', height: '100%', color: colors.text, fontSize: 18, letterSpacing: 8, fontWeight: '700', textAlign: 'center', paddingHorizontal: 44 }}
+                  keyboardType="numeric"
+                  maxLength={4}
+                  secureTextEntry={!showPin}
+                  value={pinInput}
+                  onChangeText={(t) => {
+                    setPinInput(t);
+                    setPinError('');
+                  }}
+                  placeholder="••••"
+                  placeholderTextColor={colors.textDim}
+                  autoFocus={true}
+                />
+                <TouchableOpacity onPress={() => setShowPin(!showPin)} style={{ position: 'absolute', right: 8, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 8 }}>
+                  <Ionicons name={showPin ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.textDim} />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={{ width: '100%', paddingVertical: 14, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', marginBottom: Spacing.sm }}
+                onPress={async () => {
+                  const storedPin = await SecureStore.getItemAsync('studyos_privacy_pin');
+                  if (!storedPin) {
+                    setPinError('No PIN configured. Unlock with Fingerprint.');
+                    return;
+                  }
+                  if (!pinInput || pinInput.length < 4 || pinInput !== storedPin) {
+                    setPinError('Incorrect PIN. Please try again.');
+                    return;
+                  }
+                  setIsMarksUnlocked(true);
+                }}
+              >
+                <Text style={{ ...Typography.body, color: '#fff', fontWeight: '700' }}>Unlock with PIN</Text>
+              </TouchableOpacity>
+
+              {hasBiometrics && (
+                <TouchableOpacity
+                  style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: `${colors.primary}35`, marginBottom: Spacing.sm }}
+                  onPress={() => {
+                    setPinError('');
+                    setShowPinFallback(false);
+                    triggerBiometricUnlock();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="finger-print" size={20} color={colors.primary} />
+                  <Text style={{ ...Typography.body, color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                    Use Fingerprint Instead
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
 
           <TouchableOpacity
-            style={{ width: '100%', paddingVertical: 14, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', marginBottom: Spacing.sm }}
-            onPress={async () => {
-              const storedPin = await SecureStore.getItemAsync('studyos_privacy_pin');
-              if (storedPin && pinInput !== storedPin) {
-                setPinError('Incorrect PIN. Please try again.');
-                return;
-              }
-              setIsMarksUnlocked(true);
-            }}
-          >
-            <Text style={{ ...Typography.body, color: '#fff', fontWeight: '700' }}>Unlock with PIN</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, backgroundColor: `${colors.primary}15`, borderWidth: 1, borderColor: `${colors.primary}35`, marginBottom: Spacing.sm }}
-            onPress={triggerBiometricUnlock}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="finger-print" size={20} color={colors.primary} />
-            <Text style={{ ...Typography.body, color: colors.primary, fontWeight: '700', fontSize: 13 }}>
-              Use Fingerprint / Phone Lock
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={{ width: '100%', paddingVertical: 12, borderRadius: 14, backgroundColor: colors.background, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
+            style={{ width: '100%', paddingVertical: 12, borderRadius: 14, backgroundColor: colors.background, alignItems: 'center', borderWidth: 1, borderColor: colors.border, marginTop: Spacing.xs }}
             onPress={() => router.back()}
           >
             <Text style={{ ...Typography.body, color: colors.textDim, fontWeight: '600' }}>Go Back</Text>
