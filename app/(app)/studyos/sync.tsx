@@ -978,7 +978,7 @@ export default function SyncScreen() {
             Alert.alert(
               'Account Locked',
               e.message || (e?.code === 'ACCOUNT_ALREADY_BOUND'
-                ? 'This PathWise account is already linked to another College ID. One Gmail account can only run one College account.'
+                ? 'This PathWise account is already linked to a different College ID.'
                 : 'This College ID is already linked to another PathWise account.'),
               [{ text: 'OK', onPress: () => router.replace('/(app)/studyos/connect' as any) }]
             );

@@ -109,6 +109,46 @@ function parseExamDateInfo(dateStr: string) {
   return { day, month, year, dayOfWeek, countdown };
 }
 
+function parseLeaveStatus(statusValue?: string) {
+  const s = (statusValue || '').trim();
+  const lower = s.toLowerCase();
+  
+  if (lower.includes('reject') || lower.includes('cancel') || lower.includes('declin') || lower.includes('disapprov') || lower.includes('not approv')) {
+    return {
+      label: 'Rejected',
+      color: '#ef4444',
+      bg: 'rgba(239, 68, 68, 0.12)',
+      border: 'rgba(239, 68, 68, 0.28)',
+      icon: 'close-circle' as const,
+    };
+  }
+  if (lower.includes('approv') || lower.includes('accept') || lower.includes('sanction')) {
+    return {
+      label: 'Approved',
+      color: '#10b981',
+      bg: 'rgba(16, 185, 129, 0.12)',
+      border: 'rgba(16, 185, 129, 0.28)',
+      icon: 'checkmark-circle' as const,
+    };
+  }
+  if (lower.includes('recommen') || lower.includes('forward')) {
+    return {
+      label: 'Recommended',
+      color: '#6366f1',
+      bg: 'rgba(99, 102, 241, 0.12)',
+      border: 'rgba(99, 102, 241, 0.28)',
+      icon: 'thumbs-up' as const,
+    };
+  }
+  return {
+    label: 'Pending',
+    color: '#f59e0b',
+    bg: 'rgba(245, 158, 11, 0.12)',
+    border: 'rgba(245, 158, 11, 0.28)',
+    icon: 'time' as const,
+  };
+}
+
 export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps) {
   const { colors, theme } = useThemeStore();
   const isDark = theme === 'black' || theme === 'emerald';
@@ -515,6 +555,11 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                 <Ionicons name="calendar-number" size={20} color="#f97316" />
               </View>
             )}
+            {type === 'leave' && (
+              <View style={[styles.titleIconPod, { backgroundColor: '#f43f5e20' }]}>
+                <Ionicons name="airplane" size={20} color="#f43f5e" />
+              </View>
+            )}
             <Text style={[styles.title, { color: colors.text }]}>
               {type === 'hostel' ? 'Hostel Details' : type === 'transport' ? 'Transport Details' : type === 'profile' ? 'Profile Details' : type === 'fees' ? 'Fee Details' : type === 'datesheet' ? 'Datesheet' : 'Leave History'}
             </Text>
@@ -532,24 +577,101 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
           
         {/* Leave Sub-tabs */}
         {type === 'leave' && (
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+          <View style={styles.leaveTabContainer}>
             <TouchableOpacity 
-              style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'ml' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'ml' ? colors.primary : colors.border }]} 
-              onPress={() => setSubType('ml')}
+              activeOpacity={0.75}
+              style={[
+                styles.leaveTabBtn, 
+                { 
+                  backgroundColor: subType === 'ml' 
+                    ? (isDark ? 'rgba(244, 63, 94, 0.18)' : '#fff1f2') 
+                    : 'transparent',
+                  borderColor: subType === 'ml' ? '#f43f5e' : 'transparent',
+                }
+              ]} 
+              onPress={() => {
+                if (subType !== 'ml') {
+                  try { Haptics.selectionAsync(); } catch {}
+                  setSubType('ml');
+                }
+              }}
             >
-              <Text style={[styles.leaveOptionText, { color: subType === 'ml' ? '#fff' : colors.textMuted }]}>ML</Text>
+              <Ionicons 
+                name="medkit-outline" 
+                size={13} 
+                color={subType === 'ml' ? '#f43f5e' : colors.textMuted} 
+                style={{ marginRight: 4 }} 
+              />
+              <Text style={[
+                styles.leaveTabText, 
+                { color: subType === 'ml' ? (isDark ? '#fda4af' : '#e11d48') : colors.textMuted }
+              ]}>
+                Medical
+              </Text>
             </TouchableOpacity>
+
             <TouchableOpacity 
-              style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'dl' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'dl' ? colors.primary : colors.border }]} 
-              onPress={() => setSubType('dl')}
+              activeOpacity={0.75}
+              style={[
+                styles.leaveTabBtn, 
+                { 
+                  backgroundColor: subType === 'dl' 
+                    ? (isDark ? 'rgba(59, 130, 246, 0.18)' : '#eff6ff') 
+                    : 'transparent',
+                  borderColor: subType === 'dl' ? '#3b82f6' : 'transparent',
+                }
+              ]} 
+              onPress={() => {
+                if (subType !== 'dl') {
+                  try { Haptics.selectionAsync(); } catch {}
+                  setSubType('dl');
+                }
+              }}
             >
-              <Text style={[styles.leaveOptionText, { color: subType === 'dl' ? '#fff' : colors.textMuted }]}>DL</Text>
+              <Ionicons 
+                name="briefcase-outline" 
+                size={13} 
+                color={subType === 'dl' ? '#3b82f6' : colors.textMuted} 
+                style={{ marginRight: 4 }} 
+              />
+              <Text style={[
+                styles.leaveTabText, 
+                { color: subType === 'dl' ? (isDark ? '#93c5fd' : '#1d4ed8') : colors.textMuted }
+              ]}>
+                Duty
+              </Text>
             </TouchableOpacity>
+
             <TouchableOpacity 
-              style={[styles.leaveOptionBtn, { flex: 1, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 0, marginBottom: 0, backgroundColor: subType === 'hostel' ? colors.primary : colors.surfaceHigh, borderColor: subType === 'hostel' ? colors.primary : colors.border }]} 
-              onPress={() => setSubType('hostel')}
+              activeOpacity={0.75}
+              style={[
+                styles.leaveTabBtn, 
+                { 
+                  backgroundColor: subType === 'hostel' 
+                    ? (isDark ? 'rgba(168, 85, 247, 0.18)' : '#faf5ff') 
+                    : 'transparent',
+                  borderColor: subType === 'hostel' ? '#a855f7' : 'transparent',
+                }
+              ]} 
+              onPress={() => {
+                if (subType !== 'hostel') {
+                  try { Haptics.selectionAsync(); } catch {}
+                  setSubType('hostel');
+                }
+              }}
             >
-              <Text style={[styles.leaveOptionText, { color: subType === 'hostel' ? '#fff' : colors.textMuted }]}>Hostel</Text>
+              <Ionicons 
+                name="bed-outline" 
+                size={13} 
+                color={subType === 'hostel' ? '#a855f7' : colors.textMuted} 
+                style={{ marginRight: 4 }} 
+              />
+              <Text style={[
+                styles.leaveTabText, 
+                { color: subType === 'hostel' ? (isDark ? '#d8b4fe' : '#7e22ce') : colors.textMuted }
+              ]}>
+                Hostel
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -940,7 +1062,152 @@ export function FacilitiesModal({ visible, type, onClose }: FacilitiesModalProps
                     </TouchableOpacity>
                   </View>
                 )
-              ) : type === 'leave' || type === 'fees' ? (
+              ) : type === 'leave' ? (
+                data.length > 0 ? (
+                  <>
+                    <View style={styles.leaveCountStrip}>
+                      <Text style={[styles.datesheetCountText, { color: colors.textMuted }]}>
+                        {data.length} {data.length === 1 ? 'Leave Record' : 'Leave Records'}
+                      </Text>
+                    </View>
+
+                    {data.map((item, index) => {
+                      const statusKey = Object.keys(item).find((k) => {
+                        const lk = k.toLowerCase();
+                        return lk.includes('status') || lk.includes('approval') || lk.includes('action');
+                      });
+                      const statusVal = statusKey ? item[statusKey] : null;
+                      const st = parseLeaveStatus(statusVal);
+
+                      const leaveTitle = item['Category'] || item['Leave_Type'] || item['Leave Type'] || item['Type'] || item['Sub Type'] || (subType === 'ml' ? 'Medical Leave' : subType === 'dl' ? 'Duty Leave' : 'Hostel Leave');
+
+                      const fromDate = item['From Date'] || item['From_Date'] || item['From'] || item['Start Date'] || item['Date From'] || '';
+                      const toDate = item['To Date'] || item['To_Date'] || item['To'] || item['End Date'] || item['Date To'] || '';
+                      const days = item['No. of Days'] || item['No_Of_Days'] || item['Total Days'] || item['No of Days'] || item['Days'] || '';
+
+                      const reason = item['Reason'] || item['reason'] || item['Purpose'] || item['purpose'] || item['Description'] || '';
+
+                      const appliedDate = item['Applied Date'] || item['Applied_Date'] || item['Apply Date'] || item['Date'] || item['Applied On'] || '';
+
+                      const handledKeys = new Set([
+                        'Category', 'Leave_Type', 'Leave Type', 'Type', 'Sub Type',
+                        'From Date', 'From_Date', 'From', 'Start Date', 'Date From',
+                        'To Date', 'To_Date', 'To', 'End Date', 'Date To',
+                        'No. of Days', 'No_Of_Days', 'Total Days', 'No of Days', 'Days',
+                        'Reason', 'reason', 'Purpose', 'purpose', 'Description',
+                        'Applied Date', 'Applied_Date', 'Apply Date', 'Applied On',
+                        'S.No', 'SNo', 'sno', 'Sr. No.', 'Sr No', 'Sr.No.',
+                        statusKey || ''
+                      ]);
+
+                      const otherKeys = Object.keys(item).filter(k => 
+                        !handledKeys.has(k) && 
+                        !k.startsWith('_') && 
+                        !k.startsWith('Column_') && 
+                        !k.toLowerCase().includes('download') && 
+                        !k.toLowerCase().includes('file') &&
+                        item[k]
+                      );
+
+                      return (
+                        <View 
+                          key={index} 
+                          style={[
+                            styles.compactLeaveCard, 
+                            { 
+                              backgroundColor: colors.surfaceHigh, 
+                              borderColor: colors.border 
+                            }
+                          ]}
+                        >
+                          {/* Header: Title with Icon on Left + Compact Status Badge on Right */}
+                          <View style={styles.compactLeaveHeader}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0, marginRight: 8 }}>
+                              <View style={[styles.leaveTypeIconCircle, { backgroundColor: subType === 'ml' ? '#f43f5e18' : subType === 'dl' ? '#3b82f618' : '#a855f718' }]}>
+                                <Ionicons 
+                                  name={subType === 'ml' ? 'medkit' : subType === 'dl' ? 'briefcase' : 'bed'} 
+                                  size={13} 
+                                  color={subType === 'ml' ? '#f43f5e' : subType === 'dl' ? '#3b82f6' : '#a855f7'} 
+                                />
+                              </View>
+                              <Text style={[styles.compactLeaveTitle, { color: colors.text }]} numberOfLines={1} ellipsizeMode="tail">
+                                {leaveTitle}
+                              </Text>
+                            </View>
+
+                            <View style={[styles.compactStatusBadge, { backgroundColor: st.bg, borderColor: st.border }]}>
+                              <Ionicons name={st.icon} size={11} color={st.color} style={{ marginRight: 4 }} />
+                              <Text style={[styles.compactStatusText, { color: st.color }]}>
+                                {st.label}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Date Range & Duration */}
+                          {(fromDate || toDate || days) ? (
+                            <View style={styles.compactLeaveDateRow}>
+                              <Ionicons name="calendar-outline" size={13} color={colors.textMuted} style={{ marginRight: 5 }} />
+                              <Text style={[styles.compactLeaveDateText, { color: colors.text }]}>
+                                {fromDate && toDate ? `${fromDate} → ${toDate}` : (fromDate || toDate)}
+                              </Text>
+                              {!!days && (
+                                <View style={[styles.compactDaysPill, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }]}>
+                                  <Text style={[styles.compactDaysText, { color: colors.textMuted }]}>
+                                    {String(days).toLowerCase().includes('day') ? days : `${days} Day${parseFloat(days) > 1 ? 's' : ''}`}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          ) : null}
+
+                          {/* Reason */}
+                          {!!reason && (
+                            <View style={[styles.compactReasonBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)', borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]}>
+                              <Text style={[styles.compactReasonText, { color: colors.textMuted }]} numberOfLines={2}>
+                                "{reason}"
+                              </Text>
+                            </View>
+                          )}
+
+                          {/* Footer / Other Details */}
+                          {(appliedDate || otherKeys.length > 0) && (
+                            <View style={styles.compactLeaveFooter}>
+                              {!!appliedDate && (
+                                <Text style={[styles.compactFooterText, { color: colors.textMuted }]}>
+                                  Applied: {appliedDate}
+                                </Text>
+                              )}
+                              {otherKeys.map((k) => (
+                                <Text key={k} style={[styles.compactFooterText, { color: colors.textMuted }]}>
+                                  {k.replace(/_/g, ' ')}: <Text style={{ color: colors.text, fontFamily: 'Inter_500Medium' }}>{item[k]}</Text>
+                                </Text>
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <View style={styles.datesheetEmptyContainer}>
+                    <View style={[styles.datesheetEmptyIconCircle, { backgroundColor: isDark ? 'rgba(244,63,94,0.08)' : '#fff1f2' }]}>
+                      <Ionicons name="airplane-outline" size={42} color="#f43f5e" />
+                    </View>
+                    <Text style={[styles.datesheetEmptyTitle, { color: colors.text }]}>No Leave Records</Text>
+                    <Text style={[styles.datesheetEmptySub, { color: colors.textMuted }]}>
+                      No {subType === 'ml' ? 'medical leave' : subType === 'dl' ? 'duty leave' : 'hostel leave'} records found for this session.
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      style={[styles.retryBtn, { backgroundColor: colors.primary, marginTop: 14 }]}
+                      onPress={handleRefresh}
+                    >
+                      <Ionicons name="refresh" size={16} color="#fff" style={{ marginRight: 6 }} />
+                      <Text style={styles.retryBtnText}>Refresh Status</Text>
+                    </TouchableOpacity>
+                  </View>
+                )
+              ) : type === 'fees' ? (
                 data.length > 0 ? data.map((item, index) => {
                    const statusKey = Object.keys(item).find((k) => k.toLowerCase().includes('status') || k.toLowerCase().includes('action') || k.toLowerCase().includes('approval'));
                    const statusValue = statusKey ? item[statusKey] : null;
@@ -1100,6 +1367,125 @@ const styles = StyleSheet.create({
   statusText: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 11,
+  },
+
+  // Compact Modern Leave Styles
+  leaveCountStrip: {
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  compactLeaveCard: {
+    padding: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  compactLeaveHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  leaveTypeIconCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  compactLeaveTitle: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 14,
+    letterSpacing: -0.2,
+    flex: 1,
+  },
+  compactStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 100,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  compactStatusText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    textTransform: 'capitalize',
+  },
+
+  // Dedicated Leave Segmented Tabs
+  leaveTabContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(150, 150, 150, 0.08)',
+    borderRadius: 12,
+    padding: 3,
+    gap: 4,
+    marginBottom: 14,
+  },
+  leaveTabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  leaveTabText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+  },
+  compactLeaveDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 6,
+  },
+  compactLeaveDateText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.5,
+  },
+  compactDaysPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  compactDaysText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+  },
+  compactReasonBox: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 0.5,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  compactReasonText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  compactLeaveFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+    paddingTop: 6,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(150, 150, 150, 0.15)',
+  },
+  compactFooterText: {
+    fontSize: 11,
+    fontFamily: 'Inter_400Regular',
   },
   loadingText: {
     ...Typography.body,

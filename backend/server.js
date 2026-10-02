@@ -361,7 +361,7 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         if (currentBoundUid && incomingUid !== currentBoundUid && !currentBoundUid.includes('TEST') && !currentBoundUid.startsWith('TEMP')) {
           return res.status(409).json({
             error: 'ACCOUNT_ALREADY_BOUND',
-            message: `This PathWise account is already linked to College ID ${currentBoundUid}. One PathWise account can only be used with one college account.`
+            message: 'This PathWise account is already linked to a different College ID.'
           });
         }
         if (!currentBoundUid) {
@@ -535,7 +535,7 @@ app.post('/api/user/verify-uid', getClerkId, async (req, res) => {
         return res.status(409).json({
           allowed: false,
           error: 'ACCOUNT_ALREADY_BOUND',
-          message: `This PathWise account is already linked to College ID ${boundUid}. One PathWise account can only be used with one college account.`
+          message: 'This PathWise account is already linked to a different College ID.'
         });
       }
       return res.json({ allowed: true, boundUid: incomingUid });

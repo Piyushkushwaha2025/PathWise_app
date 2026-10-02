@@ -1008,7 +1008,7 @@ export default function MarksScreen() {
         return;
       }
       if (url.includes('login.aspx') || url.includes('/login')) {
-        console.log('[Marks] frmStudentMarksView redirected to login � session expired');
+        console.log('[Marks] frmStudentMarksView redirected to login · session expired');
         setIsLoading(false);
         setRefreshing(false);
         useStudySessionStore.getState().setSessionExpired(true);
@@ -1019,7 +1019,7 @@ export default function MarksScreen() {
   };
 
   const selectSemester = (item: SemesterItem) => {
-    // Current ongoing semester uses internal marks & radar � no portal postback needed
+    // Current ongoing semester uses internal marks & radar · no portal postback needed
     if (item.value === null || item.value === 'CURRENT_INTERNAL' || item.label.includes('(Current)')) {
       setIsModalVisible(false);
       setSelectedSemester(item.label);
@@ -1247,6 +1247,24 @@ export default function MarksScreen() {
     if (hasValid) evaluatedSubjectsCount++;
   });
 
+  const isSubjectEvaluated = useCallback((item: any): boolean => {
+    if (item.exams && item.exams.length > 0) {
+      return item.exams.some((ex: any) => {
+        const mx = parseFloat(ex.max);
+        const ob = parseFloat(ex.obtained);
+        return !isNaN(mx) && !isNaN(ob) && mx > 0;
+      });
+    }
+    const mst = parseMarksString(item.mstMarks);
+    const practical = parseMarksString(item.practicalMarks);
+    return mst.isValid || practical.isValid;
+  }, []);
+
+  // Filter out subjects with pending evaluation so only evaluated subjects are shown
+  const evaluatedMarksList = useMemo(() => {
+    return displayMarksList.filter(isSubjectEvaluated);
+  }, [displayMarksList, isSubjectEvaluated]);
+
   const overallPercentage = grandTotalMax > 0 ? ((grandTotalObtained / grandTotalMax) * 100).toFixed(1) + '%' : '';
 
   if (isCheckingLock) {
@@ -1431,7 +1449,7 @@ export default function MarksScreen() {
                     <Ionicons name="layers-outline" size={13} color={colors.textMuted} />
                     <Text style={styles.radarStatLabel}>Evaluated:</Text>
                     <Text style={styles.radarStatValue}>
-                      {evaluatedSubjectsCount > 0 ? `${evaluatedSubjectsCount} of ${displayMarksList.length}` : `${displayMarksList.length} Subjects`}
+                      {evaluatedSubjectsCount > 0 ? `${evaluatedSubjectsCount} Evaluated` : 'No Marks Yet'}
                     </Text>
                   </View>
                 </>
@@ -1561,8 +1579,8 @@ export default function MarksScreen() {
               ) : null}
             </View>
 
-            {displayMarksList && displayMarksList.length > 0 ? (
-              displayMarksList.map((item: any, index: number) => {
+            {evaluatedMarksList && evaluatedMarksList.length > 0 ? (
+              evaluatedMarksList.map((item: any, index: number) => {
                 const isExpanded = expandedIndex === index;
                 return (
                   <InternalMarkAccordion
@@ -1840,7 +1858,7 @@ function InternalMarkAccordion({ item, isExpanded, onToggle, isDark, colors }: a
               <View style={[stylesInternal.miniDot, { backgroundColor: scoreBadgeColor }]} />
               <Text style={{ color: colors.textMuted, fontSize: 11.5, fontFamily: 'Inter_500Medium' }}>
                 {hasValid 
-                  ? `${totalObtained}/${totalMax} Total Marks${hasExams ? ` � ${exams.length} Component${exams.length > 1 ? 's' : ''}` : ''}`
+                  ? `${totalObtained}/${totalMax} Total Marks${hasExams ? ` · ${exams.length} Component${exams.length > 1 ? 's' : ''}` : ''}`
                   : 'Pending Evaluation'}
               </Text>
             </View>

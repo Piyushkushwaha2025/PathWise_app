@@ -286,7 +286,8 @@ export default function WebViewLoginScreen() {
 
   const handleNextStep1 = async () => {
     let hasError = false;
-    if (!uid.trim()) { setUidError('Username is required'); hasError = true; }
+    const cleanUid = uid.trim();
+    if (!cleanUid) { setUidError('Username is required'); hasError = true; }
     if (!pwd.trim()) { setPwdError('Password is required'); hasError = true; }
     if (!consent) { setConsentError('You must agree to store credentials'); hasError = true; }
     
@@ -294,42 +295,58 @@ export default function WebViewLoginScreen() {
     
     setInlineError('');
     setUidError('');
-    setIsProcessing(true);
-    setLoadingMsg('Verifying Account...');
 
-    if (userId) {
-      try {
-        await verifyUidWithDB(userId, uid.trim());
-      } catch (err: any) {
-        if (err?.code === 'UID_ALREADY_LINKED' || err?.code === 'UID_NOT_ALLOWED' || err?.code === 'ACCOUNT_ALREADY_BOUND') {
-          setIsProcessing(false);
-          setLoadingMsg('');
-          const friendlyMsg = err?.message || (err?.code === 'ACCOUNT_ALREADY_BOUND' 
-            ? 'This PathWise account is already linked to another College ID. One Gmail account can only run one College account.'
-            : 'This college ID is already linked to another PathWise account.');
-          setUidError(friendlyMsg);
-          setInlineError(friendlyMsg);
-          return;
-        }
-        // If it's a backend cold start, HTML response, or network error,
-        // do NOT block the student and NEVER display parse/technical errors!
-        console.warn('verifyUidWithDB non-fatal issue bypassed:', err?.message);
+    // Instant local in-memory lock check (0 ms response!)
+    const currentBound = (dbUser?.uid && dbUser.uid.trim() !== '' && dbUser.uid.trim().toUpperCase() !== 'UNKNOWN')
+      ? dbUser.uid.trim().toUpperCase()
+      : null;
+    if (currentBound && !currentBound.includes('TEST') && !currentBound.startsWith('TEMP')) {
+      if (cleanUid.toUpperCase() !== currentBound) {
+        const errorMsg = 'This PathWise account is already linked to a different College ID.';
+        setUidError(errorMsg);
+        setInlineError(errorMsg);
+        return;
       }
     }
 
+    setIsProcessing(true);
     setLoadingMsg('Connecting...');
-    
+
+    // Parallel trigger: Immediately inject script into webview so ASP.NET starts processing next step right away
+    const safeUid = cleanUid.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const script = `
-      var uidField = document.getElementById('txtUserId') || document.querySelector('input[name*="UserId"]');
-      var nextBtn = document.getElementById('btnNext') || document.querySelector('input[type="submit"][value="Next"]');
-      if (uidField && nextBtn) {
-        uidField.value = '${uid.trim()}';
-        uidField.dispatchEvent(new Event('change', { bubbles: true }));
-        setTimeout(function() { nextBtn.click(); }, 100);
-      }
+      (function() {
+        var uidField = document.getElementById('txtUserId') || document.querySelector('input[name*="UserId"]');
+        var nextBtn = document.getElementById('btnNext') || document.querySelector('input[type="submit"][value="Next"]');
+        if (uidField && nextBtn) {
+          uidField.value = '${safeUid}';
+          uidField.dispatchEvent(new Event('change', { bubbles: true }));
+          nextBtn.click();
+        }
+      })();
       true;
     `;
     webViewRef.current?.injectJavaScript(script);
+
+    // Concurrently verify with DB (runs in parallel while webview loads)
+    if (userId) {
+      verifyUidWithDB(userId, cleanUid).catch((err: any) => {
+        if (err?.code === 'UID_ALREADY_LINKED' || err?.code === 'UID_NOT_ALLOWED' || err?.code === 'ACCOUNT_ALREADY_BOUND') {
+          setIsProcessing(false);
+          setLoadingMsg('');
+          setStep(1);
+          setCaptchaBase64(null);
+          const friendlyMsg = err?.code === 'ACCOUNT_ALREADY_BOUND'
+            ? 'This PathWise account is already linked to a different College ID.'
+            : (err?.message || 'This College ID is already linked to another PathWise account.');
+          setUidError(friendlyMsg);
+          setInlineError(friendlyMsg);
+          setWebviewKey(Date.now()); // Reset webview
+        } else {
+          console.warn('verifyUidWithDB non-fatal issue bypassed:', err?.message);
+        }
+      });
+    }
   };
 
   const handleLogin = () => {
@@ -445,7 +462,7 @@ export default function WebViewLoginScreen() {
              }
           }
         } catch(e) {}
-      }, 600);
+      }, 180);
     })();
     true;
   `;
