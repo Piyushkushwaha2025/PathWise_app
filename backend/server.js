@@ -356,9 +356,15 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         ? user.uid.trim().toUpperCase()
         : null;
 
-      // Handle UID binding / updating
+      // Handle UID binding / updating: Lock one StudyOS college account per Gmail
       if (incomingUid) {
-        if (!currentBoundUid || incomingUid !== currentBoundUid) {
+        if (currentBoundUid && incomingUid !== currentBoundUid && !currentBoundUid.includes('TEST') && !currentBoundUid.startsWith('TEMP')) {
+          return res.status(409).json({
+            error: 'ACCOUNT_ALREADY_BOUND',
+            message: `This PathWise account is already linked to College ID ${currentBoundUid}. One PathWise account can only be used with one college account.`
+          });
+        }
+        if (!currentBoundUid) {
           const existingWithUID = await User.findOne({
             uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') },
             clerkUserId: { $ne: req.clerkUserId }
@@ -526,17 +532,11 @@ app.post('/api/user/verify-uid', getClerkId, async (req, res) => {
       const boundUid = user.uid.trim().toUpperCase();
       const isDummy = boundUid.includes('TEST') || boundUid.startsWith('TEMP');
       if (incomingUid !== boundUid && !isDummy) {
-        const existingWithUID = await User.findOne({
-          uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') },
-          clerkUserId: { $ne: req.clerkUserId }
+        return res.status(409).json({
+          allowed: false,
+          error: 'ACCOUNT_ALREADY_BOUND',
+          message: `This PathWise account is already linked to College ID ${boundUid}. One PathWise account can only be used with one college account.`
         });
-        if (existingWithUID) {
-          return res.status(409).json({
-            allowed: false,
-            error: 'UID_ALREADY_LINKED',
-            message: 'This college ID is already linked to another PathWise account.'
-          });
-        }
       }
       return res.json({ allowed: true, boundUid: incomingUid });
     }

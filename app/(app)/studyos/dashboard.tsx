@@ -1454,9 +1454,9 @@ export default function StudyOSDashboard() {
              const prediction = getAttendancePrediction(sub.totalClasses || 0, sub.attendedClasses || 0);
              const history = getHistoryStatuses(detailedAttendanceCache?.[sub.code]);
              const formattedCredits = (() => {
-               if (!sub.credits || sub.credits === '0') return '';
+               if (!sub.credits || sub.credits === '0' || sub.credits === '0.0' || !String(sub.credits).trim()) return '';
                const num = parseFloat(sub.credits);
-               return isNaN(num) ? `${sub.credits} Credits` : `${num} Credits`;
+               return (isNaN(num) || num <= 0) ? '' : `${num} Credits`;
              })();
 
              return (

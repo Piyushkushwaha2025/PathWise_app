@@ -550,11 +550,11 @@ export default function AttendanceScreen() {
                     <View style={[styles.codeBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }]}>
                       <Text style={[styles.subjectCode, { color: colors.textDim }]}>{item.code}</Text>
                     </View>
-                    {item.credits && item.credits !== '0' && (
+                    {item.credits && parseFloat(item.credits) > 0 ? (
                       <View style={[styles.creditPill, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)' }]}>
-                        <Text style={[styles.creditText, { color: colors.textMuted }]}>{item.credits} Credits</Text>
+                        <Text style={[styles.creditText, { color: colors.textMuted }]}>{parseFloat(item.credits)} Credits</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
                 </View>
 

@@ -161,6 +161,43 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
       const storedShowDates = map['studyos_settings_history_dates'];
       const storedRoundPercentage = map['studyos_settings_round_percentage'];
 
+      let parsedScraped: any = storedScraped ? JSON.parse(storedScraped) : {};
+
+      // Auto-heal corrupted credits caused by previous serial-number row index scraper bug
+      if (parsedScraped.subjects && Array.isArray(parsedScraped.subjects)) {
+        const verifiedCreditsMap: Record<string, string> = {};
+        if (parsedScraped.resultCache) {
+          for (const semObj of Object.values(parsedScraped.resultCache) as any[]) {
+            if (semObj?.subjects && Array.isArray(semObj.subjects)) {
+              for (const rSub of semObj.subjects) {
+                if (rSub?.code && rSub?.credit && parseFloat(rSub.credit) > 0) {
+                  verifiedCreditsMap[rSub.code.trim().toUpperCase()] = String(parseFloat(rSub.credit));
+                }
+              }
+            }
+          }
+        }
+
+        const isSequentialIndexBug = parsedScraped.subjects.length >= 3 &&
+          parsedScraped.subjects.slice(0, 3).every((s: any, idx: number) => s.credits === String(idx + 1));
+
+        parsedScraped.subjects = parsedScraped.subjects.map((sub: any, idx: number) => {
+          const normCode = (sub.code || '').trim().toUpperCase();
+          if (verifiedCreditsMap[normCode]) {
+            return { ...sub, credits: verifiedCreditsMap[normCode] };
+          }
+          if (isSequentialIndexBug || sub.credits === String(idx + 1)) {
+            const lowName = (sub.name || '').toLowerCase();
+            const upCode = (sub.code || '').toUpperCase();
+            if (lowName.includes('lab') || lowName.includes('practical') || upCode.includes('CSP') || upCode.includes('LAP')) {
+              return { ...sub, credits: '1.0' };
+            }
+            return { ...sub, credits: '' };
+          }
+          return sub;
+        });
+      }
+
       set({
         streak: storedStreak ? parseInt(storedStreak, 10) : 0,
         xp: storedXP ? parseInt(storedXP, 10) : 0,
@@ -168,7 +205,7 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
         roadmaps: storedRoadmaps ? JSON.parse(storedRoadmaps) : [],
         showHistoryDates: storedShowDates === 'true',
         roundAttendancePercentage: storedRoundPercentage !== 'false', // default true if null
-        ...(storedScraped ? JSON.parse(storedScraped) : {}),
+        ...parsedScraped,
         isHydrated: true
       });
     } catch (e) {

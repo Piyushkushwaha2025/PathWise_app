@@ -128,7 +128,7 @@ export async function syncUserWithDB(
     }
     return data;
   } catch (err: any) {
-    if (err?.code === 'UID_ALREADY_LINKED') throw err;
+    if (err?.code === 'UID_ALREADY_LINKED' || err?.code === 'ACCOUNT_ALREADY_BOUND') throw err;
     console.warn('syncUserWithDB non-fatal error:', err?.message);
     throw new Error(err?.code ? err.message : 'Unable to sync user data right now.');
   }
@@ -179,7 +179,7 @@ export async function verifyUidWithDB(
 
     return data || { allowed: true, boundUid: null };
   } catch (err: any) {
-    if (err?.code === 'UID_NOT_ALLOWED' || err?.code === 'UID_ALREADY_LINKED') {
+    if (err?.code === 'UID_NOT_ALLOWED' || err?.code === 'UID_ALREADY_LINKED' || err?.code === 'ACCOUNT_ALREADY_BOUND') {
       throw err;
     }
     console.warn('verifyUidWithDB bypassed due to network/server condition:', err?.message);

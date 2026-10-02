@@ -187,40 +187,53 @@ const SCRAPE_STEPS = [
           var subjects = [];
           var section = '';
 
-          var headerCells = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr:first-child th');
+          var headerCells = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr:first-child th, #ContentPlaceHolder1_gvMyCourses tr:first-child td');
           var sectionIdx = -1;
+          var creditIdx = -1;
           for (var h = 0; h < headerCells.length; h++) {
-             var hText = (headerCells[h].innerText || '').toLowerCase();
-             if (hText.includes('section') || hText.includes('sec')) {
+             var hText = (headerCells[h].innerText || '').toLowerCase().trim();
+             if (hText.includes('section') || hText === 'sec') {
                 sectionIdx = h;
-                break;
+             }
+             if (hText.includes('credit') || hText === 'cr' || hText === 'cr.') {
+                creditIdx = h;
              }
           }
 
           var rows = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr');
           for (var i = 1; i < rows.length; i++) {
+            var cells = rows[i].querySelectorAll('td');
+            if (cells.length < 2) continue;
+
             var code = rows[i].querySelector('span[id*="lblCourseCode"]')?.innerText.trim();
             var name = rows[i].querySelector('span[id*="lblCourseName"]')?.innerText.trim();
             var type = rows[i].querySelector('span[id*="lblType"]')?.innerText.trim();
             
-            if (!section && sectionIdx !== -1) {
-               var cells = rows[i].querySelectorAll('td');
-               if (cells.length > sectionIdx) {
-                  var secVal = cells[sectionIdx].innerText.trim();
-                  if (secVal && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(secVal)) {
-                    section = secVal;
-                  }
+            if (!code) {
+              for (var c = 0; c < cells.length; c++) {
+                var cTxt = cells[c].innerText.trim();
+                var m = cTxt.match(/^[0-9A-Z]{2,6}[-_][0-9]{3,4}[A-Z]?$/i);
+                if (m) { code = m[0]; break; }
+              }
+            }
+
+            if (!section && sectionIdx !== -1 && cells.length > sectionIdx) {
+               var secVal = cells[sectionIdx].innerText.trim();
+               if (secVal && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(secVal)) {
+                 section = secVal;
                }
             }
 
-            var credits = '3.0';
-            var creditSpan = rows[i].querySelector('span[id*="lblCredit"]');
-            if (creditSpan) {
-              credits = creditSpan.innerText.trim();
-            } else {
-              var tds = Array.from(rows[i].querySelectorAll('td')).map(function(td) { return td.innerText.trim(); });
-              var credNum = tds.find(function(t) { return /^[1-9](\\.[0-9]+)?$/.test(t); });
-              if (credNum) credits = credNum;
+            var credits = '';
+            var creditSpan = rows[i].querySelector('span[id*="lblCredit"], [id*="Credit"]');
+            if (creditSpan && creditSpan.innerText.trim()) {
+              var sVal = creditSpan.innerText.trim();
+              if (!isNaN(parseFloat(sVal))) credits = sVal;
+            } else if (creditIdx !== -1 && cells.length > creditIdx) {
+              var cVal = cells[creditIdx].innerText.trim();
+              if (cVal && !isNaN(parseFloat(cVal))) {
+                credits = cVal;
+              }
             }
 
             if (code && name) {
@@ -808,7 +821,7 @@ export default function SyncScreen() {
             createdSubjects.push({
               code: code,
               name: val.title || key,
-              credits: '3.0',
+              credits: '',
               attendancePercentage: val.percentage || 0,
               attendedClasses: val.attended || 0,
               totalClasses: val.total || 0,
@@ -830,7 +843,7 @@ export default function SyncScreen() {
             updatedSubjects.push({
               code: code,
               name: val.title || key,
-              credits: '3.0',
+              credits: '',
               attendancePercentage: val.percentage || 0,
               attendedClasses: val.attended || 0,
               totalClasses: val.total || 0,
@@ -957,14 +970,16 @@ export default function SyncScreen() {
             new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 10000))
           ]);
         } catch (e: any) {
-          if (e?.code === 'UID_ALREADY_LINKED') {
+          if (e?.code === 'UID_ALREADY_LINKED' || e?.code === 'ACCOUNT_ALREADY_BOUND') {
             await SecureStore.deleteItemAsync('culko_cookies').catch(() => {});
             await SecureStore.deleteItemAsync('culko_u').catch(() => {});
             await SecureStore.deleteItemAsync('culko_p').catch(() => {});
             await clearSession();
             Alert.alert(
               'Account Locked',
-              e.message || 'This College ID is already linked to another PathWise account.',
+              e.message || (e?.code === 'ACCOUNT_ALREADY_BOUND'
+                ? 'This PathWise account is already linked to another College ID. One Gmail account can only run one College account.'
+                : 'This College ID is already linked to another PathWise account.'),
               [{ text: 'OK', onPress: () => router.replace('/(app)/studyos/connect' as any) }]
             );
             return;

@@ -301,10 +301,12 @@ export default function WebViewLoginScreen() {
       try {
         await verifyUidWithDB(userId, uid.trim());
       } catch (err: any) {
-        if (err?.code === 'UID_ALREADY_LINKED' || err?.code === 'UID_NOT_ALLOWED') {
+        if (err?.code === 'UID_ALREADY_LINKED' || err?.code === 'UID_NOT_ALLOWED' || err?.code === 'ACCOUNT_ALREADY_BOUND') {
           setIsProcessing(false);
           setLoadingMsg('');
-          const friendlyMsg = 'This college ID is already linked to another PathWise account.';
+          const friendlyMsg = err?.message || (err?.code === 'ACCOUNT_ALREADY_BOUND' 
+            ? 'This PathWise account is already linked to another College ID. One Gmail account can only run one College account.'
+            : 'This college ID is already linked to another PathWise account.');
           setUidError(friendlyMsg);
           setInlineError(friendlyMsg);
           return;

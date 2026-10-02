@@ -1032,9 +1032,9 @@ export default function LmsCoursesScreen() {
                         <View style={styles.codePill}>
                           <Text style={styles.codePillText} numberOfLines={1}>{sub.code}</Text>
                         </View>
-                        {sub.credits ? (
+                        {sub.credits && parseFloat(sub.credits) > 0 ? (
                           <View style={styles.creditPill}>
-                            <Text style={styles.creditPillText}>{sub.credits} Cr</Text>
+                            <Text style={styles.creditPillText}>{parseFloat(sub.credits)} Cr</Text>
                           </View>
                         ) : null}
                       </View>
