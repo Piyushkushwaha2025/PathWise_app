@@ -22,7 +22,7 @@
         "backgroundColor": "#050505"
       },
       "package": "com.pathwise.app",
-      "versionCode": 1,
+      "versionCode": 13,
       "permissions": [
         "NOTIFICATIONS",
         "POST_NOTIFICATIONS",
