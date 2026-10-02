@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, Animated, Dimensions, Platform, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useUploadStore } from '../store/useUploadStore';
@@ -9,6 +10,11 @@ import { Typography, Radius } from '../constants/theme';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export function TopProgressBar() {
+  const insets = useSafeAreaInsets();
+  const topInset = Platform.OS === 'android' 
+    ? Math.max(insets.top, StatusBar.currentHeight || 0) 
+    : insets.top;
+
   const isUploading = useUploadStore((s) => s.isUploading);
   const currentUpload = useUploadStore((s) => s.currentUpload);
   const colors = useThemeStore((s) => s.colors);
@@ -16,14 +22,14 @@ export function TopProgressBar() {
   const isDark = theme === 'black' || theme === 'emerald';
 
   const slideAnim = useRef(new Animated.Value(-SCREEN_WIDTH)).current;
-  const pillAnim = useRef(new Animated.Value(-60)).current;
+  const pillAnim = useRef(new Animated.Value(-80)).current;
   const loopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     if (isUploading) {
-      // 1. Slide down status pill
+      // 1. Slide down status pill cleanly below the notification bar
       Animated.spring(pillAnim, {
-        toValue: 8,
+        toValue: 12,
         useNativeDriver: true,
         friction: 8,
         tension: 40,
@@ -40,9 +46,9 @@ export function TopProgressBar() {
       );
       loopRef.current.start();
     } else {
-      // Retract pill
+      // Retract pill back up
       Animated.timing(pillAnim, {
-        toValue: -60,
+        toValue: -80,
         duration: 250,
         useNativeDriver: true,
       }).start();
@@ -67,7 +73,15 @@ export function TopProgressBar() {
   return (
     <View style={styles.outerContainer} pointerEvents="none">
       {/* Top 3.5px Indeterminate Animated Bar */}
-      <View style={[styles.barTrack, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(37, 99, 235, 0.12)' }]}>
+      <View 
+        style={[
+          styles.barTrack, 
+          { 
+            marginTop: topInset,
+            backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(37, 99, 235, 0.12)' 
+          }
+        ]}
+      >
         <Animated.View
           style={[
             styles.animatedBarFill,
