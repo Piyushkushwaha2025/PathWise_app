@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, DeviceEventEmitter, Animated, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, DeviceEventEmitter, Animated, Dimensions, Platform, Easing } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -25,38 +25,29 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
             if (data?.visible) {
                 anim.stopAnimation();
                 setOrigin({ x: data.x, y: data.y });
-                setVisible(true);
                 anim.setValue(0);
                 studyOsScale.setValue(1);
                 pathWiseScale.setValue(1);
-                Animated.spring(anim, { 
+                setVisible(true);
+                Animated.timing(anim, { 
                     toValue: 1, 
-                    useNativeDriver: true, 
-                    friction: 8, 
-                    tension: 260 
+                    duration: 220, 
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true 
                 }).start();
             } else {
                 anim.stopAnimation();
-                if (data?.immediate) {
-                    anim.setValue(0);
+                Animated.timing(anim, { 
+                    toValue: 0, 
+                    duration: data?.immediate ? 100 : 160, 
+                    easing: Easing.in(Easing.cubic),
+                    useNativeDriver: true 
+                }).start(() => {
                     setVisible(false);
                     setHovered(null);
                     studyOsScale.setValue(1);
                     pathWiseScale.setValue(1);
-                } else {
-                    Animated.timing(anim, { 
-                        toValue: 0, 
-                        duration: 90, 
-                        useNativeDriver: true 
-                    }).start(() => {
-                        anim.stopAnimation();
-                        anim.setValue(0);
-                        setVisible(false);
-                        setHovered(null);
-                        studyOsScale.setValue(1);
-                        pathWiseScale.setValue(1);
-                    });
-                }
+                });
             }
         });
 
@@ -114,26 +105,25 @@ export const ProfileArcSwitcher = ({ colors, blurTargetRef }: any) => {
             ]}
         >
             {/* Full Screen High-Performance Frosted Blur Backdrop */}
-            <View style={StyleSheet.absoluteFill}>
+            <Animated.View style={[StyleSheet.absoluteFill, { opacity: anim }]}>
                 <BlurView 
                     blurTarget={blurTargetRef}
                     blurMethod="dimezisBlurView"
-                    intensity={35} 
+                    intensity={32} 
                     style={StyleSheet.absoluteFill} 
                     tint={isDark ? 'dark' : 'light'} 
                 />
-                <Animated.View 
+                <View 
                     style={[
                         StyleSheet.absoluteFill, 
                         { 
                             backgroundColor: isDark 
                                 ? 'rgba(0, 0, 0, 0.38)' 
                                 : 'rgba(255, 255, 255, 0.35)',
-                            opacity: anim
                         }
                     ]} 
                 />
-            </View>
+            </Animated.View>
             
             {/* The Origin Container exactly centered on the User's Thumb! */}
             <View style={{

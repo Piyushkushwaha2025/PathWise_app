@@ -75,42 +75,57 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
     const rawEmail = (evt.data.email_addresses?.[0]?.email_address || '').toLowerCase().trim();
     try {
       const exists = await User.findOne({ clerkUserId: clerkId });
-      if (!exists) {
-        let restoredTrialAt = null;
+      let restoredTrialAt = null;
+      let emailHash = null;
 
-        // â”€â”€ Trial Abuse Prevention â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // If this email was used before and account was deleted, restore old trial
-        // start date so they don't get a fresh 30-day trial on re-registration.
-        if (rawEmail) {
-          const emailHash = crypto.createHash('sha256').update(rawEmail).digest('hex');
-          const fingerprint = await UsedTrialFingerprint.findOne({ emailHash });
-          if (fingerprint) {
-            restoredTrialAt = fingerprint.trial_started_at;
-            console.log(`âš ï¸ Webhook: Email re-registration detected. Restoring trial_started_at for ${clerkId}`);
-          }
+      if (rawEmail) {
+        emailHash = crypto.createHash('sha256').update(rawEmail).digest('hex');
+        const fingerprint = await UsedTrialFingerprint.findOne({ emailHash });
+        if (fingerprint && fingerprint.trial_started_at) {
+          restoredTrialAt = fingerprint.trial_started_at;
+          console.log(`⚠️ Webhook: Email re-registration detected. Restoring trial_started_at for ${clerkId}`);
         }
+      }
 
+      const initialTrialAt = restoredTrialAt ? new Date(restoredTrialAt) : new Date();
+
+      if (!exists) {
         const fullName = `${evt.data.first_name || ''} ${evt.data.last_name || ''}`.trim() || null;
-        const emailHash = rawEmail ? crypto.createHash('sha256').update(rawEmail).digest('hex') : null;
         const newUser = await User.create({
           clerkUserId: clerkId,
           name: fullName,
           email: rawEmail || null,
           emailHash: emailHash || null,
-          trial_started_at: restoredTrialAt || new Date(),
+          trial_started_at: initialTrialAt,
         });
 
         if (emailHash) {
           await UsedTrialFingerprint.findOneAndUpdate(
             { emailHash },
-            { emailHash, trial_started_at: newUser.trial_started_at, deleted_at: null },
+            { $set: { emailHash, trial_started_at: initialTrialAt, deleted_at: null } },
             { upsert: true, new: true }
           ).catch(() => {});
         }
-        console.log(`âœ… Webhook: Created user ${clerkId} in MongoDB`);
+        console.log(`✅ Webhook: Created user ${clerkId} in MongoDB`);
+      } else {
+        if (restoredTrialAt && (!exists.trial_started_at || exists.trial_started_at.getTime() !== new Date(restoredTrialAt).getTime())) {
+          exists.trial_started_at = initialTrialAt;
+          if (rawEmail) {
+            exists.email = rawEmail;
+            exists.emailHash = emailHash;
+          }
+          await exists.save();
+        }
+        if (emailHash) {
+          await UsedTrialFingerprint.findOneAndUpdate(
+            { emailHash },
+            { $set: { emailHash, trial_started_at: exists.trial_started_at || initialTrialAt, deleted_at: null } },
+            { upsert: true, new: true }
+          ).catch(() => {});
+        }
       }
     } catch (err) {
-      console.error(`âŒ Webhook Error creating user:`, err);
+      console.error(`❌ Webhook Error creating user:`, err);
     }
   }
 
@@ -128,12 +143,13 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
       const targetEmail = (deletedUser?.email || rawEmail || '').toLowerCase().trim();
       const targetHash = deletedUser?.emailHash || (targetEmail ? crypto.createHash('sha256').update(targetEmail).digest('hex') : null);
 
-      if (targetHash && (deletedUser?.trial_started_at || deletedUser?.createdAt)) {
+      if (targetHash) {
         try {
-          const trialAt = deletedUser.trial_started_at || deletedUser.createdAt || new Date();
+          const existingFp = await UsedTrialFingerprint.findOne({ emailHash: targetHash });
+          const trialAt = existingFp?.trial_started_at || deletedUser?.trial_started_at || deletedUser?.createdAt || new Date();
           await UsedTrialFingerprint.findOneAndUpdate(
             { emailHash: targetHash },
-            { emailHash: targetHash, trial_started_at: trialAt, deleted_at: new Date() },
+            { $set: { emailHash: targetHash, trial_started_at: trialAt, deleted_at: new Date() } },
             { upsert: true, new: true }
           );
           console.log(`ðŸ”’ Webhook: Saved trial fingerprint for deleted user ${clerkId}`);
@@ -403,11 +419,13 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
 
       if (emailHash) {
         const fingerprint = await UsedTrialFingerprint.findOne({ emailHash });
-        if (fingerprint) {
+        if (fingerprint && fingerprint.trial_started_at) {
           restoredTrialAt = fingerprint.trial_started_at;
-          console.log(`⚠️ /api/user/sync: Email re-registration detected. Restoring trial_started_at for ${req.clerkUserId}`);
+          console.log(`⚠️ /api/user/sync: Email re-registration detected. Restoring trial_started_at (${fingerprint.trial_started_at.toISOString()}) for ${req.clerkUserId}`);
         }
       }
+
+      const initialTrialDate = restoredTrialAt ? new Date(restoredTrialAt) : new Date();
 
       user = new User({
         clerkUserId: req.clerkUserId,
@@ -418,14 +436,14 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
         section_code: validSection || null,
         semester: req.body.semester ? String(req.body.semester) : null,
         expoPushToken: req.body.expoPushToken || null,
-        trial_started_at: restoredTrialAt || new Date(),
+        trial_started_at: initialTrialDate,
       });
       await user.save();
 
       if (emailHash) {
         await UsedTrialFingerprint.findOneAndUpdate(
           { emailHash },
-          { emailHash, trial_started_at: user.trial_started_at, deleted_at: null },
+          { $set: { emailHash, trial_started_at: initialTrialDate, deleted_at: null } },
           { upsert: true, new: true }
         ).catch(() => {});
       }
@@ -443,15 +461,30 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
     }
     if (req.body.email) {
       const cleanEmail = String(req.body.email).toLowerCase().trim();
+      const emailHash = crypto.createHash('sha256').update(cleanEmail).digest('hex');
       if (!user.email || user.email !== cleanEmail) {
         user.email = cleanEmail;
-        user.emailHash = crypto.createHash('sha256').update(cleanEmail).digest('hex');
+        user.emailHash = emailHash;
         changed = true;
       }
-      if (user.emailHash && user.trial_started_at) {
-        UsedTrialFingerprint.findOneAndUpdate(
-          { emailHash: user.emailHash },
-          { emailHash: user.emailHash, trial_started_at: user.trial_started_at, deleted_at: null },
+      const fingerprint = await UsedTrialFingerprint.findOne({ emailHash });
+      if (fingerprint && fingerprint.trial_started_at) {
+        const fpTrialDate = new Date(fingerprint.trial_started_at);
+        if (!user.trial_started_at || new Date(user.trial_started_at).getTime() !== fpTrialDate.getTime()) {
+          user.trial_started_at = fpTrialDate;
+          changed = true;
+          console.log(`⚠️ /api/user/sync: Restored original trial_started_at (${fpTrialDate.toISOString()}) from fingerprint for ${req.clerkUserId}`);
+        }
+        await UsedTrialFingerprint.updateOne(
+          { emailHash },
+          { $set: { trial_started_at: fpTrialDate, deleted_at: null } }
+        ).catch(() => {});
+      } else {
+        const currentTrialDate = user.trial_started_at || user.createdAt || new Date();
+        user.trial_started_at = currentTrialDate;
+        await UsedTrialFingerprint.findOneAndUpdate(
+          { emailHash },
+          { $setOnInsert: { trial_started_at: currentTrialDate, deleted_at: null } },
           { upsert: true, new: true }
         ).catch(() => {});
       }
@@ -497,11 +530,12 @@ app.post('/api/user/delete-account', getClerkId, async (req, res) => {
     const rawEmail = (req.body.email || user?.email || '').toLowerCase().trim();
     const emailHash = user?.emailHash || (rawEmail ? crypto.createHash('sha256').update(rawEmail).digest('hex') : null);
 
-    if (emailHash && (user?.trial_started_at || req.body.trial_started_at)) {
-      const trialAt = user?.trial_started_at || new Date(req.body.trial_started_at);
+    if (emailHash) {
+      const existingFp = await UsedTrialFingerprint.findOne({ emailHash });
+      const trialAt = existingFp?.trial_started_at || user?.trial_started_at || (req.body.trial_started_at ? new Date(req.body.trial_started_at) : null) || user?.createdAt || new Date();
       await UsedTrialFingerprint.findOneAndUpdate(
         { emailHash },
-        { emailHash, trial_started_at: trialAt, deleted_at: new Date() },
+        { $set: { emailHash, trial_started_at: trialAt, deleted_at: new Date() } },
         { upsert: true, new: true }
       );
       console.log(`🔒 Delete API: Saved trial fingerprint for ${req.clerkUserId}`);
@@ -630,10 +664,11 @@ app.delete(['/api/user', '/user'], getClerkId, async (req, res) => {
       const email = (existingUser.email || '').toLowerCase().trim();
       const emailHash = existingUser.emailHash || (email ? crypto.createHash('sha256').update(email).digest('hex') : null);
       if (emailHash) {
-        const trialAt = existingUser.trial_started_at || existingUser.createdAt || new Date();
+        const existingFp = await UsedTrialFingerprint.findOne({ emailHash });
+        const trialAt = existingFp?.trial_started_at || existingUser.trial_started_at || existingUser.createdAt || new Date();
         await UsedTrialFingerprint.findOneAndUpdate(
           { emailHash },
-          { emailHash, trial_started_at: trialAt, deleted_at: new Date() },
+          { $set: { emailHash, trial_started_at: trialAt, deleted_at: new Date() } },
           { upsert: true, new: true }
         ).catch(() => {});
       }
