@@ -95,13 +95,15 @@ interface StudyOSState {
   
   addXP: (amount: number) => Promise<void>;
   recordActivity: () => Promise<void>;
-  loadGamification: () => Promise<void>;
+  loadGamification: (force?: boolean) => Promise<void>;
   saveGamification: () => Promise<void>;
   addRoadmap: (roadmap: Omit<Roadmap, 'id' | 'createdAt'>) => Promise<void>;
   removeRoadmap: (id: string) => Promise<void>;
   setScrapedData: (data: Partial<StudyOSState>) => Promise<void>;
   resetScrapedData: () => Promise<void>;
 }
+
+let isLoadingGamification = false;
 
 export const useStudyOSStore = create<StudyOSState>((set, get) => ({
   streak: 0,
@@ -136,7 +138,10 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
     await AsyncStorage.setItem('studyos_settings_round_percentage', JSON.stringify(round));
   },
 
-  loadGamification: async () => {
+  loadGamification: async (force = false) => {
+    if (get().isHydrated && !force) return;
+    if (isLoadingGamification && !force) return;
+    isLoadingGamification = true;
     try {
       const pairs = await AsyncStorage.multiGet([
         'studyos_streak',
@@ -267,6 +272,8 @@ export const useStudyOSStore = create<StudyOSState>((set, get) => ({
     } catch (e) {
       console.error('Failed to load gamification data', e);
       set({ isHydrated: true });
+    } finally {
+      isLoadingGamification = false;
     }
   },
 

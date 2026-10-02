@@ -15,7 +15,22 @@ export default function Index() {
   useEffect(() => {
     let isMounted = true;
 
-    // 1. When Clerk has resolved auth state, route definitively
+    // Fast-path: Check locally persisted auth state immediately (<5ms)
+    // Avoids waiting 1.5s - 2.5s for Clerk's remote network handshake
+    AsyncStorage.getItem("auth_was_signed_in")
+      .then((wasSignedIn) => {
+        if (!isMounted) return;
+        if (wasSignedIn === "true") {
+          setDestination("/(app)/dashboard");
+          SplashScreen.hideAsync().catch(() => {});
+        } else if (wasSignedIn === "false") {
+          setDestination("/(auth)/sign-in");
+          SplashScreen.hideAsync().catch(() => {});
+        }
+      })
+      .catch(() => {});
+
+    // Authoritative Clerk update: When Clerk resolves auth state, update persisted flag and route if needed
     if (isLoaded) {
       if (isSignedIn) {
         AsyncStorage.setItem("auth_was_signed_in", "true").catch(() => {});
@@ -28,8 +43,7 @@ export default function Index() {
       return;
     }
 
-    // 2. Safety timeout fallback: if Clerk takes more than 2.5s (e.g. extreme offline delay),
-    // check if a valid Clerk token is stored locally.
+    // Safety timeout fallback: for fresh installs where auth_was_signed_in is null
     const timer = setTimeout(async () => {
       if (!isMounted) return;
       try {
@@ -52,7 +66,7 @@ export default function Index() {
           SplashScreen.hideAsync().catch(() => {});
         }
       }
-    }, 2500);
+    }, 1500);
 
     return () => {
       isMounted = false;

@@ -974,11 +974,11 @@ export default function StudyOSDashboard() {
     setRefreshing(true);
   };
 
-  // Auto-sync on app open / cold start (runs after dashboard renders)
+  // Auto-sync on app open / cold start (deferred so UI mounts and settles first)
   useEffect(() => {
     const timer = setTimeout(() => {
       triggerSync(true);
-    }, 600);
+    }, 2800);
     return () => clearTimeout(timer);
   }, []);
 

@@ -26,7 +26,7 @@ interface StudySessionState {
 
 export const useStudySessionStore = create<StudySessionState>((set) => ({
   isConnected: false,
-  isStudyOSMode: false,
+  isStudyOSMode: true,
   isSwitchingMode: false,
   isSessionExpired: false,
   isSessionDisconnected: false,
@@ -51,6 +51,11 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
           universityId: uniId,
           lmsSesskey: sesskey, 
           lmsUserId: userIdStr ? parseInt(userIdStr, 10) : null
+        });
+      } else {
+        set({
+          isConnected: false,
+          isStudyOSMode: savedMode === 'true',
         });
       }
     } catch (error) {
@@ -103,3 +108,11 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   setSessionDisconnected: (disconnected: boolean) => set({ isSessionDisconnected: disconnected }),
   setCustomError: (msg: string | null) => set({ customError: msg }),
 }));
+
+// Eagerly restore last active mode on app launch to avoid layout flash
+AsyncStorage.getItem('studyos_active_mode').then((savedMode) => {
+  if (savedMode !== null) {
+    useStudySessionStore.setState({ isStudyOSMode: savedMode === 'true' });
+  }
+}).catch(() => {});
+
