@@ -14,7 +14,6 @@ import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import * as Notifications from "expo-notifications";
 import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
-import { UpToDateModal } from "../../components/modals/UpToDateModal";
 import { ChangePasswordModal } from "../../components/modals/ChangePasswordModal";
 import { useNotificationStore } from "../../store/useNotificationStore";
 import { useUser, useClerk } from "@clerk/clerk-expo";
@@ -29,13 +28,12 @@ import { useEnrollments } from "../../hooks/useEnrollments";
 import { useProgress } from "../../hooks/useProgress";
 import { useStats } from "../../hooks/useStats";
 import { useFeedback } from "../../hooks/useFeedback";
-import { useDownloadCount } from "../../hooks/useDownloadCount";
 import { useRoadmapsCatalog, useRoadmaps } from "../../hooks/useRoadmaps";
 import { Typography, Spacing } from "../../constants/theme";
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useThemeStore, ThemeType } from "../../store/useThemeStore";
-import { useUpdateStore } from "../../store/useUpdateStore";
+import Constants from "expo-constants";
 import { validateNameInput, validateFeedback, sanitizeString, MAX_NAME_LENGTH, MAX_FEEDBACK_LENGTH } from "../../lib/validation";
 import { useStudySessionStore } from "../../store/studySessionStore";
 import { useStudyOSStore } from "../../store/studyosStore";
@@ -132,8 +130,7 @@ export default function ProfileScreen() {
   const { data: catalog = [] } = useRoadmapsCatalog();
   const { data: customRoadmaps = [] } = useRoadmaps();
   const feedbackMutation = useFeedback();
-  const downloadCount = useDownloadCount();
-  const { checkForUpdates, currentVersion } = useUpdateStore();
+  const currentVersion = Constants.expoConfig?.version || "1.0.0";
 
   const [feedbackVisible, setFeedbackVisible] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
@@ -157,7 +154,6 @@ export default function ProfileScreen() {
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const [isNotificationsVisible, setNotificationsVisible] = useState(false);
-  const [isUpToDateModalVisible, setUpToDateModalVisible] = useState(false);
   const [isChangePasswordVisible, setChangePasswordVisible] = useState(false);
   const [isDeleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [isClearStudyOSVisible, setClearStudyOSVisible] = useState(false);
@@ -170,7 +166,6 @@ export default function ProfileScreen() {
         setFeedbackVisible(false);
         setSettingsVisible(false);
         setNotificationsVisible(false);
-        setUpToDateModalVisible(false);
         setChangePasswordVisible(false);
         setDeleteAccountVisible(false);
         setClearStudyOSVisible(false);
@@ -616,30 +611,6 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.menuItem}
-              onPress={async () => {
-                const hasUpdate = await checkForUpdates(true);
-                if (!hasUpdate) {
-                  setUpToDateModalVisible(true);
-                }
-              }}
-            >
-              <Ionicons
-                name="cloud-download-outline"
-                size={20}
-                color={colors.primary}
-              />
-              <Text style={styles.menuLabel}>{"Check for Updates"}</Text>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.menuItem}
               onPress={() => setFeedbackVisible(true)}
             >
               <Ionicons
@@ -650,36 +621,6 @@ export default function ProfileScreen() {
               <Text style={styles.menuLabel}>{"Send Feedback"}</Text>
               <Ionicons
                 name="chevron-forward"
-                size={18}
-                color={colors.textMuted}
-              />
-            </TouchableOpacity>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                Linking.openURL("https://github.com/Piyushkushwaha2025/PathWise_app/releases/latest");
-              }}
-            >
-              <Ionicons
-                name="logo-android"
-                size={20}
-                color={colors.primary}
-              />
-              <Text style={styles.menuLabel}>{"Download App (APK)"}</Text>
-              
-              {downloadCount !== null && (
-                <View style={{ backgroundColor: `${colors.primary}20`, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginRight: 8 }}>
-                  <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '700' }}>
-                    {downloadCount} DLs
-                  </Text>
-                </View>
-              )}
-
-              <Ionicons
-                name="open-outline"
                 size={18}
                 color={colors.textMuted}
               />
@@ -926,11 +867,6 @@ export default function ProfileScreen() {
         isVisible={isNotificationsVisible}
         onClose={() => setNotificationsVisible(false)}
         type="settings"
-      />
-
-      <UpToDateModal 
-        isVisible={isUpToDateModalVisible}
-        onClose={() => setUpToDateModalVisible(false)}
       />
 
       <ChangePasswordModal

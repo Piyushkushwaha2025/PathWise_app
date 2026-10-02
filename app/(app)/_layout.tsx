@@ -4,7 +4,6 @@ import { setAuthTokenGetter } from "../../lib/db";
 import { TabBar } from "../../components/layout/TabBar";
 import { useEffect, useRef, useState } from "react";
 import { BlurTargetView } from "expo-blur";
-import { useUpdateStore } from "../../store/useUpdateStore";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeStore } from "../../store/useThemeStore";
 import { useStudySessionStore } from "../../store/studySessionStore";
@@ -62,7 +61,6 @@ export default function AppLayout() {
     }
   }, [getToken]);
   const blurTargetRef = useRef<View>(null);
-  const { checkForUpdates } = useUpdateStore();
   const { checkConnection, isSwitchingMode, isSessionExpired, setSessionExpired, isSessionDisconnected, isStudyOSMode, customError, setCustomError } = useStudySessionStore();
   const { loadGamification } = useStudyOSStore();
   
@@ -98,16 +96,6 @@ export default function AppLayout() {
     if (!isSignedIn) return;
     loadGamification().catch(() => {});
     checkConnection().catch(() => {});
-  }, [isSignedIn]);
-
-  useEffect(() => {
-    if (!isSignedIn) return;
-    // Single auto-check on app load — delayed so app fully renders first
-    // Manual check is available in Profile → "Check for Updates"
-    const timer = setTimeout(() => {
-      checkForUpdates(false); // false = auto, respects cooldown
-    }, 2000);
-    return () => clearTimeout(timer);
   }, [isSignedIn]);
 
   const pathname = usePathname();

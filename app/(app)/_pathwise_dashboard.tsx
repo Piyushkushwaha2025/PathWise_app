@@ -26,7 +26,6 @@ import { MotiView } from "moti";
 import { Ionicons } from "@expo/vector-icons";
 import { NotificationsBottomSheet } from "../../components/modals/NotificationsBottomSheet";
 import { LockedRoadmapModal } from "../../components/modals/LockedRoadmapModal";
-import { AppUpdateModal } from "../../components/modals/AppUpdateModal";
 import { getRewardStatus } from "../../lib/db";
 import { useSubscription } from "../../hooks/useSubscription";
 import { useUser } from "@clerk/clerk-expo";
@@ -261,8 +260,6 @@ export default function DashboardScreen() {
         onClose={() => setNotificationsVisible(false)} 
         type="history"
       />
-
-      <AppUpdateModal />
     </View>
   );
 }
