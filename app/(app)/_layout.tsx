@@ -19,6 +19,7 @@ import { SilentReconnectModal } from '../../components/studyos/SilentReconnectMo
 
 import { ProfileArcSwitcher } from "../../components/layout/ProfileArcSwitcher";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
+import { TopProgressBar } from "../../components/TopProgressBar";
 
 
 
@@ -148,6 +149,7 @@ export default function AppLayout() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+      <TopProgressBar />
       <NetworkStatusBanner />
       <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
         <KeyboardAvoidingView 

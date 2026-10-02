@@ -13,6 +13,7 @@ import { useThemeStore } from '../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../constants/theme';
 import { fetchNotifications, createNotification, deleteNotification, useDBProfile, uploadPdf, NotificationData } from '../../../lib/db';
 import { useStudyOSStore } from '../../../store/studyosStore';
+import { useUploadStore } from '../../../store/useUploadStore';
 
 export default function NotificationsScreen() {
   const colors = useThemeStore((s) => s.colors);
@@ -62,6 +63,15 @@ export default function NotificationsScreen() {
 
   useEffect(() => { loadNotifications(); }, [loadNotifications]);
 
+  // Auto-refresh notifications when CR background announcement upload completes
+  const lastCompletedAt = useUploadStore((s) => s.lastCompletedAt);
+  const lastCompletedType = useUploadStore((s) => s.lastCompletedType);
+  useEffect(() => {
+    if (lastCompletedType === 'announcement' && lastCompletedAt > 0) {
+      loadNotifications();
+    }
+  }, [lastCompletedType, lastCompletedAt, loadNotifications]);
+
   const pickDoc = async () => {
     try {
       setDocError('');
@@ -86,7 +96,7 @@ export default function NotificationsScreen() {
     }
   };
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     let hasError = false;
     if (!newTitle.trim()) {
       setTitleError('Title is required');
@@ -103,45 +113,30 @@ export default function NotificationsScreen() {
       return;
     }
 
-    try {
-      setCreating(true);
-      const days = parseInt(expiryDaysStr, 10);
-      const finalDays = isNaN(days) || days < 1 ? 3 : days; // Fallback to 3 if invalid
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + finalDays);
+    const days = parseInt(expiryDaysStr, 10);
+    const finalDays = isNaN(days) || days < 1 ? 3 : days; // Fallback to 3 if invalid
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + finalDays);
 
-      let pdf_key: string | undefined;
-      let pdf_filename: string | undefined;
-      if (docFile) {
-        const uploaded = await uploadPdf(userId, docFile);
-        pdf_key = uploaded.pdf_key;
-        pdf_filename = uploaded.pdf_filename;
-      }
+    // 1. Dispatch background announcement upload with phone notification
+    useUploadStore.getState().publishAnnouncementInBackground({
+      userId,
+      title: newTitle.trim(),
+      message: newMessage.trim(),
+      expiresAt: expiresAt.toISOString(),
+      sectionCode: activeSection,
+      docFile,
+    });
 
-      const newNotif = await createNotification(
-        userId, 
-        newTitle.trim(), 
-        newMessage.trim(), 
-        expiresAt.toISOString(), 
-        activeSection,
-        pdf_key,
-        pdf_filename
-      );
-      
-      setNotifications(prev => [newNotif, ...prev]);
-      setCreateModalVisible(false);
-      setNewTitle('');
-      setNewMessage('');
-      setDocFile(null);
-      setDocError('');
-      setExpiryDaysStr('3');
-      setTitleError('');
-      setMessageError('');
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to create notification');
-    } finally {
-      setCreating(false);
-    }
+    // 2. Immediately close modal and clear input state (CR is freed instantly)
+    setCreateModalVisible(false);
+    setNewTitle('');
+    setNewMessage('');
+    setDocFile(null);
+    setDocError('');
+    setExpiryDaysStr('3');
+    setTitleError('');
+    setMessageError('');
   };
 
   const handleDelete = (notif: NotificationData) => {

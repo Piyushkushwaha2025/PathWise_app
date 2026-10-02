@@ -15,6 +15,7 @@ import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { uploadPdf, createAssignment, useDBProfile } from '../../../../lib/db';
 import { useStudyOSStore } from '../../../../store/studyosStore';
+import { useUploadStore } from '../../../../store/useUploadStore';
 import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
 const stripAllWord = (text?: string) => {
@@ -149,7 +150,7 @@ export default function CreateAssignmentScreen() {
     }
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     setTitleError('');
     setSubjectError('');
     let hasError = false;
@@ -169,37 +170,21 @@ export default function CreateAssignmentScreen() {
     }
     if (!userId) return;
 
-    try {
-      setSaving(true);
-      let pdf_key: string | undefined;
-      let pdf_filename: string | undefined;
+    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
 
-      if (pdfFile) {
-        setUploading(true);
-        const uploaded = await uploadPdf(userId, pdfFile);
-        pdf_key = uploaded.pdf_key;
-        pdf_filename = uploaded.pdf_filename;
-        setUploading(false);
-      }
+    // Dispatch background upload without blocking the screen
+    useUploadStore.getState().publishAssignmentInBackground({
+      userId,
+      title: title.trim(),
+      subject: subject.trim(),
+      description: description.trim(),
+      dueDate,
+      pdfFile,
+      sectionCode: activeSection,
+    });
 
-      await createAssignment(userId, {
-        title: title.trim(),
-        subject: subject.trim(),
-        description: description.trim(),
-        dueDate: dueDate.toISOString(),
-        pdf_key,
-        pdf_filename,
-        section_code: activeSection,
-      });
-
-      try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
-      setShowSuccessModal(true);
-    } catch (e: any) {
-      Alert.alert('Submission Error', e.message || 'Failed to post assignment');
-    } finally {
-      setSaving(false);
-      setUploading(false);
-    }
+    // Immediately return back to the assignments list
+    router.push('/studyos/assignments' as any);
   };
 
   const formatFileSize = (bytes?: number) => {
@@ -211,27 +196,32 @@ export default function CreateAssignmentScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: 'Post Assignment',
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.text,
-          headerShadowVisible: false,
-          headerLeft: () => (
-            <TouchableOpacity 
-              onPress={() => {
-                try { Haptics.selectionAsync(); } catch {}
-                router.push('/studyos/assignments' as any);
-              }} 
-              style={styles.headerBackBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="arrow-back" size={20} color={colors.text} />
-            </TouchableOpacity>
-          ),
-        }}
-      />
+      <Stack.Screen options={{ headerShown: false }} />
+      {/* Sleek Custom In-App Header — Eliminates Massive Blank Top Space */}
+      <View style={styles.headerBar}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity 
+            onPress={() => {
+              try { Haptics.selectionAsync(); } catch {}
+              router.push('/studyos/assignments' as any);
+            }} 
+            style={styles.headerBackBtn}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.headerBarTitle}>Post Assignment</Text>
+        </View>
+
+        {activeSection ? (
+          <View style={styles.headerSectionBadge}>
+            <Ionicons name="school" size={13} color={colors.primary} style={{ marginRight: 5 }} />
+            <Text style={styles.headerSectionText}>
+              Sec {activeSection}
+            </Text>
+          </View>
+        ) : null}
+      </View>
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -513,16 +503,44 @@ export default function CreateAssignmentScreen() {
 function useStyles(colors: any, isDark: boolean) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+    headerBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: Spacing.md,
+      paddingTop: Spacing.xs,
+      paddingBottom: Spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    headerBarTitle: {
+      fontFamily: Typography.h2.fontFamily,
+      fontSize: 18,
+      color: colors.text,
+      fontWeight: '700',
+    },
     headerBackBtn: {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: colors.surfaceHigh,
       borderWidth: 1, borderColor: colors.border,
       alignItems: 'center', justifyContent: 'center',
-      marginLeft: 12,
+    },
+    headerSectionBadge: {
+      flexDirection: 'row', alignItems: 'center',
+      backgroundColor: colors.primary + '18',
+      paddingHorizontal: 12, paddingVertical: 6,
+      borderRadius: Radius.full,
+      borderWidth: 1, borderColor: colors.primary + '35',
+    },
+    headerSectionText: {
+      color: colors.primary,
+      fontFamily: Typography.h3.fontFamily,
+      fontSize: 12,
     },
     content: {
       paddingHorizontal: Spacing.md,
-      paddingTop: 12,
+      paddingTop: Spacing.md,
       paddingBottom: 60,
     },
     infoBanner: {

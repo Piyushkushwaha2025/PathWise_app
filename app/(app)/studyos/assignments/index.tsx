@@ -13,6 +13,7 @@ import { useThemeStore } from '../../../../store/useThemeStore';
 import { Typography, Spacing, Radius } from '../../../../constants/theme';
 import { fetchAssignments, toggleAssignment, deleteAssignment, useDBProfile, AssignmentData } from '../../../../lib/db';
 import { useStudyOSStore } from '../../../../store/studyosStore';
+import { useUploadStore } from '../../../../store/useUploadStore';
 import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
 const stripAllWord = (text?: string) => {
@@ -92,15 +93,44 @@ export default function AssignmentsScreen() {
 
   useEffect(() => { loadAssignments(); }, [loadAssignments]);
 
+  // Auto-refresh assignments when CR background upload completes
+  const lastCompletedAt = useUploadStore((s) => s.lastCompletedAt);
+  const lastCompletedType = useUploadStore((s) => s.lastCompletedType);
+  useEffect(() => {
+    if (lastCompletedType === 'assignment' && lastCompletedAt > 0) {
+      loadAssignments();
+    }
+  }, [lastCompletedType, lastCompletedAt, loadAssignments]);
+
   const handleToggle = async (assignment: AssignmentData) => {
     if (!userId) return;
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
-    const newStatus = await toggleAssignment(userId, assignment._id);
+
+    const prevStatus = assignment.status;
+    const targetStatus = prevStatus === 'pending' ? 'submitted' : 'pending';
+
+    // 1. Instant optimistic update (0ms instant response)
     setAssignments(prev =>
-      prev.map(a => a._id === assignment._id ? { ...a, status: newStatus } : a)
+      prev.map(a => a._id === assignment._id ? { ...a, status: targetStatus } : a)
     );
+
+    // 2. Sync with database in background
+    try {
+      const confirmedStatus = await toggleAssignment(userId, assignment._id);
+      if (confirmedStatus !== targetStatus) {
+        setAssignments(prev =>
+          prev.map(a => a._id === assignment._id ? { ...a, status: confirmedStatus } : a)
+        );
+      }
+    } catch (err) {
+      // Rollback on network failure
+      setAssignments(prev =>
+        prev.map(a => a._id === assignment._id ? { ...a, status: prevStatus } : a)
+      );
+      Alert.alert('Connection Issue', 'Could not update status. Please try again.');
+    }
   };
 
   const handleDelete = (assignment: AssignmentData) => {
@@ -278,8 +308,13 @@ export default function AssignmentsScreen() {
                   style={{ marginRight: 6 }} 
                 />
                 <Text style={[styles.segmentText, activeTab === 'pending' && styles.segmentTextActive]}>
-                  Pending ({pendingCount})
+                  Pending
                 </Text>
+                <View style={[styles.tabBadge, activeTab === 'pending' && styles.tabBadgePendingActive]}>
+                  <Text style={[styles.tabBadgeText, activeTab === 'pending' && styles.tabBadgeTextPendingActive]}>
+                    {pendingCount}
+                  </Text>
+                </View>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -293,12 +328,17 @@ export default function AssignmentsScreen() {
                 <Ionicons 
                   name="checkmark-circle-outline" 
                   size={16} 
-                  color={activeTab === 'submitted' ? (isDark ? '#fff' : '#10b981') : colors.textMuted} 
+                  color={activeTab === 'submitted' ? '#10b981' : colors.textMuted} 
                   style={{ marginRight: 6 }} 
                 />
                 <Text style={[styles.segmentText, activeTab === 'submitted' && styles.segmentTextActive]}>
-                  Submitted ({submittedCount})
+                  Submitted
                 </Text>
+                <View style={[styles.tabBadge, activeTab === 'submitted' && styles.tabBadgeSubmittedActive]}>
+                  <Text style={[styles.tabBadgeText, activeTab === 'submitted' && styles.tabBadgeTextSubmittedActive]}>
+                    {submittedCount}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
 
@@ -724,34 +764,69 @@ function useStyles(colors: any, isDark: boolean) {
       fontFamily: Typography.h3.fontFamily,
       color: colors.text,
     },
+    tabBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: Radius.full,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+      marginLeft: 6,
+      minWidth: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tabBadgePendingActive: {
+      backgroundColor: colors.primary + '25',
+    },
+    tabBadgeSubmittedActive: {
+      backgroundColor: 'rgba(16, 185, 129, 0.22)',
+    },
+    tabBadgeText: {
+      fontFamily: Typography.label.fontFamily,
+      fontSize: 11,
+      color: colors.textMuted,
+      fontWeight: '700',
+    },
+    tabBadgeTextPendingActive: {
+      color: colors.primary,
+    },
+    tabBadgeTextSubmittedActive: {
+      color: '#10b981',
+    },
     cardsList: {
       gap: Spacing.md,
     },
     card: {
       backgroundColor: colors.surfaceHigh,
-      borderRadius: Radius.lg,
-      padding: Spacing.md,
+      borderRadius: Radius.xl,
+      padding: Spacing.md + 2,
       borderWidth: 1,
       borderColor: colors.border,
+      borderLeftWidth: 4,
+      borderLeftColor: colors.primary + '50',
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: isDark ? 0.25 : 0.05,
-      shadowRadius: 6,
-      elevation: 2,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: isDark ? 0.3 : 0.06,
+      shadowRadius: 8,
+      elevation: 3,
     },
     cardOverdue: {
-      borderColor: '#ef444460',
+      borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : '#fca5a5',
       borderLeftWidth: 4,
       borderLeftColor: '#ef4444',
+      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.03)' : '#fff5f5',
     },
     cardUrgent: {
-      borderColor: '#f59e0b60',
+      borderColor: isDark ? 'rgba(245, 158, 11, 0.4)' : '#fcd34d',
       borderLeftWidth: 4,
       borderLeftColor: '#f59e0b',
+      backgroundColor: isDark ? 'rgba(245, 158, 11, 0.03)' : '#fffbeb',
     },
     cardSubmitted: {
-      borderColor: '#10b98140',
-      opacity: 0.92,
+      borderColor: isDark ? 'rgba(16, 185, 129, 0.35)' : '#a7f3d0',
+      borderLeftWidth: 4,
+      borderLeftColor: '#10b981',
+      backgroundColor: isDark ? 'rgba(16, 185, 129, 0.03)' : '#f0fdf4',
+      opacity: 0.95,
     },
     cardHeader: {
       flexDirection: 'row',
@@ -855,11 +930,11 @@ function useStyles(colors: any, isDark: boolean) {
     pdfAttachmentCapsule: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#3b82f612',
+      backgroundColor: isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.05)',
       borderWidth: 1,
-      borderColor: '#3b82f635',
-      borderRadius: Radius.md,
-      padding: 10,
+      borderColor: isDark ? 'rgba(59, 130, 246, 0.28)' : 'rgba(59, 130, 246, 0.2)',
+      borderRadius: Radius.lg,
+      padding: 11,
       marginBottom: 12,
     },
     pdfIconCircle: {
@@ -896,19 +971,20 @@ function useStyles(colors: any, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 10,
-      borderRadius: Radius.md,
+      paddingVertical: 11,
+      borderRadius: Radius.lg,
+      gap: 6,
     },
     toggleBtnDone: {
       backgroundColor: '#10b981',
       shadowColor: '#10b981',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 4,
-      elevation: 2,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 3,
     },
     toggleBtnPending: {
-      backgroundColor: colors.surface,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#f8fafc',
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -916,6 +992,7 @@ function useStyles(colors: any, isDark: boolean) {
       fontFamily: Typography.h3.fontFamily,
       fontSize: 13,
       color: '#fff',
+      fontWeight: '600',
     },
     deleteIconButton: {
       width: 40, height: 40, borderRadius: Radius.md,
