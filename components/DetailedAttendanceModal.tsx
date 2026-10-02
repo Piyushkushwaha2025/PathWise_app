@@ -617,6 +617,7 @@ export function DetailedAttendanceModal({
   const [loading, setLoading] = useState<boolean>(!initialCache);
   const [errorMsg, setErrorMsg] = useState('');
   const [attendanceData, setAttendanceData] = useState<any[]>(initialCache || []);
+  const [prevSubjectCode, setPrevSubjectCode] = useState(subjectCode);
   const [isPredicting, setIsPredicting] = useState(initialPredicting);
   const [predictDays, setPredictDays] = useState(3);
   const [missedClassesInput, setMissedClassesInput] = useState('');
@@ -634,16 +635,15 @@ export function DetailedAttendanceModal({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [canMountWebView, setCanMountWebView] = useState(false);
 
-  useEffect(() => {
-    if (visible && !cacheHit.current) {
-      const timer = setTimeout(() => {
-        setCanMountWebView(true);
-      }, 400);
-      return () => clearTimeout(timer);
-    } else {
-      setCanMountWebView(false);
-    }
-  }, [visible]);
+  // Synchronize state immediately when subjectCode changes
+  if (visible && subjectCode !== prevSubjectCode) {
+    setPrevSubjectCode(subjectCode);
+    const cached = findCachedData();
+    cacheHit.current = !!cached;
+    setAttendanceData(cached || []);
+    setLoading(!cached);
+    setErrorMsg('');
+  }
 
   const handleSetPredictDays = (val: number) => {
     if (val > 3 && isSubscriptionRequired) {
@@ -759,6 +759,7 @@ export function DetailedAttendanceModal({
       const parts = cookies.split(';').map((c) => c.trim()).filter(Boolean);
       const lines = parts.map((c) => `document.cookie = ${JSON.stringify(c + '; path=/')};`).join('\n');
       setCookieInjectScript(lines + '\ntrue;');
+      setCanMountWebView(true);
     } catch (e) {
       setErrorMsg('Failed to load attendance records.');
       setLoading(false);
@@ -766,10 +767,11 @@ export function DetailedAttendanceModal({
   };
 
   useEffect(() => {
-    if (!visible) {
+    if (!visible || !subjectCode) {
       setIsPredicting(false);
       setPredictDays(3);
       setExpectedClassFilter('all');
+      setCanMountWebView(false);
       return;
     }
     if (initialPredicting) {
@@ -791,14 +793,21 @@ export function DetailedAttendanceModal({
       return () => handler.remove();
     }
 
-    // Cache miss: initiate fast fetch
+    // Cache miss: UI displays immediately with header & overview; load history in background
     cacheHit.current = false;
+    setAttendanceData([]);
     setLoading(true);
     setErrorMsg('');
-    setAttendanceData([]);
-    loadAttendanceData();
 
-    return () => handler.remove();
+    // Defer network fetch by 80ms so UI transition finishes painting on screen first
+    const timer = setTimeout(() => {
+      loadAttendanceData();
+    }, 80);
+
+    return () => {
+      handler.remove();
+      clearTimeout(timer);
+    };
   }, [visible, subjectCode, subjectName, initialPredicting, onClose, findCachedData]);
 
   // Pull-to-refresh: bust cache for this subject and re-fetch from portal instantly
@@ -1114,6 +1123,13 @@ export function DetailedAttendanceModal({
   const currentSubject = safeSubjects2.find(s => s.code === subjectCode);
   const totalClasses = currentSubject?.totalClasses || 0;
 
+  const hasRecords = safeAttendanceData.length > 0;
+  const storeAttended = currentSubject?.attendedClasses != null ? Number(currentSubject.attendedClasses) : 0;
+  const storeTotal = currentSubject?.totalClasses != null ? Number(currentSubject.totalClasses) : 0;
+
+  const displayPresentCount = hasRecords ? presentCount : storeAttended;
+  const displayAbsentCount = hasRecords ? absentCount : Math.max(0, storeTotal - storeAttended);
+
   const theme = useThemeStore((s) => s.theme);
   const isDark = theme === 'black';
 
@@ -1236,8 +1252,8 @@ export function DetailedAttendanceModal({
               {/* Bento Stat tiles */}
               <View style={{ flex: 1.15, paddingLeft: 8 }}>
                 <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
-                  <MiniStatBox label="Present" value={presentCount} colors={colors} color="#22c55e" icon={CheckCircle2} />
-                  <MiniStatBox label="Absent" value={absentCount} colors={colors} color="#ef4444" icon={XCircle} />
+                  <MiniStatBox label="Present" value={displayPresentCount} colors={colors} color="#22c55e" icon={CheckCircle2} />
+                  <MiniStatBox label="Absent" value={displayAbsentCount} colors={colors} color="#ef4444" icon={XCircle} />
                 </View>
                 <View style={{ flexDirection: 'row', gap: 6 }}>
                   <MiniStatBox label="Med L." value={medicalLeaveCount} colors={colors} color="#f59e0b" icon={Stethoscope} />
@@ -1654,7 +1670,7 @@ export function DetailedAttendanceModal({
                         <CheckCircle2 size={13} color="#22c55e" />
                       </View>
                       <View>
-                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{presentCount}</Text>
+                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{displayPresentCount}</Text>
                         <Text style={[styles.miniStatLbl, { color: colors.textMuted }]}>Present</Text>
                       </View>
                     </View>
@@ -1664,7 +1680,7 @@ export function DetailedAttendanceModal({
                         <XCircle size={13} color="#ef4444" />
                       </View>
                       <View>
-                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{absentCount}</Text>
+                        <Text style={[styles.miniStatVal, { color: colors.text }]}>{displayAbsentCount}</Text>
                         <Text style={[styles.miniStatLbl, { color: colors.textMuted }]}>Absent</Text>
                       </View>
                     </View>
@@ -1696,16 +1712,16 @@ export function DetailedAttendanceModal({
                   <View style={styles.filterHeaderRow}>
                     <Text style={[styles.sectionTitle, { color: colors.text }]}>Attendance History</Text>
                     <Text style={[styles.recordsCount, { color: colors.textMuted }]}>
-                      {filteredAttendanceData.length} records
+                      {loading ? 'Syncing...' : `${filteredAttendanceData.length} records`}
                     </Text>
                   </View>
 
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollRow}>
                     {(
                       [
-                        { key: 'ALL', label: 'All', count: safeAttendanceData.length, color: colors.primary },
-                        { key: 'PRESENT', label: 'Present', count: presentCount, color: '#22c55e' },
-                        { key: 'ABSENT', label: 'Absent', count: absentCount, color: '#ef4444' },
+                        { key: 'ALL', label: 'All', count: hasRecords ? safeAttendanceData.length : storeTotal, color: colors.primary },
+                        { key: 'PRESENT', label: 'Present', count: displayPresentCount, color: '#22c55e' },
+                        { key: 'ABSENT', label: 'Absent', count: displayAbsentCount, color: '#ef4444' },
                         { key: 'LEAVE', label: 'Leaves', count: dutyLeaveCount + medicalLeaveCount, color: '#8b5cf6' },
                       ] as const
                     ).map((filter) => {
@@ -1971,8 +1987,8 @@ export function DetailedAttendanceModal({
   return (
     <Modal
       visible={visible}
-      transparent={true}
-      animationType="fade"
+      animationType="slide"
+      presentationStyle="overFullScreen"
       statusBarTranslucent={true}
       onRequestClose={onClose}
     >
@@ -1988,7 +2004,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 56,
+    paddingTop: Platform.OS === 'android' ? 44 : 56,
     paddingBottom: 14,
     borderBottomWidth: 1,
   },
