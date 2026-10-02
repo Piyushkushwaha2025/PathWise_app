@@ -65,7 +65,7 @@ import { registerBackgroundSync } from "../tasks/backgroundSync";
 import { useStudySessionStore } from "../store/studySessionStore";
 import { useStudyOSStore } from "../store/studyosStore";
 import { useSubscription } from "../hooks/useSubscription";
-import { savePushToken, setAuthTokenGetter } from "../lib/db";
+import { savePushToken, setAuthTokenGetter, syncUserWithDB } from "../lib/db";
 
 if (LogBox) {
   LogBox.ignoreLogs([
@@ -142,13 +142,23 @@ function RootLayoutInner() {
       .catch(() => {});
   }, []);
 
-  // Sync Pro / Trial status to local cache whenever it updates
+  // Sync Pro / Trial status to local cache whenever it updates & ensure MongoDB Atlas has user
   useEffect(() => {
-    if (isLoaded && user) {
+    if (isLoaded && user?.id) {
       AsyncStorage.setItem('@pathwise_cached_is_pro', isPro ? 'true' : 'false').catch(() => {});
       AsyncStorage.setItem('auth_was_signed_in', 'true').catch(() => {});
+
+      // Proactively ensure user profile exists in MongoDB Atlas on login / app launch
+      const email = user.primaryEmailAddress?.emailAddress;
+      const name = user.fullName || user.firstName || (email ? email.split('@')[0] : 'User');
+      syncUserWithDB(user.id, {
+        name,
+        email,
+      }).catch((err) => {
+        console.warn('Initial user Atlas sync notice:', err?.message);
+      });
     }
-  }, [isLoaded, user, isPro]);
+  }, [isLoaded, user?.id, isPro]);
 
   // If user has Pro, is on active 30-day trial, has reward Pro, or was cached as Pro -> DO NOT show ads
   const isProEffective = isPro || cachedIsPro === true;

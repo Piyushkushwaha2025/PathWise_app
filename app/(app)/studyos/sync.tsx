@@ -954,7 +954,7 @@ export default function SyncScreen() {
               semester: resolvedProfile.semester ? String(resolvedProfile.semester) : undefined,
               email: user?.primaryEmailAddress?.emailAddress || undefined,
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 2500))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 10000))
           ]);
         } catch (e: any) {
           if (e?.code === 'UID_ALREADY_LINKED') {
