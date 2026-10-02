@@ -150,7 +150,11 @@ function RootLayoutInner() {
 
       // Proactively ensure user profile exists in MongoDB Atlas on login / app launch
       const email = user.primaryEmailAddress?.emailAddress;
-      const name = user.fullName || user.firstName || (email ? email.split('@')[0] : 'User');
+      const emailPrefix = email ? email.split('@')[0].toLowerCase() : null;
+      let name = (user.fullName || user.firstName || '').trim();
+      if (!name || (emailPrefix && name.toLowerCase() === emailPrefix)) {
+        name = 'Learner';
+      }
       syncUserWithDB(user.id, {
         name,
         email,

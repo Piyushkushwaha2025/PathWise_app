@@ -86,20 +86,30 @@ export default function ProfileScreen() {
     // 2. Check Clerk firstName and lastName
     const f = (user?.firstName || '').trim();
     const l = (user?.lastName || '').trim();
+    const emailPrefix = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
+
+    // If f is just the raw email prefix (e.g. "itspiyush"), treat as no name provided
+    if (f && emailPrefix && f.toLowerCase() === emailPrefix && !l) {
+      return "Learner";
+    }
+
     if (f && l) {
       if (f.toLowerCase() === l.toLowerCase()) return f;
       return `${f} ${l}`;
     }
     if (user?.fullName) {
-      const parts = user.fullName.trim().split(/\s+/).filter(Boolean);
+      const trimmedFull = user.fullName.trim();
+      const parts = trimmedFull.split(/\s+/).filter(Boolean);
       if (parts.length === 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) {
         return parts[0];
       }
-      return user.fullName.trim();
+      if (emailPrefix && trimmedFull.toLowerCase() === emailPrefix) {
+        return "Learner";
+      }
+      return trimmedFull;
     }
     if (f) return f;
-    const emailPrefix = user?.primaryEmailAddress?.emailAddress?.split('@')[0];
-    return emailPrefix || "Learner";
+    return "Learner";
   }, [user?.fullName, user?.firstName, user?.lastName, user?.primaryEmailAddress?.emailAddress, dbUser?.name, stProfile?.name]);
 
   const colors = useThemeStore((s) => s.colors);
@@ -133,7 +143,10 @@ export default function ProfileScreen() {
   const [feedbackText, setFeedbackText] = useState("");
 
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [firstName, setFirstName] = useState(user?.firstName || "");
+  const rawFirst = user?.firstName || "";
+  const emailPrefix = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
+  const safeFirst = (rawFirst && emailPrefix && rawFirst.toLowerCase() === emailPrefix) ? "" : rawFirst;
+  const [firstName, setFirstName] = useState(safeFirst);
   const [lastName, setLastName] = useState(
     (user?.firstName && user?.lastName && user.firstName.toLowerCase() === user.lastName.toLowerCase())
       ? ""
@@ -428,7 +441,7 @@ export default function ProfileScreen() {
                 ]}
               >
                 <Text style={styles.avatarInitial}>
-                  {user?.firstName?.[0] || "U"}
+                  {displayName?.[0]?.toUpperCase() || "L"}
                 </Text>
               </View>
             )}
@@ -489,7 +502,9 @@ export default function ProfileScreen() {
               onPress={() => {
                 const f = (user?.firstName || "").trim();
                 const l = (user?.lastName || "").trim();
-                setFirstName(f);
+                const ep = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
+                const safeF = (f && ep && f.toLowerCase() === ep) ? "" : f;
+                setFirstName(safeF);
                 setLastName(f && l && f.toLowerCase() === l.toLowerCase() ? "" : l);
                 setSettingsVisible(true);
               }}

@@ -127,10 +127,9 @@ export default function SignUpScreen() {
     setLoading(true);
 
     const trimmedName = name.trim();
-    const fallbackName = email.trim().split('@')[0] || "Student";
-    const effectiveName = trimmedName || fallbackName;
+    const effectiveName = trimmedName || "Learner";
     const nameParts = effectiveName.split(/\s+/).filter(Boolean);
-    const firstName = nameParts[0] || effectiveName;
+    const firstName = nameParts[0] || "Learner";
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
 
     try {

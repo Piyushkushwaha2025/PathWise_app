@@ -865,13 +865,17 @@ export default function SyncScreen() {
           ? newData.profile.photoUrl
           : (existing.profile?.photoUrl || '');
 
+      const rawUserFull = user?.fullName?.trim();
+      const ep = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
+      const safeFallbackName = (rawUserFull && (!ep || rawUserFull.toLowerCase() !== ep)) ? rawUserFull : 'Student';
+
       const resolvedProfile = {
         ...(existing.profile || {}),
         ...(newData.profile || {}),
         photoUrl: resolvedPhotoUrl,
         name: (newData.profile?.name && newData.profile.name !== 'Unknown' && newData.profile.name !== 'Error')
           ? newData.profile.name
-          : (existing.profile?.name || user?.fullName || 'Student'),
+          : (existing.profile?.name || safeFallbackName),
         uid: effectiveUid || 'Unknown',
         section: resolvedSection,
       };
