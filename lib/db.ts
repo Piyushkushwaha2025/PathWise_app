@@ -550,21 +550,32 @@ export function useDBProfile() {
     if (userId) {
       const email = user?.primaryEmailAddress?.emailAddress;
       const emailPrefix = email ? email.split('@')[0].toLowerCase() : null;
-      const rawName = (user?.fullName || (user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : '') || '').trim();
-      const isCustomName = rawName && 
-        (!emailPrefix || rawName.toLowerCase() !== emailPrefix) &&
-        rawName.toLowerCase() !== 'learner' &&
-        rawName.toLowerCase() !== 'student';
+      const rawFirst = (user?.firstName || '').trim();
+      const rawLast = (user?.lastName || '').trim();
+
+      const isDummy = (s: string) => {
+        const c = s.trim().toLowerCase();
+        return !c || c === '.' || c === '-' || c === 'learner' || c === 'student' || c === 'user' || (emailPrefix && c === emailPrefix);
+      };
+
+      const isCustomName = user?.unsafeMetadata?.hasCustomName !== false && !isDummy(rawFirst);
+
+      let customName = '';
+      if (isCustomName) {
+        customName = (rawLast && !isDummy(rawLast) && rawFirst.toLowerCase() !== rawLast.toLowerCase())
+          ? `${rawFirst} ${rawLast}`
+          : rawFirst;
+      }
 
       const stProfile = useStudyOSStore.getState().profile;
-      const collegeName = (stProfile?.name && stProfile.name !== 'Unknown' && stProfile.name !== 'Error' && !stProfile.name.includes('@')) 
+      const collegeName = (stProfile?.name && !isDummy(stProfile.name) && !stProfile.name.includes('@')) 
         ? stProfile.name.trim() 
         : undefined;
 
       syncUserWithDB(userId, {
         section_code: stProfile?.section || undefined,
         uid: (stProfile?.uid && stProfile.uid !== 'Unknown' && stProfile.uid !== 'Error') ? stProfile.uid : (user?.unsafeMetadata?.studyOsId as string || undefined),
-        name: isCustomName ? rawName : (collegeName || undefined),
+        name: isCustomName ? customName : (collegeName || undefined),
         semester: stProfile?.semester || undefined,
       })
         .then(setDbUser)

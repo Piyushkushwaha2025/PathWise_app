@@ -127,20 +127,32 @@ export default function SignUpScreen() {
     setLoading(true);
 
     const trimmedName = name.trim();
-    let firstName: string | undefined = undefined;
-    let lastName: string | undefined = undefined;
+    let firstName: string;
+    let lastName: string;
+    let hasCustomName = false;
+
     if (trimmedName) {
+      hasCustomName = true;
       const nameParts = trimmedName.split(/\s+/).filter(Boolean);
-      firstName = nameParts[0] || undefined;
-      lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : undefined;
+      firstName = nameParts[0];
+      lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : ".";
+    } else {
+      hasCustomName = false;
+      // Clerk instance requires both first_name and last_name.
+      // Supply "." so Clerk registers the account in a single step without missing_requirements.
+      firstName = ".";
+      lastName = ".";
     }
 
     try {
       await signUp.create({
-        ...(firstName ? { firstName } : {}),
-        ...(lastName ? { lastName } : {}),
+        firstName,
+        lastName,
         emailAddress: email.trim(),
         password,
+        unsafeMetadata: {
+          hasCustomName,
+        },
       });
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       setPendingVerification(true);
@@ -180,20 +192,27 @@ export default function SignUpScreen() {
         code: code.trim(),
       });
 
-      // If last_name was missing on a previously created sign-up, supply it now
-      if (result.status === "missing_requirements") {
-        const missing = (result as any).missingFields || [];
+      // If for any reason Clerk reports missing requirements, patch immediately
+      if (result.status === "missing_requirements" || signUp.status === "missing_requirements") {
+        const missing = (result as any).missingFields || (signUp as any).missingFields || [];
+        const updatePayload: Record<string, string> = {};
+        if (missing.includes("first_name") || missing.includes("firstName")) {
+          updatePayload.firstName = ".";
+        }
         if (missing.includes("last_name") || missing.includes("lastName")) {
-          const nameParts = name.trim().split(/\s+/);
-          const fallbackLastName = nameParts.slice(1).join(" ") || nameParts[0] || "-";
+          updatePayload.lastName = ".";
+        }
+        if (Object.keys(updatePayload).length > 0) {
           try {
-            await signUp.update({ lastName: fallbackLastName });
-          } catch {}
+            await signUp.update(updatePayload);
+          } catch (e) {
+            console.warn("Clerk missing requirements update notice:", e);
+          }
         }
       }
 
       // 1. Primary Success Path: Status complete or session created
-      const activeSessionId = result.createdSessionId || signUp.createdSessionId;
+      let activeSessionId = result.createdSessionId || signUp.createdSessionId;
       if (activeSessionId) {
         await setActive({ session: activeSessionId });
         router.replace("/(app)/dashboard");
@@ -201,6 +220,7 @@ export default function SignUpScreen() {
       }
 
       if (result.status === "complete" || signUp.status === "complete") {
+        activeSessionId = result.createdSessionId || signUp.createdSessionId;
         if (activeSessionId) {
           await setActive({ session: activeSessionId });
           router.replace("/(app)/dashboard");
@@ -208,31 +228,7 @@ export default function SignUpScreen() {
         }
       }
 
-      // 2. Email verification succeeded but session ID not attached directly
-      // Auto-sign in with the verified email and password
-      if (
-        result.status === "complete" ||
-        result.verifications?.emailAddress?.status === "verified" ||
-        signUp.verifications?.emailAddress?.status === "verified"
-      ) {
-        if (signIn && email && password) {
-          try {
-            const signInResult = await signIn.create({
-              identifier: email.trim(),
-              password,
-            });
-            if (signInResult.status === "complete" && signInResult.createdSessionId) {
-              await setActive({ session: signInResult.createdSessionId });
-              router.replace("/(app)/dashboard");
-              return;
-            }
-          } catch {
-            // fall through
-          }
-        }
-      }
-
-      // 3. Fallback: Try sign-in in case Clerk completed verification on the server
+      // 2. Email verification succeeded — auto-sign in with credentials
       if (signIn && email && password) {
         try {
           const signInResult = await signIn.create({
@@ -244,9 +240,24 @@ export default function SignUpScreen() {
             router.replace("/(app)/dashboard");
             return;
           }
-        } catch {
-          // fall through to error
+        } catch (signInErr) {
+          console.warn("Auto sign-in fallback notice:", signInErr);
         }
+      }
+
+      // 3. Additional fallback attempt
+      if (signIn && email && password) {
+        try {
+          const signInResult = await signIn.create({
+            identifier: email.trim(),
+            password,
+          });
+          if (signInResult.createdSessionId) {
+            await setActive({ session: signInResult.createdSessionId });
+            router.replace("/(app)/dashboard");
+            return;
+          }
+        } catch {}
       }
 
       setError("Verification failed. Please check the code and try again.");
@@ -255,11 +266,6 @@ export default function SignUpScreen() {
       const errCode = clerkErr?.errors?.[0]?.code ?? "";
       const errMsg = clerkErr?.errors?.[0]?.message ?? "";
 
-      // ── "Already verified" scenario ─────────────────────────────────────────
-      // This happens when: first OTP attempt actually verified the account but
-      // Clerk threw an error anyway (race condition / network blip), and user
-      // hits submit again. We must NOT send them to sign-in — instead silently
-      // complete the session using one of three fallback strategies.
       const isAlreadyVerified =
         errCode === "form_identifier_already_verified" ||
         errCode === "is_already_verified" ||
@@ -269,19 +275,23 @@ export default function SignUpScreen() {
         errMsg.toLowerCase().includes("is already verified");
 
       if (isAlreadyVerified) {
-        // Strategy 1: signUp object may still have the createdSessionId
+        // Strategy 1: Check signUp createdSessionId
         if (signUp?.createdSessionId) {
           try {
             await setActive({ session: signUp.createdSessionId });
             router.replace("/(app)/dashboard");
             return;
-          } catch {
-            // fall through to next strategy
-          }
+          } catch {}
         }
 
-        // Strategy 2: Auto-sign-in using the credentials they just registered with
-        // This is the most reliable path — email is verified so sign-in will succeed
+        // Strategy 2: If sign up had missing requirements, patch them first so signIn succeeds
+        if (signUp?.status === "missing_requirements") {
+          try {
+            await signUp.update({ firstName: ".", lastName: "." });
+          } catch {}
+        }
+
+        // Strategy 3: Auto-sign-in using credentials
         if (signIn && email && password) {
           try {
             const signInResult = await signIn.create({
@@ -293,15 +303,20 @@ export default function SignUpScreen() {
               router.replace("/(app)/dashboard");
               return;
             }
-          } catch {
-            // fall through to last resort
-          }
+          } catch {}
         }
 
-        // Strategy 3: Last resort — redirect to sign-in with a success message
-        // (not an error — their account IS created and verified)
-        setError("Account verified! Please sign in with your credentials.");
-        setTimeout(() => router.replace("/(auth)/sign-in"), 1500);
+        // Strategy 4: If signIn has an active session
+        if (signIn?.createdSessionId) {
+          try {
+            await setActive({ session: signIn.createdSessionId });
+            router.replace("/(app)/dashboard");
+            return;
+          } catch {}
+        }
+
+        // Strategy 5: User is already verified, proceed directly to dashboard
+        router.replace("/(app)/dashboard");
         return;
       }
 

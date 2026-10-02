@@ -78,43 +78,35 @@ export default function ProfileScreen() {
   const stProfile = useStudyOSStore((s) => s.profile);
 
   const displayName = React.useMemo(() => {
-    // 1. Check if user set a custom PathWise name (signup or edit profile)
     const f = (user?.firstName || '').trim();
     const l = (user?.lastName || '').trim();
     const emailPrefix = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
 
-    const isCustomFirst = f && 
-      (!emailPrefix || f.toLowerCase() !== emailPrefix) &&
-      f.toLowerCase() !== 'learner' &&
-      f.toLowerCase() !== 'student';
+    const isDummy = (s: string) => {
+      const c = s.trim().toLowerCase();
+      return !c || c === '.' || c === '-' || c === 'learner' || c === 'student' || c === 'user' || (emailPrefix && c === emailPrefix);
+    };
 
-    if (isCustomFirst) {
-      if (l && f.toLowerCase() !== l.toLowerCase()) {
+    // 1. Check if user set a custom PathWise name (signup or edit profile)
+    const hasCustomFlag = user?.unsafeMetadata?.hasCustomName;
+    const isCustom = hasCustomFlag !== false && !isDummy(f);
+
+    if (isCustom) {
+      if (l && !isDummy(l) && f.toLowerCase() !== l.toLowerCase()) {
         return `${f} ${l}`;
       }
       return f;
     }
 
-    if (user?.fullName) {
-      const full = user.fullName.trim();
-      const isCustomFull = full &&
-        (!emailPrefix || full.toLowerCase() !== emailPrefix) &&
-        full.toLowerCase() !== 'learner' &&
-        full.toLowerCase() !== 'student';
-      if (isCustomFull) {
-        return full;
-      }
-    }
-
     // 2. If user did not provide a custom name, check if StudyOS college ID name is synced
     const collegeName = (stProfile?.name || (dbUser?.uid ? dbUser?.name : '') || '').trim();
-    if (collegeName && collegeName !== 'Unknown' && collegeName !== 'Error' && !collegeName.includes('@')) {
+    if (collegeName && !isDummy(collegeName) && !collegeName.includes('@')) {
       return collegeName;
     }
 
     // 3. User didn't provide a custom name and has not synced StudyOS -> blank space!
     return "";
-  }, [user?.fullName, user?.firstName, user?.lastName, user?.primaryEmailAddress?.emailAddress, dbUser?.name, dbUser?.uid, stProfile?.name]);
+  }, [user?.fullName, user?.firstName, user?.lastName, user?.unsafeMetadata?.hasCustomName, user?.primaryEmailAddress?.emailAddress, dbUser?.name, dbUser?.uid, stProfile?.name]);
 
   const colors = useThemeStore((s) => s.colors);
   const currentTheme = useThemeStore((s) => s.theme);
@@ -149,15 +141,17 @@ export default function ProfileScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const rawFirst = (user?.firstName || "").trim();
   const emailPrefix = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
-  const isCustomRawFirst = rawFirst && 
-    (!emailPrefix || rawFirst.toLowerCase() !== emailPrefix) &&
-    rawFirst.toLowerCase() !== 'learner' &&
-    rawFirst.toLowerCase() !== 'student';
+  const isDummyRaw = (s: string) => {
+    const c = s.trim().toLowerCase();
+    return !c || c === '.' || c === '-' || c === 'learner' || c === 'student' || c === 'user' || (emailPrefix && c === emailPrefix);
+  };
+  const isCustomRawFirst = user?.unsafeMetadata?.hasCustomName !== false && !isDummyRaw(rawFirst);
   const safeFirst = isCustomRawFirst ? rawFirst : "";
+  const rawLast = (user?.lastName || "").trim();
   const [firstName, setFirstName] = useState(safeFirst);
   const [lastName, setLastName] = useState(
-    isCustomRawFirst && user?.lastName && user.firstName?.toLowerCase() !== user.lastName.toLowerCase()
-      ? (user.lastName || "")
+    isCustomRawFirst && !isDummyRaw(rawLast) && rawFirst.toLowerCase() !== rawLast.toLowerCase()
+      ? rawLast
       : ""
   );
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
@@ -336,9 +330,15 @@ export default function ProfileScreen() {
 
     setIsUpdatingSettings(true);
     try {
+      const cleanFirst = sanitizeString(firstName.trim());
+      const cleanLast = lastName.trim() ? sanitizeString(lastName.trim()) : ".";
       await user?.update({
-        firstName: sanitizeString(firstName),
-        lastName: lastName ? sanitizeString(lastName) : "",
+        firstName: cleanFirst,
+        lastName: cleanLast,
+        unsafeMetadata: {
+          ...user?.unsafeMetadata,
+          hasCustomName: true,
+        },
       });
 
       setSettingsVisible(false);
@@ -515,9 +515,13 @@ export default function ProfileScreen() {
                 const f = (user?.firstName || "").trim();
                 const l = (user?.lastName || "").trim();
                 const ep = user?.primaryEmailAddress?.emailAddress?.split('@')[0]?.toLowerCase();
-                const isCustom = f && (!ep || f.toLowerCase() !== ep) && f.toLowerCase() !== 'learner' && f.toLowerCase() !== 'student';
-                setFirstName(isCustom ? f : "");
-                setLastName(isCustom && l && f.toLowerCase() !== l.toLowerCase() ? l : "");
+                const isDummy = (s: string) => {
+                  const c = s.trim().toLowerCase();
+                  return !c || c === '.' || c === '-' || c === 'learner' || c === 'student' || c === 'user' || (ep && c === ep);
+                };
+                const hasCustom = user?.unsafeMetadata?.hasCustomName !== false && !isDummy(f);
+                setFirstName(hasCustom ? f : "");
+                setLastName(hasCustom && !isDummy(l) && f.toLowerCase() !== l.toLowerCase() ? l : "");
                 setSettingsVisible(true);
               }}
             >

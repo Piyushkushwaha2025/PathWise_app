@@ -151,18 +151,28 @@ function RootLayoutInner() {
       // Proactively ensure user profile exists in MongoDB Atlas on login / app launch
       const email = user.primaryEmailAddress?.emailAddress;
       const emailPrefix = email ? email.split('@')[0].toLowerCase() : null;
-      const rawName = (user.fullName || user.firstName || '').trim();
+      const rawFirst = (user.firstName || '').trim();
+      const rawLast = (user.lastName || '').trim();
       const stProfile = useStudyOSStore.getState().profile;
       const collegeName = (stProfile?.name || '').trim();
 
-      const isCustomName = rawName && 
-        (!emailPrefix || rawName.toLowerCase() !== emailPrefix) &&
-        rawName.toLowerCase() !== 'learner' &&
-        rawName.toLowerCase() !== 'student';
+      const isDummy = (s: string) => {
+        const c = s.trim().toLowerCase();
+        return !c || c === '.' || c === '-' || c === 'learner' || c === 'student' || c === 'user' || (emailPrefix && c === emailPrefix);
+      };
+
+      const isCustomName = user.unsafeMetadata?.hasCustomName !== false && !isDummy(rawFirst);
+
+      let customName = '';
+      if (isCustomName) {
+        customName = (rawLast && !isDummy(rawLast) && rawFirst.toLowerCase() !== rawLast.toLowerCase())
+          ? `${rawFirst} ${rawLast}`
+          : rawFirst;
+      }
 
       const effectiveName = isCustomName 
-        ? rawName 
-        : (collegeName && collegeName !== 'Unknown' && collegeName !== 'Error' && !collegeName.includes('@') ? collegeName : undefined);
+        ? customName 
+        : (collegeName && !isDummy(collegeName) && !collegeName.includes('@') ? collegeName : undefined);
 
       syncUserWithDB(user.id, {
         name: effectiveName,
