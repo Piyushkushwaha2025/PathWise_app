@@ -402,8 +402,8 @@ const SCRAPE_STEPS = [
       (function waitForData() {
         try {
           var attendanceData = {};
-          var maxWait = 2500;
-          var interval = 35;
+          var maxWait = 1200;
+          var interval = 25;
           var elapsed = 0;
 
           function viewActionTargetOf(row) {
@@ -712,7 +712,6 @@ export default function SyncScreen() {
   const webViewRef = useRef<WebView>(null);
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [showSkipButton, setShowSkipButton] = useState(false);
 
   const currentStep = SCRAPE_STEPS[currentStepIndex];
 
@@ -730,7 +729,6 @@ export default function SyncScreen() {
       finishedRef.current = false;
       stepIndexRef.current = 0;
       setCurrentStepIndex(0);
-      setShowSkipButton(false);
 
       // Pre-load cookies from SecureStore & AsyncStorage
       SecureStore.getItemAsync('culko_cookies').then((c) => {
@@ -1096,7 +1094,7 @@ export default function SyncScreen() {
               semester: resolvedProfile.semester ? String(resolvedProfile.semester) : undefined,
               email: user?.primaryEmailAddress?.emailAddress || undefined,
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 2500))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('DB Sync timeout')), 1200))
           ]);
         } catch (e: any) {
           if (e?.code === 'UID_ALREADY_LINKED' || e?.code === 'ACCOUNT_ALREADY_BOUND') {
@@ -1210,13 +1208,6 @@ export default function SyncScreen() {
     }
   };
 
-  // Skip button appears after 1.5 seconds on any step
-  useEffect(() => {
-    setShowSkipButton(false);
-    const t = setTimeout(() => setShowSkipButton(true), 1500);
-    return () => clearTimeout(t);
-  }, [currentStepIndex]);
-
   // Fast poller script: executes immediately when DOM is populated
   const fastScrapeScript = `
     (function() {
@@ -1250,7 +1241,7 @@ export default function SyncScreen() {
       var poller = setInterval(function() {
         if (hasScraped) { clearInterval(poller); return; }
         checkAndRun();
-      }, 35);
+      }, 20);
 
       setTimeout(function() {
         if (!hasScraped) {
@@ -1259,14 +1250,14 @@ export default function SyncScreen() {
             ${currentStep?.script || ''}
           } catch(err) {}
         }
-      }, 800);
+      }, 500);
     })();
     true;
   `;
 
-  // Per-step safety net: allow 3.2s for attendance/marks AJAX, 1.8s for fast pages
+  // Per-step safety net: allow 1.8s for attendance/marks AJAX, 1.2s for fast pages
   useEffect(() => {
-    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 3200 : 1800;
+    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 1800 : 1200;
     const timer = setTimeout(() => {
       if (!finishedRef.current && currentStep) {
         console.log('[Sync] Step safety timeout advancing:', currentStep.id);
@@ -1283,17 +1274,6 @@ export default function SyncScreen() {
         <Text style={styles.title}>Syncing College Data</Text>
         <Text style={styles.subtitle}>{currentStep?.msg || 'Finishing up...'}</Text>
         <Text style={styles.progressText}>{currentStepIndex + 1} / {SCRAPE_STEPS.length} Steps</Text>
-
-        {showSkipButton && (
-          <TouchableOpacity
-            onPress={() => finalizeSync()}
-            style={{ marginTop: 32, backgroundColor: colors.primary + '20', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 20, borderWidth: 1, borderColor: colors.primary + '60' }}
-          >
-            <Text style={{ color: colors.primary, fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>
-              Continue to Dashboard →
-            </Text>
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* Dedicated Re-mounting Hidden WebView per step (b9dcce2 architecture) */}
@@ -1307,6 +1287,11 @@ export default function SyncScreen() {
               headers: cookieRef.current ? { Cookie: cookieRef.current } : undefined
             }}
             onNavigationStateChange={handleNavigationStateChange}
+            onLoadProgress={(e) => {
+              if (e.nativeEvent.progress >= 0.65) {
+                webViewRef.current?.injectJavaScript(fastScrapeScript);
+              }
+            }}
             onMessage={handleMessage}
             injectedJavaScriptBeforeContentLoaded={fastScrapeScript}
             injectedJavaScript={fastScrapeScript}
@@ -1358,10 +1343,12 @@ const useStyles = (colors: any) => StyleSheet.create({
     color: colors.textDim,
   },
   hiddenWebviewContainer: {
-    width: 0,
-    height: 0,
-    opacity: 0,
+    width: 1,
+    height: 1,
+    opacity: 0.01,
     position: 'absolute',
-    left: -1000,
+    bottom: 0,
+    right: 0,
+    pointerEvents: 'none',
   }
 });

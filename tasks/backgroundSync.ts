@@ -133,10 +133,7 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                       color: '#10b981',
                       channelId: 'pathwise-default-v2',
                     } as any,
-                    trigger: {
-                      channelId: 'pathwise-default-v2',
-                      seconds: 1,
-                    } as any,
+                    trigger: null,
                   });
                   notificationsSent++;
                   hasAttChanges = true;
@@ -150,10 +147,7 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                       color: '#ef4444',
                       channelId: 'pathwise-streak-v2',
                     } as any,
-                    trigger: {
-                      channelId: 'pathwise-streak-v2',
-                      seconds: 1,
-                    } as any,
+                    trigger: null,
                   });
                   notificationsSent++;
                   hasAttChanges = true;
@@ -271,10 +265,7 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                       color: '#f59e0b',
                       channelId: 'pathwise-coin-v2',
                     } as any,
-                    trigger: {
-                      channelId: 'pathwise-coin-v2',
-                      seconds: 1,
-                    } as any,
+                    trigger: null,
                  });
                  notificationsSent++;
                }
@@ -308,10 +299,7 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                     color: '#3b82f6',
                     channelId: 'pathwise-default-v2',
                   } as any,
-                  trigger: {
-                    channelId: 'pathwise-default-v2',
-                    seconds: 1,
-                  } as any,
+                  trigger: null,
                 });
                 notificationsSent++;
               }
@@ -337,10 +325,7 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                     color: '#3b82f6',
                     channelId: 'pathwise-default-v2',
                   } as any,
-                  trigger: {
-                    channelId: 'pathwise-default-v2',
-                    seconds: 1,
-                  } as any,
+                  trigger: null,
                 });
                 notificationsSent++;
               }

@@ -152,9 +152,9 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
             { $set: { emailHash: targetHash, trial_started_at: trialAt, deleted_at: new Date() } },
             { upsert: true, new: true }
           );
-          console.log(`ðŸ”’ Webhook: Saved trial fingerprint for deleted user ${clerkId}`);
+          console.log(`[Webhook] Saved trial fingerprint for deleted user ${clerkId}`);
         } catch (fpErr) {
-          console.warn(`âš ï¸ Could not save trial fingerprint:`, fpErr.message);
+          console.warn(`[Webhook] Could not save trial fingerprint:`, fpErr.message);
         }
       }
 
@@ -171,7 +171,7 @@ app.post('/api/webhooks/clerk', express.raw({ type: 'application/json' }), async
             await b2.send(new DeleteObjectCommand({ Bucket: B2_BUCKET, Key: assignment.pdf_key }));
             deletedPdfs++;
           } catch (s3err) {
-            console.warn(`âš ï¸ Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
+            console.warn(`[Webhook] Could not delete B2 PDF ${assignment.pdf_key}:`, s3err.message);
           }
         }
       }
@@ -831,8 +831,8 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
           to: s.expoPushToken,
           sound: 'ting.mp3',
           channelId: 'pathwise-default-v2',
-          title: 'ðŸ“‹ New Assignment Posted!',
-          body: `${title} (${subject}) â€” Due: ${new Date(dueDate).toLocaleDateString()}`,
+          title: '📝 New Assignment Posted!',
+          body: `${title} (${subject}) — Due: ${new Date(dueDate).toLocaleDateString()}`,
           data: { assignmentId: assignment._id.toString(), type: 'assignment' },
           priority: 'high',
         }));
@@ -1015,7 +1015,7 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
           to: s.expoPushToken,
           sound: 'default',
           channelId: 'pathwise-default-v2',
-          title: `ðŸ“¢ CR Announcement: ${title}`,
+          title: `📢 CR Announcement: ${title}`,
           body: message.length > 120 ? `${message.substring(0, 117)}...` : message,
           data: { notificationId: notification._id.toString(), type: 'cr_notification' },
           priority: 'high',
