@@ -1,10 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator, Alert, Platform,
   KeyboardAvoidingView, Modal, Animated
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@clerk/clerk-expo';
 import * as DocumentPicker from 'expo-document-picker';
@@ -55,6 +55,28 @@ export default function CreateAssignmentScreen() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  // Clear all form inputs helper
+  const resetForm = useCallback(() => {
+    setTitle('');
+    setSubject('');
+    setDescription('');
+    setDueDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+    setPdfFile(null);
+    setFileError('');
+    setTitleError('');
+    setSubjectError('');
+    setShowDatePicker(false);
+    setUploading(false);
+    setSaving(false);
+  }, []);
+
+  // Ensure fields are fresh and cleared every time Post Assignment screen is opened
+  useFocusEffect(
+    useCallback(() => {
+      resetForm();
+    }, [resetForm])
+  );
 
   // Quick subject suggestions derived from user's subjects
   const quickSubjects = useMemo(() => {
@@ -183,7 +205,8 @@ export default function CreateAssignmentScreen() {
       sectionCode: activeSection,
     });
 
-    // Immediately return back to the assignments list
+    // Immediately reset form inputs and return back to the assignments list
+    resetForm();
     router.push('/studyos/assignments' as any);
   };
 
