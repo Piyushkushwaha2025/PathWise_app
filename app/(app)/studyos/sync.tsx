@@ -182,120 +182,148 @@ const SCRAPE_STEPS = [
     url: 'https://student.culko.in/frmMyCourse.aspx',
     msg: 'Extracting Subjects & Section...',
     script: `
-      (function() {
-        try {
-          var subjects = [];
-          var section = '';
+      (function waitForSubjects() {
+        var elapsed = 0;
+        var interval = 40;
+        var maxWait = 3500;
 
-          var headerCells = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr:first-child th, #ContentPlaceHolder1_gvMyCourses tr:first-child td');
-          var sectionIdx = -1;
-          var creditIdx = -1;
-          for (var h = 0; h < headerCells.length; h++) {
-             var hText = (headerCells[h].innerText || '').toLowerCase().trim();
-             if (hText.includes('section') || hText === 'sec') {
-                sectionIdx = h;
-             }
-             if (hText.includes('credit') || hText === 'cr' || hText === 'cr.') {
-                creditIdx = h;
-             }
-          }
+        function tryScrape() {
+          try {
+            var subjects = [];
+            var section = '';
 
-          var courseTable = document.querySelector('#ContentPlaceHolder1_gvMyCourses, table[id*="gvMyCourse"], table[id*="Course"], table[id*="course"]');
-          var rows = courseTable ? courseTable.querySelectorAll('tr') : document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr');
-          if (!rows || rows.length < 2) {
-             var allTables = document.querySelectorAll('table');
-             for (var tb = 0; tb < allTables.length; tb++) {
-                var tRows = allTables[tb].querySelectorAll('tr');
-                if (tRows.length >= 2) {
-                   var fRowTxt = (tRows[0].innerText || '').toLowerCase();
-                   if (fRowTxt.includes('course') || fRowTxt.includes('subject') || fRowTxt.includes('code')) {
-                      rows = tRows;
-                      break;
-                   }
-                }
-             }
-          }
-
-          for (var i = 1; i < rows.length; i++) {
-            var cells = rows[i].querySelectorAll('td');
-            if (cells.length < 2) continue;
-
-            var code = rows[i].querySelector('span[id*="lblCourseCode"], span[id*="CourseCode"], [id*="CourseCode"]')?.innerText.trim();
-            var name = rows[i].querySelector('span[id*="lblCourseName"], span[id*="CourseName"], span[id*="lblTitle"], [id*="CourseName"], [id*="Subject"]')?.innerText.trim();
-            var type = rows[i].querySelector('span[id*="lblType"], [id*="Type"]')?.innerText.trim();
-            
-            if (!code) {
-              for (var c = 0; c < cells.length; c++) {
-                var cTxt = cells[c].innerText.trim();
-                var m = cTxt.match(/^[0-9A-Z]{2,6}[-_][0-9]{3,4}[A-Z]?$/i);
-                if (m) { code = m[0]; break; }
-              }
-            }
-
-            // Fallback for name if span was not found: scan cells for course title text
-            if (!name) {
-              for (var cn = 0; cn < cells.length; cn++) {
-                var cellTxt = cells[cn].innerText.trim();
-                if (cellTxt && cellTxt !== code && !/^\d+$/.test(cellTxt) && !['theory', 'practical', 'core', 'elective'].includes(cellTxt.toLowerCase()) && cellTxt.length > 2) {
-                  name = cellTxt;
-                  break;
-                }
-              }
-            }
-
-            if (!section && sectionIdx !== -1 && cells.length > sectionIdx) {
-               var secVal = cells[sectionIdx].innerText.trim();
-               if (secVal && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(secVal)) {
-                 section = secVal;
+            var headerCells = document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr:first-child th, #ContentPlaceHolder1_gvMyCourses tr:first-child td');
+            var sectionIdx = -1;
+            var creditIdx = -1;
+            for (var h = 0; h < headerCells.length; h++) {
+               var hText = (headerCells[h].innerText || '').toLowerCase().trim();
+               if (hText.includes('section') || hText === 'sec') {
+                  sectionIdx = h;
+               }
+               if (hText.includes('credit') || hText === 'cr' || hText === 'cr.') {
+                  creditIdx = h;
                }
             }
 
-            var credits = '';
-            var creditSpan = rows[i].querySelector('span[id*="lblCredit"], [id*="Credit"]');
-            if (creditSpan && creditSpan.innerText.trim()) {
-              var sVal = creditSpan.innerText.trim();
-              if (!isNaN(parseFloat(sVal))) credits = sVal;
-            } else if (creditIdx !== -1 && cells.length > creditIdx) {
-              var cVal = cells[creditIdx].innerText.trim();
-              if (cVal && !isNaN(parseFloat(cVal))) {
-                credits = cVal;
+            var courseTable = document.querySelector('#ContentPlaceHolder1_gvMyCourses, table[id*="gvMyCourse"], table[id*="Course"], table[id*="course"]');
+            var rows = courseTable ? courseTable.querySelectorAll('tr') : document.querySelectorAll('#ContentPlaceHolder1_gvMyCourses tr');
+            if (!rows || rows.length < 2) {
+               var allTables = document.querySelectorAll('table');
+               for (var tb = 0; tb < allTables.length; tb++) {
+                  var tRows = allTables[tb].querySelectorAll('tr');
+                  if (tRows.length >= 2) {
+                     var fRowTxt = (tRows[0].innerText || '').toLowerCase();
+                     if (fRowTxt.includes('course') || fRowTxt.includes('subject') || fRowTxt.includes('code')) {
+                        rows = tRows;
+                        break;
+                     }
+                  }
+               }
+            }
+
+            for (var i = 1; i < rows.length; i++) {
+              var cells = rows[i].querySelectorAll('td');
+              if (cells.length < 2) continue;
+
+              var code = rows[i].querySelector('span[id*="lblCourseCode"], span[id*="CourseCode"], [id*="CourseCode"]')?.innerText.trim();
+              var name = rows[i].querySelector('span[id*="lblCourseName"], span[id*="CourseName"], span[id*="lblTitle"], [id*="CourseName"], [id*="Subject"]')?.innerText.trim();
+              var type = rows[i].querySelector('span[id*="lblType"], [id*="Type"]')?.innerText.trim();
+              
+              if (!code) {
+                for (var c = 0; c < cells.length; c++) {
+                  var cTxt = cells[c].innerText.trim();
+                  var m = cTxt.match(/^[0-9A-Z]{2,6}[-_][0-9]{3,4}[A-Z]?$/i);
+                  if (m) { code = m[0]; break; }
+                }
+              }
+
+              // Fallback for name if span was not found: scan cells for course title text
+              if (!name) {
+                for (var cn = 0; cn < cells.length; cn++) {
+                  var cellTxt = cells[cn].innerText.trim();
+                  if (cellTxt && cellTxt !== code && !/^\d+$/.test(cellTxt) && !['theory', 'practical', 'core', 'elective'].includes(cellTxt.toLowerCase()) && cellTxt.length > 2) {
+                    name = cellTxt;
+                    break;
+                  }
+                }
+              }
+
+              if (!section && sectionIdx !== -1 && cells.length > sectionIdx) {
+                 var secVal = cells[sectionIdx].innerText.trim();
+                 if (secVal && !/^[0-9A-Z]{2,6}-\d{3,4}$/i.test(secVal)) {
+                   section = secVal;
+                 }
+              }
+
+              var credits = '';
+              var creditSpan = rows[i].querySelector('span[id*="lblCredit"], [id*="Credit"]');
+              if (creditSpan && creditSpan.innerText.trim()) {
+                var sVal = creditSpan.innerText.trim();
+                if (!isNaN(parseFloat(sVal))) credits = sVal;
+              } else if (creditIdx !== -1 && cells.length > creditIdx) {
+                var cVal = cells[creditIdx].innerText.trim();
+                if (cVal && !isNaN(parseFloat(cVal))) {
+                  credits = cVal;
+                }
+              }
+
+              if (code) {
+                name = name || code;
+                var fullSubjName = name;
+                if (type && !fullSubjName.toLowerCase().includes(type.toLowerCase())) {
+                  fullSubjName += ' (' + type + ')';
+                }
+                subjects.push({ 
+                   code: code, 
+                   name: fullSubjName, 
+                   credits: credits, 
+                   totalClasses: 0, 
+                   attendedClasses: 0, 
+                   attendancePercentage: 0 
+                });
               }
             }
 
-            if (code) {
-              name = name || code;
-              var fullSubjName = name;
-              if (type && !fullSubjName.toLowerCase().includes(type.toLowerCase())) {
-                fullSubjName += ' (' + type + ')';
-              }
-              subjects.push({ 
-                 code: code, 
-                 name: fullSubjName, 
-                 credits: credits, 
-                 totalClasses: 0, 
-                 attendedClasses: 0, 
-                 attendancePercentage: 0 
+            try {
+              var attA2 = Array.from(document.querySelectorAll('a')).find(function(a) {
+                return a.href && (a.href.toLowerCase().includes('attendancesummary') || a.innerText.toLowerCase().includes('attendance'));
               });
+              if (attA2 && attA2.href) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DYNAMIC_URL', step: 'attendance', url: attA2.href }));
+              }
+            } catch(e){}
+
+            if (subjects.length > 0) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SCRAPE_RESULT',
+                step: 'subjects',
+                data: { list: subjects, section: section }
+              }));
+              return;
             }
+
+            if (elapsed < maxWait) {
+              elapsed += interval;
+              setTimeout(tryScrape, interval);
+              return;
+            }
+
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'SCRAPE_RESULT',
+              step: 'subjects',
+              data: { list: subjects, section: section }
+            }));
+          } catch(e) {
+            if (elapsed < maxWait) {
+              elapsed += interval;
+              setTimeout(tryScrape, interval);
+              return;
+            }
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'subjects', data: { list: [], section: '' } }));
           }
-
-          try {
-            var attA2 = Array.from(document.querySelectorAll('a')).find(function(a) {
-              return a.href && (a.href.toLowerCase().includes('attendancesummary') || a.innerText.toLowerCase().includes('attendance'));
-            });
-            if (attA2 && attA2.href) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'DYNAMIC_URL', step: 'attendance', url: attA2.href }));
-            }
-          } catch(e){}
-
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'SCRAPE_RESULT',
-            step: 'subjects',
-            data: { list: subjects, section: section }
-          }));
-        } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'subjects', data: { list: [], section: '' } }));
         }
+
+        tryScrape();
       })();
       true;
     `
@@ -305,91 +333,121 @@ const SCRAPE_STEPS = [
     url: 'https://student.culko.in/frmMyTimeTable.aspx',
     msg: 'Extracting Timetable...',
     script: `
-      (function() {
-        try {
-          var timetable = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] };
-          var daysMap = [null, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      (function waitForTimetable() {
+        var elapsed = 0;
+        var interval = 40;
+        var maxWait = 3500;
 
-          var tableSelectors = [
-            '#ContentPlaceHolder1_grdMain tr',
-            'table[id*="grdMain"] tr',
-            'table[id*="TimeTable"] tr',
-            'table[id*="tblTimeTable"] tr',
-            '.table-responsive table tr',
-            'table.GridView tr',
-            'table tr'
-          ];
-          
-          var rows = [];
-          for (var s = 0; s < tableSelectors.length; s++) {
-            var found = document.querySelectorAll(tableSelectors[s]);
-            if (found.length > 2) { rows = Array.from(found); break; }
-          }
+        function tryScrape() {
+          try {
+            var timetable = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: [] };
+            var daysMap = [null, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-          for (var i = 1; i < rows.length; i++) {
-            var cells = rows[i].querySelectorAll('td');
-            if (cells.length >= 7) {
-              var time = (cells[0].innerText || '').trim();
-              for (var j = 1; j < cells.length && j < daysMap.length; j++) {
-                 var text = (cells[j].innerText || '').trim();
-                 if (text && text.length > 3 && text !== '\\u00a0' && text !== '-') {
-                   var parts = text.split(/\\bBy\\b/);
-                   var leftPart = parts[0] || '';
-                   var rightPart = parts[1] || '';
-                   
-                   var leftSplit = leftPart.split(':');
-                   var subjectName = leftSplit[0] ? leftSplit[0].trim() : '';
-                   if (leftSplit[1] && leftSplit[1].trim() === 'P') subjectName += ' (Lab)';
-                   var group = leftSplit[3] ? leftSplit[3].trim() : '';
-                   
-                   var rightSplit = rightPart.split(/\\bat\\b/);
-                   var teacher = rightSplit[0] ? rightSplit[0].trim() : '';
-                   var room = rightSplit[1] ? rightSplit[1].trim() : '';
-                   
-                   var dayName = daysMap[j];
-                   if (dayName && timetable[dayName]) {
-                      timetable[dayName].push({
-                         subjectName: subjectName,
-                         teacher: teacher,
-                         time: time,
-                         room: room,
-                         group: group
-                      });
+            var tableSelectors = [
+              '#ContentPlaceHolder1_grdMain tr',
+              'table[id*="grdMain"] tr',
+              'table[id*="TimeTable"] tr',
+              'table[id*="tblTimeTable"] tr',
+              '.table-responsive table tr',
+              'table.GridView tr',
+              'table tr'
+            ];
+            
+            var rows = [];
+            for (var s = 0; s < tableSelectors.length; s++) {
+              var found = document.querySelectorAll(tableSelectors[s]);
+              if (found.length > 2) { rows = Array.from(found); break; }
+            }
+
+            for (var i = 1; i < rows.length; i++) {
+              var cells = rows[i].querySelectorAll('td');
+              if (cells.length >= 7) {
+                var time = (cells[0].innerText || '').trim();
+                for (var j = 1; j < cells.length && j < daysMap.length; j++) {
+                   var text = (cells[j].innerText || '').trim();
+                   if (text && text.length > 3 && text !== '\\u00a0' && text !== '-') {
+                     var parts = text.split(/\\bBy\\b/);
+                     var leftPart = parts[0] || '';
+                     var rightPart = parts[1] || '';
+                     
+                     var leftSplit = leftPart.split(':');
+                     var subjectName = leftSplit[0] ? leftSplit[0].trim() : '';
+                     if (leftSplit[1] && leftSplit[1].trim() === 'P') subjectName += ' (Lab)';
+                     var group = leftSplit[3] ? leftSplit[3].trim() : '';
+                     
+                     var rightSplit = rightPart.split(/\\bat\\b/);
+                     var teacher = rightSplit[0] ? rightSplit[0].trim() : '';
+                     var room = rightSplit[1] ? rightSplit[1].trim() : '';
+                     
+                     var dayName = daysMap[j];
+                     if (dayName && timetable[dayName]) {
+                        timetable[dayName].push({
+                           subjectName: subjectName,
+                           teacher: teacher,
+                           time: time,
+                           room: room,
+                           group: group
+                        });
+                     }
                    }
-                 }
+                }
               }
             }
-          }
 
-          // Detect Section from page heading (e.g. "Class / Section : 25CSH-1" or "25BCS-3")
-          var detectedSection = '';
-          var headings = document.querySelectorAll('h1, h2, h3, h4, label, span, td');
-          for (var h = 0; h < headings.length; h++) {
-            var ht = headings[h].innerText || '';
-            var secMatch = ht.match(/(?:section|sec|class\\/sec|class\\s*\\/\\s*section)\\s*[:\\-\\s]\\s*([0-9A-Z\\-]+)/i);
-            if (secMatch) {
-              var cand = secMatch[1].trim();
-              if (!/^\\d{3,4}$/.test(cand) && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(cand)) {
-                detectedSection = cand;
+            // Detect Section from page heading (e.g. "Class / Section : 25CSH-1" or "25BCS-3")
+            var detectedSection = '';
+            var headings = document.querySelectorAll('h1, h2, h3, h4, label, span, td');
+            for (var h = 0; h < headings.length; h++) {
+              var ht = headings[h].innerText || '';
+              var secMatch = ht.match(/(?:section|sec|class\\/sec|class\\s*\\/\\s*section)\\s*[:\\-\\s]\\s*([0-9A-Z\\-]+)/i);
+              if (secMatch) {
+                var cand = secMatch[1].trim();
+                if (!/^\\d{3,4}$/.test(cand) && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(cand)) {
+                  detectedSection = cand;
+                  break;
+                }
+              }
+              var m = ht.match(/\\b(\\d{2}[A-Z]{2,5}-[A-Z]{0,6}-?\\d{1,2})\\b/);
+              if (m && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(m[1])) {
+                detectedSection = m[1];
                 break;
               }
             }
-            var m = ht.match(/\\b(\\d{2}[A-Z]{2,5}-[A-Z]{0,6}-?\\d{1,2})\\b/);
-            if (m && !/^[0-9A-Z]{2,6}-\\d{3,4}$/i.test(m[1])) {
-              detectedSection = m[1];
-              break;
-            }
-          }
 
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'SCRAPE_RESULT',
-            step: 'timetable',
-            data: timetable,
-            section: detectedSection
-          }));
-        } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: null, error: e.message }));
+            var hasSlots = Object.values(timetable).some(function(day) { return Array.isArray(day) && day.length > 0; });
+            if (hasSlots) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'SCRAPE_RESULT',
+                step: 'timetable',
+                data: timetable,
+                section: detectedSection
+              }));
+              return;
+            }
+
+            if (elapsed < maxWait) {
+              elapsed += interval;
+              setTimeout(tryScrape, interval);
+              return;
+            }
+
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'SCRAPE_RESULT',
+              step: 'timetable',
+              data: timetable,
+              section: detectedSection
+            }));
+          } catch(e) {
+            if (elapsed < maxWait) {
+              elapsed += interval;
+              setTimeout(tryScrape, interval);
+              return;
+            }
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'timetable', data: null, error: e.message }));
+          }
         }
+
+        tryScrape();
       })();
       true;
     `
@@ -402,7 +460,7 @@ const SCRAPE_STEPS = [
       (function waitForData() {
         try {
           var attendanceData = {};
-          var maxWait = 2500;
+          var maxWait = 3500;
           var interval = 35;
           var elapsed = 0;
 
@@ -414,6 +472,8 @@ const SCRAPE_STEPS = [
               if (hiddenInp && hiddenInp.value) {
                 return hiddenInp.value + "|" + chkVal;
               }
+              var docUid = (document.querySelector('#ContentPlaceHolder1_hfUID, #hfUID, #hdnUID, input[id*="UID" i]') || {}).value;
+              if (docUid) return docUid + "|" + chkVal;
             }
             if (viewBtn) {
               if (viewBtn.name) return viewBtn.name;
@@ -587,114 +647,138 @@ const SCRAPE_STEPS = [
     url: 'https://student.culko.in/frmStudentMarksView.aspx',
     msg: 'Extracting Marks...',
     script: `
-      (function() {
-        try {
-          var marksData = [];
-          
-          // 1. Accordion style
-          var headers = document.querySelectorAll('#accordion h3, #accordion h2, #accordion h4, .ui-accordion-header, h3, h4');
-          for (var i = 0; i < headers.length; i++) {
-            var hText = headers[i].innerText ? headers[i].innerText.trim() : '';
-            if (!hText || hText.length < 3) continue;
+      (function waitForMarks() {
+        var elapsed = 0;
+        var interval = 40;
+        var maxWait = 3500;
 
-            var next = headers[i].nextElementSibling;
-            var tbl = null;
-            while (next && next.tagName !== 'H3' && next.tagName !== 'H2' && next.tagName !== 'H4') {
-              if (next.tagName === 'TABLE') { tbl = next; break; }
-              var foundTbl = next.querySelector('table');
-              if (foundTbl) { tbl = foundTbl; break; }
-              next = next.nextElementSibling;
+        function tryScrape() {
+          try {
+            var marksData = [];
+            
+            // 1. Accordion style
+            var headers = document.querySelectorAll('#accordion h3, #accordion h2, #accordion h4, .ui-accordion-header, h3, h4');
+            for (var i = 0; i < headers.length; i++) {
+              var hText = headers[i].innerText ? headers[i].innerText.trim() : '';
+              if (!hText || hText.length < 3) continue;
+
+              var next = headers[i].nextElementSibling;
+              var tbl = null;
+              while (next && next.tagName !== 'H3' && next.tagName !== 'H2' && next.tagName !== 'H4') {
+                if (next.tagName === 'TABLE') { tbl = next; break; }
+                var foundTbl = next.querySelector('table');
+                if (foundTbl) { tbl = foundTbl; break; }
+                next = next.nextElementSibling;
+              }
+
+              if (tbl) {
+                var codeMatch = hText.match(/\\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\\)/i);
+                var code = codeMatch ? codeMatch[1] : '';
+                var sName = hText.replace(/\\s*\\([0-9A-Z]{2,8}[-_]?[0-9]{3}\\)/i, '').trim() || hText;
+
+                var tRows = tbl.querySelectorAll('tr');
+                var exams = [];
+                var mstMarks = 'N/A';
+                var practicalMarks = 'N/A';
+                var totalObtained = 0;
+                var totalMax = 0;
+
+                for (var r = 0; r < tRows.length; r++) {
+                  if (tRows[r].querySelector('th')) continue;
+                  var cells = tRows[r].querySelectorAll('td');
+                  if (cells.length >= 3) {
+                    var examDesc = cells[0].innerText.trim();
+                    var maxS = cells[1].innerText.trim();
+                    var obtS = cells[2].innerText.trim();
+                    if (examDesc && maxS && obtS) {
+                      exams.push({ name: examDesc, max: maxS, obtained: obtS });
+                      var mVal = parseFloat(maxS);
+                      var oVal = parseFloat(obtS);
+                      if (!isNaN(mVal) && !isNaN(oVal)) {
+                        totalObtained += oVal;
+                        totalMax += mVal;
+                        var lowD = examDesc.toLowerCase();
+                        if (lowD.includes('mid') || lowD.includes('mst')) {
+                          mstMarks = obtS + '/' + maxS;
+                        } else if (lowD.includes('prac') || lowD.includes('lab')) {
+                          practicalMarks = obtS + '/' + maxS;
+                        }
+                      }
+                    }
+                  }
+                }
+
+                if (exams.length > 0) {
+                  if (mstMarks === 'N/A' && exams.length > 0) {
+                    mstMarks = exams[0].obtained + '/' + exams[0].max;
+                  }
+                  marksData.push({
+                    code: code,
+                    subjectName: sName,
+                    fullName: hText,
+                    exams: exams,
+                    mstMarks: mstMarks,
+                    practicalMarks: practicalMarks,
+                    totalObtained: totalObtained,
+                    totalMax: totalMax
+                  });
+                }
+              }
             }
 
-            if (tbl) {
-              var codeMatch = hText.match(/\\(([0-9A-Z]{2,8}[-_]?[0-9]{3})\\)/i);
-              var code = codeMatch ? codeMatch[1] : '';
-              var sName = hText.replace(/\\s*\\([0-9A-Z]{2,8}[-_]?[0-9]{3}\\)/i, '').trim() || hText;
+            // 2. Fallback table rows
+            if (marksData.length === 0) {
+              var tables = document.querySelectorAll('table');
+              for (var t = 0; t < tables.length; t++) {
+                var rows = tables[t].querySelectorAll('tr');
+                if (rows.length < 2) continue;
+                var headCells = Array.from(rows[0].querySelectorAll('th, td')).map(function(c){ return c.innerText.trim().toLowerCase(); });
+                var subIdx = headCells.findIndex(function(h){ return h.includes('subject') || h.includes('course'); });
+                var mstIdx = headCells.findIndex(function(h){ return h.includes('mst') || h.includes('mid'); });
+                var pracIdx = headCells.findIndex(function(h){ return h.includes('prac') || h.includes('lab'); });
 
-              var tRows = tbl.querySelectorAll('tr');
-              var exams = [];
-              var mstMarks = 'N/A';
-              var practicalMarks = 'N/A';
-              var totalObtained = 0;
-              var totalMax = 0;
-
-              for (var r = 0; r < tRows.length; r++) {
-                if (tRows[r].querySelector('th')) continue;
-                var cells = tRows[r].querySelectorAll('td');
-                if (cells.length >= 3) {
-                  var examDesc = cells[0].innerText.trim();
-                  var maxS = cells[1].innerText.trim();
-                  var obtS = cells[2].innerText.trim();
-                  if (examDesc && maxS && obtS) {
-                    exams.push({ name: examDesc, max: maxS, obtained: obtS });
-                    var mVal = parseFloat(maxS);
-                    var oVal = parseFloat(obtS);
-                    if (!isNaN(mVal) && !isNaN(oVal)) {
-                      totalObtained += oVal;
-                      totalMax += mVal;
-                      var lowD = examDesc.toLowerCase();
-                      if (lowD.includes('mid') || lowD.includes('mst')) {
-                        mstMarks = obtS + '/' + maxS;
-                      } else if (lowD.includes('prac') || lowD.includes('lab')) {
-                        practicalMarks = obtS + '/' + maxS;
+                if (subIdx !== -1 && (mstIdx !== -1 || pracIdx !== -1)) {
+                  for (var r = 1; r < rows.length; r++) {
+                    var tds = rows[r].querySelectorAll('td');
+                    if (tds.length > subIdx) {
+                      var subN = tds[subIdx].innerText.trim();
+                      if (subN && subN !== '' && subN !== '20') {
+                        marksData.push({
+                          subjectName: subN,
+                          mstMarks: mstIdx !== -1 && tds.length > mstIdx ? tds[mstIdx].innerText.trim() : 'N/A',
+                          practicalMarks: pracIdx !== -1 && tds.length > pracIdx ? tds[pracIdx].innerText.trim() : 'N/A',
+                          exams: []
+                        });
                       }
                     }
                   }
                 }
               }
-
-              if (exams.length > 0) {
-                if (mstMarks === 'N/A' && exams.length > 0) {
-                  mstMarks = exams[0].obtained + '/' + exams[0].max;
-                }
-                marksData.push({
-                  code: code,
-                  subjectName: sName,
-                  fullName: hText,
-                  exams: exams,
-                  mstMarks: mstMarks,
-                  practicalMarks: practicalMarks,
-                  totalObtained: totalObtained,
-                  totalMax: totalMax
-                });
-              }
             }
-          }
 
-          // 2. Fallback table rows
-          if (marksData.length === 0) {
-            var tables = document.querySelectorAll('table');
-            for (var t = 0; t < tables.length; t++) {
-              var rows = tables[t].querySelectorAll('tr');
-              if (rows.length < 2) continue;
-              var headCells = Array.from(rows[0].querySelectorAll('th, td')).map(function(c){ return c.innerText.trim().toLowerCase(); });
-              var subIdx = headCells.findIndex(function(h){ return h.includes('subject') || h.includes('course'); });
-              var mstIdx = headCells.findIndex(function(h){ return h.includes('mst') || h.includes('mid'); });
-              var pracIdx = headCells.findIndex(function(h){ return h.includes('prac') || h.includes('lab'); });
-
-              if (subIdx !== -1 && (mstIdx !== -1 || pracIdx !== -1)) {
-                for (var r = 1; r < rows.length; r++) {
-                  var tds = rows[r].querySelectorAll('td');
-                  if (tds.length > subIdx) {
-                    var subN = tds[subIdx].innerText.trim();
-                    if (subN && subN !== '' && subN !== '20') {
-                      marksData.push({
-                        subjectName: subN,
-                        mstMarks: mstIdx !== -1 && tds.length > mstIdx ? tds[mstIdx].innerText.trim() : 'N/A',
-                        practicalMarks: pracIdx !== -1 && tds.length > pracIdx ? tds[pracIdx].innerText.trim() : 'N/A',
-                        exams: []
-                      });
-                    }
-                  }
-                }
-              }
+            if (marksData.length > 0) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
+              return;
             }
-          }
 
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
-        } catch(e) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: [] }));
+            if (elapsed < maxWait) {
+              elapsed += interval;
+              setTimeout(tryScrape, interval);
+              return;
+            }
+
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: marksData }));
+          } catch(e) {
+            if (elapsed < maxWait) {
+              elapsed += interval;
+              setTimeout(tryScrape, interval);
+              return;
+            }
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCRAPE_RESULT', step: 'marks', data: [] }));
+          }
         }
+
+        tryScrape();
       })();
       true;
     `
@@ -1209,7 +1293,7 @@ export default function SyncScreen() {
   };
 
   
-  // Fast poller script: executes immediately when DOM is populated
+  // Fast poller script: executes when DOM is interactive/complete
   const fastScrapeScript = `
     (function() {
       var hasScraped = false;
@@ -1222,12 +1306,7 @@ export default function SyncScreen() {
 
         var hasDomContent = document.body && (
           document.readyState === 'complete' ||
-          document.readyState === 'interactive' ||
-          document.querySelector('table') || 
-          document.querySelector('#SortTable') || 
-          document.querySelector('#ContentPlaceHolder1_gvMyCourses') ||
-          document.querySelector('#accordion') ||
-          document.querySelectorAll('td, span').length > 5
+          document.readyState === 'interactive'
         );
 
         if (hasDomContent) {
@@ -1242,7 +1321,7 @@ export default function SyncScreen() {
       var poller = setInterval(function() {
         if (hasScraped) { clearInterval(poller); return; }
         checkAndRun();
-      }, 35);
+      }, 50);
 
       setTimeout(function() {
         if (!hasScraped) {
@@ -1251,14 +1330,14 @@ export default function SyncScreen() {
             ${currentStep?.script || ''}
           } catch(err) {}
         }
-      }, 800);
+      }, 1500);
     })();
     true;
   `;
 
-  // Per-step safety net: allow 3.2s for attendance/marks AJAX, 1.8s for fast pages
+  // Per-step safety net: allow 4.5s for attendance/marks AJAX, 3.5s for fast pages
   useEffect(() => {
-    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 3200 : 1800;
+    const timeoutMs = (currentStep?.id === 'attendance' || currentStep?.id === 'marks') ? 4500 : 3500;
     const timer = setTimeout(() => {
       if (!finishedRef.current && currentStep) {
         console.log('[Sync] Step safety timeout advancing:', currentStep.id);
@@ -1291,7 +1370,6 @@ export default function SyncScreen() {
             }}
             onNavigationStateChange={handleNavigationStateChange}
             onMessage={handleMessage}
-            injectedJavaScriptBeforeContentLoaded={fastScrapeScript}
             injectedJavaScript={fastScrapeScript}
             javaScriptEnabled={true}
             domStorageEnabled={true}

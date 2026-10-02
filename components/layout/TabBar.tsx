@@ -60,6 +60,10 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     return (FIXED_ORDER[nameA] ?? 99) - (FIXED_ORDER[nameB] ?? 99);
   });
 
+  useEffect(() => {
+    DeviceEventEmitter.emit('tab_switch_end');
+  }, [state.index]);
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -87,6 +91,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             canPreventDefault: true,
           });
           if (!isFocused && !event.defaultPrevented) {
+            DeviceEventEmitter.emit('tab_switch_start');
             navigation.navigate(route.name);
           }
           try {

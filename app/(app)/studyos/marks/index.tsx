@@ -224,7 +224,7 @@ export default function MarksScreen() {
     }, [])
   );
   const [resultData, setResultData] = useState<{sgpa: string, subjects: any[]} | null>(null);
-  const [isLoading, setIsLoading] = useState(semesterOptionsCache?.length ? false : true);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Semester picker list: aligned with real portal profile semester
   const derivedSemesters = useMemo(
@@ -251,10 +251,7 @@ export default function MarksScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (!didMountRef.current) {
-        didMountRef.current = true;
-        return;
-      }
+      didMountRef.current = true;
       setIsLoading(false); 
       setRefreshing(false);
     }, [])
@@ -793,7 +790,7 @@ export default function MarksScreen() {
   injectAndScrapeMarksRef.current = () => {
     if (cookieScriptRef.current) {
       marksWebViewRef.current?.injectJavaScript(cookieScriptRef.current);
-      setTimeout(() => marksWebViewRef.current?.injectJavaScript(extractMarksScript), 500);
+      setTimeout(() => marksWebViewRef.current?.injectJavaScript(extractMarksScript), 80);
     } else {
       marksWebViewRef.current?.injectJavaScript(extractMarksScript);
     }
@@ -994,7 +991,7 @@ export default function MarksScreen() {
         setRefreshing(false);
         return;
       }
-      setTimeout(() => injectAndScrapeRef.current(), 1500);
+      setTimeout(() => injectAndScrapeRef.current(), 100);
     }
   };
 
@@ -1014,7 +1011,7 @@ export default function MarksScreen() {
         useStudySessionStore.getState().setSessionExpired(true);
         return;
       }
-      setTimeout(() => injectAndScrapeMarksRef.current(), 1500);
+      setTimeout(() => injectAndScrapeMarksRef.current(), 100);
     }
   };
 
@@ -1379,17 +1376,14 @@ export default function MarksScreen() {
           <TouchableOpacity 
             style={styles.semesterBtn} 
             onPress={() => {
-              if (isLoading && semesterOptions.length === 0) return;
               try { Haptics.selectionAsync(); } catch {}
               setIsModalVisible(true);
             }}
-            activeOpacity={isLoading && semesterOptions.length === 0 ? 1 : 0.75}
+            activeOpacity={0.75}
           >
             <Ionicons name="trophy-outline" size={14} color={colors.primary} />
             <Text style={styles.semesterBtnText} numberOfLines={1}>
-              {(isLoading && semesterOptions.length === 0) 
-                ? 'Loading...' 
-                : (selectedSemLabel ? selectedSemLabel : (derivedSemesters[derivedSemesters.length - 1]?.label || 'Result'))}
+              {selectedSemLabel ? selectedSemLabel : (derivedSemesters[derivedSemesters.length - 1]?.label || 'Result')}
             </Text>
             <Ionicons name="chevron-down" size={13} color={colors.primary} />
           </TouchableOpacity>

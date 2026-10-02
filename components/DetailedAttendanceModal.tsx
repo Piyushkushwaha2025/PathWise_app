@@ -1,5 +1,5 @@
-﻿import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler, InteractionManager } from 'react-native';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, ScrollView, RefreshControl, TextInput, BackHandler, InteractionManager, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeStore } from '../store/useThemeStore';
@@ -1400,54 +1400,17 @@ export function DetailedAttendanceModal({
           </View>
         )}
 
-        {loading ? (
-          <View style={styles.centerContent}>
-            <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={[styles.loadingText, { color: colors.textMuted }]}>
-              {hasInjectedPostback.current ? 'Extracting records...' : 'Fetching details from CUIMS...'}
-            </Text>
-          </View>
-        ) : errorMsg ? (
-          <ScrollView contentContainerStyle={{ padding: 24, alignItems: 'center' }}>
-            <Ionicons name="alert-circle-outline" size={48} color="#ef4444" style={{ alignSelf: 'center' }} />
-            <Text style={[styles.errorText, { color: colors.text, marginTop: 12, textAlign: 'center', fontSize: 13, lineHeight: 18 }]}>
-              {errorMsg}
-            </Text>
-            <TouchableOpacity
-              onPress={handleRefresh}
-              activeOpacity={0.8}
-              style={{
-                marginTop: 20,
-                backgroundColor: colors.primary,
-                paddingHorizontal: 22,
-                paddingVertical: 10,
-                borderRadius: 10,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6
-              }}
-            >
-              <Ionicons name="refresh" size={16} color="#fff" />
-              <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Try Again</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        ) : (!safeAttendanceData || safeAttendanceData.length === 0) ? (
-          <View style={styles.centerContent}>
-            <Ionicons name="document-text-outline" size={48} color={colors.textMuted} />
-            <Text style={[styles.errorText, { color: colors.textMuted }]}>No records found</Text>
-          </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={handleRefresh}
-                tintColor={colors.primary}
-                colors={[colors.primary]}
-              />
-            }
-          >
+        <ScrollView
+          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+        >
             {isPredicting ? (
               <View style={{ marginTop: 16 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -1777,8 +1740,25 @@ export function DetailedAttendanceModal({
                   </ScrollView>
                 </View>
 
-                {/* Attendance Cards or Empty Filter State */}
-                {filteredAttendanceData.length === 0 ? (
+                {/* Attendance Cards or Loading / Error / Empty Filter State */}
+                {loading ? (
+                  <View style={[styles.loadingRecordsCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                    <ActivityIndicator size="small" color={colors.primary} style={{ marginBottom: 12 }} />
+                    <Text style={[styles.loadingRecordsTitle, { color: colors.text }]}>Fetching Class-by-Class Records...</Text>
+                    <Text style={[styles.loadingRecordsSub, { color: colors.textMuted }]}>
+                      {hasInjectedPostback.current ? 'Extracting records from attendance sheet...' : 'Connecting to student portal for lecture dates and timestamps...'}
+                    </Text>
+                  </View>
+                ) : errorMsg ? (
+                  <View style={[styles.emptyFilterCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
+                    <Ionicons name="alert-circle-outline" size={40} color="#ef4444" style={{ marginBottom: 8 }} />
+                    <Text style={[styles.emptyFilterTitle, { color: colors.text }]}>Unable to load records</Text>
+                    <Text style={[styles.emptyFilterSubtitle, { color: colors.textMuted }]}>{errorMsg}</Text>
+                    <TouchableOpacity onPress={handleRefresh} style={{ marginTop: 14, backgroundColor: colors.primary, paddingHorizontal: 20, paddingVertical: 8, borderRadius: 10 }}>
+                      <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 13 }}>Tap to Retry</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : filteredAttendanceData.length === 0 ? (
                   <View style={[styles.emptyFilterCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
                     {statusFilter === 'ABSENT' ? (
                       <>
@@ -1955,8 +1935,6 @@ export function DetailedAttendanceModal({
               </View>
             )}
           </ScrollView>
-        )}
-
 
       </View>
     </GestureHandlerRootView>
@@ -1968,7 +1946,13 @@ export function DetailedAttendanceModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'}
+      statusBarTranslucent={true}
+      onRequestClose={onClose}
+    >
       {content}
     </Modal>
   );
@@ -2021,6 +2005,27 @@ const styles = StyleSheet.create({
   centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   loadingText: { marginTop: 16, fontSize: 14, fontFamily: 'Inter_500Medium' },
   errorText: { marginTop: 16, fontSize: 16, fontFamily: 'SpaceGrotesk_600SemiBold' },
+  loadingRecordsCard: {
+    padding: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    marginTop: 14,
+  },
+  loadingRecordsTitle: {
+    fontSize: 15,
+    fontFamily: 'SpaceGrotesk_700Bold',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  loadingRecordsSub: {
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 16,
+  },
 
   // Hero Overview Card
   heroCard: {
