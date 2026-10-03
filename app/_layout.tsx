@@ -13,6 +13,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 import NewAssignmentNotification from "../components/studyos/NewAssignmentNotification";
 import { GlobalPaywallModal } from "../components/ui/GlobalPaywallModal";
 import { AppLockOverlay } from "../components/security/AppLockOverlay";
@@ -215,7 +216,7 @@ function RootLayoutInner() {
           }
           if (finalStatus === "granted" && user?.id && Platform.OS !== 'web') {
             try {
-              const projectId = "983f9008-442a-4984-9f18-859c152558c4";
+              const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? "983f9008-442a-4984-9f18-859c152558c4";
               const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
               if (tokenData?.data) {
                 await savePushToken(user.id, tokenData.data);
@@ -281,17 +282,21 @@ function RootLayoutInner() {
 }
 
 export default function RootLayout() {
-  const [, fontError] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     SpaceGrotesk_400Regular,
     SpaceGrotesk_500Medium,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
-    Inter_400Regular, Inter_500Medium, Inter_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_700Bold,
     Inter_600SemiBold,
     JetBrainsMono_400Regular,
   });
 
-  // Removed duplicate SplashScreen.hideAsync() so RootLayoutInner can control it
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
 
   return (
     <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>

@@ -366,8 +366,8 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
       return (
         <View style={{ marginBottom: Spacing.xl }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md, marginTop: Spacing.sm }}>
-            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>Today's Schedule</Text>
-            <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>No classes</Text>
+            <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', includeFontPadding: false, paddingRight: 6 }} allowFontScaling={false}>Today's Schedule</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium', includeFontPadding: false, paddingRight: 4 }} allowFontScaling={false}>No classes</Text>
           </View>
           <View style={{
             backgroundColor: colors.surfaceHigh,
@@ -381,8 +381,8 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
                 <Ionicons name="cafe-outline" size={20} color={colors.textMuted} />
               </View>
               <View>
-                <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold' }}>No Classes Today!</Text>
-                <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium' }}>Enjoy your free time.</Text>
+                <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_700Bold', includeFontPadding: false, paddingRight: 4 }} allowFontScaling={false}>No Classes Today!</Text>
+                <Text style={{ color: colors.textMuted, fontSize: 13, fontFamily: 'Inter_500Medium', includeFontPadding: false, paddingRight: 4 }} allowFontScaling={false}>Enjoy your free time.</Text>
               </View>
             </View>
           </View>
@@ -394,8 +394,8 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
     return (
       <View style={{ marginBottom: Spacing.xl }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md, marginTop: Spacing.sm }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold' }}>Today's Schedule</Text>
-          <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium' }}>Completed</Text>
+          <Text style={{ color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', includeFontPadding: false, paddingRight: 6 }} allowFontScaling={false}>Today's Schedule</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 12, fontFamily: 'Inter_500Medium', includeFontPadding: false, paddingRight: 4 }} allowFontScaling={false}>Completed</Text>
         </View>
         <View style={{
           backgroundColor: colors.surfaceHigh,
@@ -469,7 +469,7 @@ function CurrentClassWidget({ justUpdated }: { justUpdated?: Record<string, stri
       {/* Section Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5, marginTop: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_600SemiBold' }}>
+          <Text style={{ color: colors.text, fontSize: 16, fontFamily: 'SpaceGrotesk_600SemiBold', includeFontPadding: false, paddingRight: 4 }} allowFontScaling={false}>
             {isOngoing ? 'Ongoing Class' : 'Upcoming Class'}
           </Text>
           
@@ -1349,8 +1349,7 @@ export default function StudyOSDashboard() {
                     <Text 
                       style={[styles.facilityLabel, { color: colors.text }]} 
                       numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.70}
+                      allowFontScaling={false}
                     >
                       {item.name}
                     </Text>
@@ -1389,7 +1388,7 @@ export default function StudyOSDashboard() {
         {/* Your Subjects List */}
         <View style={[styles.sectionHeader, { marginTop: Spacing.md, marginBottom: showFilters ? 12 : Spacing.md }]}>
           <View>
-            <Text style={styles.sectionTitle}>Your Subjects </Text>
+            <Text style={styles.sectionTitle} allowFontScaling={false}>Your Subjects</Text>
             <Text style={styles.filterText}>{subjects?.length || 0} subjects total</Text>
           </View>
           <TouchableOpacity 
@@ -1625,30 +1624,30 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
         />
 
         {/* Content Column */}
-        <View style={{ flex: 1, paddingRight: 10, paddingLeft: 6 }}>
+        <View style={{ flex: 1, paddingRight: 6, paddingLeft: 6 }}>
           {/* Top Tag Row: Subject Code & Credits */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
             <View style={[styles.codeBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)' }]}>
-              <Text style={[styles.codeBadgeText, { color: colors.text }]}>{code}</Text>
+              <Text style={[styles.codeBadgeText, { color: colors.text }]} allowFontScaling={false}>{code}</Text>
             </View>
             {credits ? (
               <View style={[styles.creditBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }]}>
                 <Ionicons name="ribbon-outline" size={11} color={colors.textDim} style={{ marginRight: 3 }} />
-                <Text style={[styles.creditBadgeText, { color: colors.textDim }]}>{credits}</Text>
+                <Text style={[styles.creditBadgeText, { color: colors.textDim }]} allowFontScaling={false}>{credits}</Text>
               </View>
             ) : null}
           </View>
 
           {/* Subject Title */}
-          <Text style={styles.subCardTitle} numberOfLines={2}>
+          <Text style={styles.subCardTitle} numberOfLines={2} allowFontScaling={false}>
             {title && !/^\d+$/.test(title) ? title : (code || 'Subject')}
           </Text>
 
           {/* Prediction Status Pill */}
           {badgeText ? (
             <View style={[styles.subCardStatusPill, { backgroundColor: badgeBg, borderColor: badgeColor + '40' }]}>
-              <Ionicons name={updateBadge === 'Absent' ? 'close-circle' : 'checkmark-circle'} size={13} color={badgeColor} />
-              <Text style={[styles.subCardStatusText, { color: badgeColor }]}>{badgeText}</Text>
+              <Ionicons name={updateBadge === 'Absent' ? 'close-circle' : 'checkmark-circle'} size={12} color={badgeColor} />
+              <Text style={[styles.subCardStatusText, { color: badgeColor }]} numberOfLines={1} allowFontScaling={false}>{badgeText}</Text>
             </View>
           ) : (
             <View style={[
@@ -1660,10 +1659,10 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
             ]}>
               <Ionicons 
                 name={isDanger ? "alert-circle" : isNeutral ? "information-circle" : "checkmark-circle"} 
-                size={13} 
+                size={12} 
                 color={color} 
               />
-              <Text style={[styles.subCardStatusText, { color }]}>{status}</Text>
+              <Text style={[styles.subCardStatusText, { color }]} numberOfLines={1} allowFontScaling={false}>{status}</Text>
             </View>
           )}
         </View>
@@ -1671,9 +1670,9 @@ function SubjectCard({ title, code, credits, leaves, status, statusType, progres
         {/* Right Meter & Attendance Details */}
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-            <CircularProgress value={progress} color={color} size={50} />
-            <Text style={[styles.subCardFraction, { color: colors.textDim }]}>
-              <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text }}>{attended}</Text>/{total}
+            <CircularProgress value={progress} color={color} size={48} />
+            <Text style={[styles.subCardFraction, { color: colors.textDim }]} allowFontScaling={false}>
+              <Text style={{ fontFamily: 'SpaceGrotesk_700Bold', color: colors.text, includeFontPadding: false }}>{attended}</Text>/{total}
             </Text>
           </View>
           
@@ -1762,10 +1761,10 @@ function CircularProgress({ value, color, size = 56 }: { value: number, color: s
     ? Math.round(value) 
     : (value % 1 !== 0 ? value.toFixed(size < 50 ? 1 : 2) : value);
   
-  // If showing decimals, we might need smaller font so it fits in the circle
+  // Sized so that 2 or 3 digits (e.g. 63, 100, 75.5) never touch or overflow the circle stroke
   const fontSize = size < 50 
-    ? (!roundAttendancePercentage && value % 1 !== 0 ? 10 : 12.5) 
-    : (!roundAttendancePercentage && value % 1 !== 0 ? 12 : 16);
+    ? (!roundAttendancePercentage && value % 1 !== 0 ? 9 : 11) 
+    : (!roundAttendancePercentage && value % 1 !== 0 ? 11 : 14);
   
   const center = size / 2;
 
@@ -1775,7 +1774,21 @@ function CircularProgress({ value, color, size = 56 }: { value: number, color: s
         <Circle cx={center} cy={center} r={radius} stroke={colors.border} strokeWidth={strokeWidth} fill="none" />
         <Circle cx={center} cy={center} r={radius} stroke={color} strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" transform={`rotate(-90 ${center} ${center})`} />
       </Svg>
-      <Text style={{ position: 'absolute', color: colors.text, fontSize, fontFamily: 'SpaceGrotesk_700Bold' }}>{displayValue}</Text>
+      <Text 
+        style={{ 
+          position: 'absolute', 
+          color: colors.text, 
+          fontSize, 
+          fontFamily: 'SpaceGrotesk_700Bold',
+          textAlign: 'center',
+          includeFontPadding: false,
+          width: size,
+        }}
+        numberOfLines={1}
+        allowFontScaling={false}
+      >
+        {displayValue}
+      </Text>
     </View>
   );
 }
@@ -1816,7 +1829,7 @@ const useStyles = (colors: any) => StyleSheet.create({
   predBarBg: { height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
   predBarFill: { height: '100%', borderRadius: 2 },
   
-  sectionTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold',  },
+  sectionTitle: { color: colors.text, fontSize: 18, fontFamily: 'SpaceGrotesk_600SemiBold', includeFontPadding: false, paddingRight: 6 },
   filterText: { color: colors.textMuted, fontSize: 12 },
   
   subjectCardWrapper: {
@@ -1853,16 +1866,18 @@ const useStyles = (colors: any) => StyleSheet.create({
     elevation: 3,
   },
   codeBadge: {
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
     borderWidth: 1,
     alignSelf: 'flex-start',
   },
   codeBadgeText: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontFamily: 'SpaceGrotesk_700Bold',
-    letterSpacing: 0.3,
+    letterSpacing: 0.1,
+    includeFontPadding: false,
+    paddingRight: 2,
   },
   creditBadge: {
     flexDirection: 'row',
@@ -1875,12 +1890,14 @@ const useStyles = (colors: any) => StyleSheet.create({
   creditBadgeText: {
     fontSize: 10,
     fontFamily: 'Inter_600SemiBold',
+    includeFontPadding: false,
+    paddingRight: 2,
   },
-  subCardTitle: { color: colors.text, fontSize: 14.5, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 2 },
+  subCardTitle: { color: colors.text, fontSize: 14, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 2, includeFontPadding: false, paddingRight: 4 },
   subCardMeta: { color: colors.textDim, fontSize: 11.5, marginBottom: 6 },
-  subCardStatusPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.full, alignSelf: 'flex-start', gap: 4, maxWidth: '100%' },
-  subCardStatusText: { fontSize: 10, fontFamily: 'Inter_600SemiBold', paddingRight: 2 },
-  subCardFraction: { color: colors.textMuted, fontSize: 11, marginTop: 2, fontFamily: 'Inter_500Medium', minWidth: 60, textAlign: 'center', paddingHorizontal: 4 },
+  subCardStatusPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 2.5, borderRadius: Radius.full, alignSelf: 'flex-start', gap: 3.5, maxWidth: '100%' },
+  subCardStatusText: { fontSize: 9.5, fontFamily: 'Inter_600SemiBold', includeFontPadding: false, paddingRight: 2 },
+  subCardFraction: { color: colors.textMuted, fontSize: 10.5, marginTop: 2, fontFamily: 'Inter_500Medium', minWidth: 48, textAlign: 'center', paddingHorizontal: 2, includeFontPadding: false },
 
   roadmapCard: { backgroundColor: colors.surfaceHigh, borderRadius: Radius.lg, padding: Spacing.lg, width: 250, marginRight: Spacing.md, borderWidth: 1, borderColor: colors.primary + '40' },
   roadmapSubject: { color: colors.text, fontSize: 15, fontFamily: 'SpaceGrotesk_600SemiBold', marginBottom: 4 },
@@ -2013,12 +2030,11 @@ const useStyles = (colors: any) => StyleSheet.create({
   },
   facilityLabel: {
     fontFamily: 'SpaceGrotesk_600SemiBold',
-    fontSize: 10.5,
+    fontSize: 10,
     lineHeight: 14,
     marginTop: 6,
     textAlign: 'center',
-    letterSpacing: -0.2,
-    paddingHorizontal: 0,
-    paddingRight: 1,
+    includeFontPadding: false,
+    paddingHorizontal: 1,
   },
 });

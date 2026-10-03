@@ -168,13 +168,13 @@ export function AttendanceRingWidget({
         {/* Center Text: Absolutely positioned strictly within the upper inner circle */}
         <View style={styles.centerTextOverlay} pointerEvents="none">
           <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-            <Text style={[styles.mainPctText, { color: currentColor }]}>
+            <Text style={[styles.mainPctText, { color: currentColor }]} allowFontScaling={false}>
               {currentPct}
             </Text>
-            <Text style={[styles.mainPctSymbol, { color: currentColor }]}>%</Text>
+            <Text style={[styles.mainPctSymbol, { color: currentColor }]} allowFontScaling={false}>%</Text>
           </View>
 
-          <Text style={[styles.statusSubLabel, { color: colors.textMuted }]}>
+          <Text style={[styles.statusSubLabel, { color: colors.textMuted }]} allowFontScaling={false}>
             CURRENT
           </Text>
         </View>
@@ -233,11 +233,15 @@ const styles = StyleSheet.create({
     fontSize: 27,
     fontFamily: 'SpaceGrotesk_700Bold',
     lineHeight: 31,
+    includeFontPadding: false,
+    paddingRight: 2,
   },
   mainPctSymbol: {
     fontSize: 15,
     fontFamily: 'SpaceGrotesk_700Bold',
     marginLeft: 1,
+    includeFontPadding: false,
+    paddingRight: 2,
   },
   statusSubLabel: {
     fontSize: 8.5,
@@ -245,6 +249,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     marginTop: 0,
+    includeFontPadding: false,
   },
   outcomeRow: {
     marginTop: 2,

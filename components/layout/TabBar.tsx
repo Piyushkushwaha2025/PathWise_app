@@ -260,6 +260,7 @@ function NormalTabButton({
           style={[styles.label, isFocused && styles.labelActive]}
           numberOfLines={1}
           textBreakStrategy="simple"
+          allowFontScaling={false}
         >
           {tab.label}
         </Text>
@@ -467,6 +468,7 @@ function ProfileTabButton({
           style={[styles.label, isFocused && styles.labelActive]}
           numberOfLines={1}
           textBreakStrategy="simple"
+          allowFontScaling={false}
         >
           {tab.label}
         </Text>
@@ -581,6 +583,7 @@ function CenterTabButton({ tab, isFocused, onPress, accessibilityLabel, colors, 
         style={[styles.centerLabel, isFocused && styles.centerLabelActive]}
         numberOfLines={1}
         textBreakStrategy="simple"
+        allowFontScaling={false}
       >
         {tab.label}
       </Text>
@@ -665,6 +668,7 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     letterSpacing: 0,
     textAlign: 'center',
     includeFontPadding: false,
+    paddingRight: 1,
   },
   labelActive: {
     color: colors.primary,
@@ -737,6 +741,7 @@ const useStyles = (colors: any, _isStudyOSMode: boolean) => StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
     includeFontPadding: false,
+    paddingRight: 1,
   },
   centerLabelActive: {
     color: colors.primary,
