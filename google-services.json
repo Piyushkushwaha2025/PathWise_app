@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "932564375759",
+    "project_id": "pathwise-fb26f",
+    "storage_bucket": "pathwise-fb26f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:932564375759:android:1cef823839e1989ac1ffba",
+        "android_client_info": {
+          "package_name": "com.pathwise.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDaH0wrWMXtQoJP_ZySBA_nDewZlKCRCuk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -16,13 +16,14 @@
       "bundleIdentifier": "com.pathwise.app"
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#050505"
       },
       "package": "com.pathwise.app",
-      "versionCode": 14,
+      "versionCode": 15,
       "permissions": [
         "NOTIFICATIONS",
         "POST_NOTIFICATIONS",
