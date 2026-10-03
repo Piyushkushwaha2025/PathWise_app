@@ -381,8 +381,9 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
           });
         }
         if (!currentBoundUid) {
+          const escapedUid = incomingUid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const existingWithUID = await User.findOne({
-            uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') },
+            uid: { $regex: new RegExp(`^${escapedUid}$`, 'i') },
             clerkUserId: { $ne: req.clerkUserId }
           });
           if (existingWithUID) {
@@ -397,8 +398,9 @@ app.post('/api/user/sync', getClerkId, async (req, res) => {
     } else {
       // Brand new user account
       if (incomingUid) {
+        const escapedUid = incomingUid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const existingWithUID = await User.findOne({
-          uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') }
+          uid: { $regex: new RegExp(`^${escapedUid}$`, 'i') }
         });
         if (existingWithUID) {
           return res.status(409).json({
@@ -575,8 +577,9 @@ app.post('/api/user/verify-uid', getClerkId, async (req, res) => {
       return res.json({ allowed: true, boundUid: incomingUid });
     }
 
+    const escapedUid = incomingUid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const existingWithUID = await User.findOne({
-      uid: { $regex: new RegExp(`^${incomingUid}$`, 'i') },
+      uid: { $regex: new RegExp(`^${escapedUid}$`, 'i') },
       clerkUserId: { $ne: req.clerkUserId }
     });
     if (existingWithUID) {
@@ -1174,11 +1177,18 @@ app.post('/api/payment/verify', getClerkId, async (req, res) => {
 
     if (!secret) return res.status(500).json({ error: 'Server misconfiguration' });
 
-    const expectedSignature = crypto.createHmac('sha256', secret)
-      .update(razorpay_order_id + "|" + razorpay_payment_id)
-      .digest('hex');
+    let isSignatureValid = false;
+    try {
+      const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+      const signatureBuffer = Buffer.from(razorpay_signature || '', 'utf8');
+      if (expectedBuffer.length === signatureBuffer.length) {
+        isSignatureValid = crypto.timingSafeEqual(expectedBuffer, signatureBuffer);
+      }
+    } catch {
+      isSignatureValid = false;
+    }
 
-    if (expectedSignature === razorpay_signature) {
+    if (isSignatureValid) {
       // Payment is legit! Determine plan duration server-side for security
       const PLAN_DURATIONS = {
         'monthly': 30,
@@ -1223,7 +1233,18 @@ app.post('/api/payment/webhook', express.raw({ type: 'application/json' }), asyn
     const expectedSignature = crypto.createHmac('sha256', secret)
       .update(rawPayload).digest('hex');
 
-    if (expectedSignature === signature) {
+    let isWebhookSignatureValid = false;
+    try {
+      const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+      const signatureBuffer = Buffer.from(signature || '', 'utf8');
+      if (expectedBuffer.length === signatureBuffer.length) {
+        isWebhookSignatureValid = crypto.timingSafeEqual(expectedBuffer, signatureBuffer);
+      }
+    } catch {
+      isWebhookSignatureValid = false;
+    }
+
+    if (isWebhookSignatureValid) {
       const event = JSON.parse(rawPayload.toString('utf8'));
       if (event.event === 'payment.captured') {
         const payment = event.payload?.payment?.entity;
@@ -1453,21 +1474,29 @@ app.post('/api/rewards/redeem', getClerkId, rewardRateLimiter, async (req, res) 
     const plan = REDEMPTION_PLANS[plan_key];
     if (!plan) return res.status(400).json({ error: 'Invalid plan' });
 
-    let user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (!user) {
-      user = new User({
-        clerkUserId: req.clerkUserId,
-        trial_started_at: new Date(),
-      });
-      await user.save();
-    }
-
-    if ((user.token_balance || 0) < plan.tokens) {
-      return res.status(400).json({ error: 'NOT_ENOUGH_TOKENS' });
-    }
-
-    user.token_balance -= plan.tokens;
     const now = Date.now();
+
+    // Use atomic findOneAndUpdate with $gte condition to prevent concurrent double-spending race conditions
+    let user = await User.findOneAndUpdate(
+      { 
+        clerkUserId: req.clerkUserId,
+        token_balance: { $gte: plan.tokens }
+      },
+      { 
+        $inc: { token_balance: -plan.tokens }
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      // Check if user exists at all or just lacked tokens
+      const existingUser = await User.findOne({ clerkUserId: req.clerkUserId });
+      if (!existingUser || (existingUser.token_balance || 0) < plan.tokens) {
+        return res.status(400).json({ error: 'NOT_ENOUGH_TOKENS' });
+      }
+      return res.status(500).json({ error: 'Failed to process redemption' });
+    }
+
     const currentExpiry = user.premium_expires_at || now;
     const startFrom = currentExpiry > now ? currentExpiry : now;
     user.premium_expires_at = startFrom + plan.days * 24 * 60 * 60 * 1000;
