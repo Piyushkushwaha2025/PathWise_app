@@ -204,7 +204,7 @@ function RootLayoutInner() {
 
   useEffect(() => {
     if (!user?.id) return;
-    // Defer ALL heavy tasks by 5s so the dashboard fully renders first
+    // Defer tasks slightly (1.5s) so the dashboard first frame renders smoothly
     const timer = setTimeout(() => {
       (async () => {
         try {
@@ -219,7 +219,8 @@ function RootLayoutInner() {
               const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? "983f9008-442a-4984-9f18-859c152558c4";
               const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
               if (tokenData?.data) {
-                await savePushToken(user.id, tokenData.data);
+                const section = useStudyOSStore.getState().profile?.section;
+                await savePushToken(user.id, tokenData.data, section);
               }
             } catch (error: any) {
               console.warn("⚠️ Push token generation skipped:", error?.message);
@@ -232,7 +233,7 @@ function RootLayoutInner() {
           console.warn("Deferred startup task failed:", e);
         }
       })();
-    }, 5000); // 5s delay — fully off critical path
+    }, 1500); // 1.5s delay
     return () => clearTimeout(timer);
   }, [user?.id]);
 

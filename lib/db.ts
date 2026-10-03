@@ -187,13 +187,15 @@ export async function verifyUidWithDB(
   }
 }
 
-export async function savePushToken(clerkId: string, expoPushToken: string): Promise<boolean> {
+export async function savePushToken(clerkId: string, expoPushToken: string, sectionCode?: string): Promise<boolean> {
   try {
     const headers = await getAuthHeaders(clerkId);
+    const payload: Record<string, any> = { expoPushToken };
+    if (sectionCode) payload.section_code = sectionCode;
     const res = await fetch(`${API_URL}/user/push-token`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ expoPushToken })
+      body: JSON.stringify(payload)
     });
     return res.ok;
   } catch (e) {

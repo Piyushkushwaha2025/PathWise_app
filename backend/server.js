@@ -596,14 +596,19 @@ app.post('/api/user/verify-uid', getClerkId, async (req, res) => {
 // 2. Save Push Token
 app.post(['/api/user/push-token', '/user/push-token'], getClerkId, async (req, res) => {
   try {
-    const { expoPushToken } = req.body;
+    const { expoPushToken, section_code } = req.body;
     if (!expoPushToken) return res.status(400).json({ error: 'Missing token' });
     
-    let user = await User.findOne({ clerkUserId: req.clerkUserId });
-    if (user) {
-      user.expoPushToken = expoPushToken;
-      await user.save();
+    const updateFields = { expoPushToken };
+    if (section_code && typeof section_code === 'string') {
+      updateFields.section_code = section_code.trim();
     }
+    
+    await User.findOneAndUpdate(
+      { clerkUserId: req.clerkUserId },
+      { $set: updateFields },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -817,8 +822,9 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
 
     // Send push notifications to all students in this section (excluding creator)
     try {
+      const escapedSection = (finalSection || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const students = await User.find({
-        section_code: finalSection,
+        section_code: { $regex: new RegExp(`^${escapedSection}$`, 'i') },
         clerkUserId: { $ne: req.clerkUserId },
         expoPushToken: { $ne: null }
       });
@@ -840,7 +846,12 @@ app.post('/api/assignments', getClerkId, requireCR, async (req, res) => {
       if (messages.length > 0) {
         const chunks = expo.chunkPushNotifications(messages);
         for (const chunk of chunks) {
-          try { await expo.sendPushNotificationsAsync(chunk); } catch (_) {}
+          try {
+            const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+            console.log('[Assignment Push] Sent ticket chunk:', ticketChunk);
+          } catch (err) {
+            console.error('[Assignment Push] Error sending chunk:', err);
+          }
         }
       }
     } catch (pushErr) {
@@ -1001,8 +1012,9 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
 
     // Send instant push notifications to all students in this section (excluding creator)
     try {
+      const escapedSection = (finalSection || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const students = await User.find({
-        section_code: finalSection,
+        section_code: { $regex: new RegExp(`^${escapedSection}$`, 'i') },
         clerkUserId: { $ne: req.clerkUserId },
         expoPushToken: { $ne: null }
       });
@@ -1013,7 +1025,7 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
         .filter(s => s.expoPushToken && Expo.isExpoPushToken(s.expoPushToken))
         .map(s => ({
           to: s.expoPushToken,
-          sound: 'default',
+          sound: 'ting.mp3',
           channelId: 'pathwise-default-v2',
           title: `📢 CR Announcement: ${title}`,
           body: message.length > 120 ? `${message.substring(0, 117)}...` : message,
@@ -1024,7 +1036,10 @@ app.post('/api/notifications', getClerkId, requireCR, async (req, res) => {
       if (pushMessages.length > 0) {
         const chunks = expo.chunkPushNotifications(pushMessages);
         for (const chunk of chunks) {
-          try { await expo.sendPushNotificationsAsync(chunk); } catch (err) {
+          try {
+            const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+            console.log('[Announcement Push] Sent ticket chunk:', ticketChunk);
+          } catch (err) {
             console.error('Error sending CR notification push chunk:', err);
           }
         }

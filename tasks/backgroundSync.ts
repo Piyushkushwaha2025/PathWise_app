@@ -7,7 +7,18 @@ import { setupAndroidChannels } from '../lib/notifications';
 
 const BACKGROUND_SYNC_TASK = 'BACKGROUND_SYNC_TASK';
 
-TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
+function cleanSubjectTitle(raw: string): string {
+  if (!raw) return 'Subject';
+  let s = raw.trim();
+  s = s.replace(/\s*\((theory|practical|lab)\)/gi, '');
+  if (s === s.toUpperCase() && s.length > 3) {
+    s = s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return s.length > 34 ? s.substring(0, 32) + '...' : s;
+}
+
+export async function runBackgroundSyncCheck(): Promise<number> {
+  let notificationsSent = 0;
   try {
     await setupAndroidChannels().catch(() => {});
 
@@ -20,15 +31,14 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
         cookies = await AsyncStorage.getItem('culko_cookies');
       } catch (_) {}
     }
-    if (!cookies) return BackgroundFetch.BackgroundFetchResult.NoData;
+    if (!cookies) return 0;
 
     const rawOldData = await AsyncStorage.getItem('studyos_scraped_data');
-    if (!rawOldData) return BackgroundFetch.BackgroundFetchResult.NoData;
+    if (!rawOldData) return 0;
 
     const oldData = JSON.parse(rawOldData);
-    let notificationsSent = 0;
     
-    // 1. Fetch Attendance
+    // 1. Fetch Attendance from CULKO ERP
     try {
       const attRes = await fetch('https://student.culko.in/frmStudentCourseWiseAttendanceSummary.aspx?type=etgkYfqBdH1fSfc255iYGw==', {
         headers: { 'Cookie': cookies, 'User-Agent': 'Mozilla/5.0' }
@@ -127,11 +137,12 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                   // Marked Present
                   await Notifications.scheduleNotificationAsync({
                     content: {
-                      title: '🎉 Attendance Marked: Present!',
-                      body: `Marked Present in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
-                      sound: true,
+                      title: 'Attendance Updated • Present ✅',
+                      body: `${cleanSubjectTitle(oldSubj.name)}: Marked Present\nCurrent Score: ${percentage}% (${attended}/${total} classes)`,
+                      sound: 'ting.mp3',
                       color: '#10b981',
                       channelId: 'pathwise-default-v2',
+                      priority: Notifications.AndroidNotificationPriority.MAX,
                     } as any,
                     trigger: null,
                   });
@@ -141,11 +152,12 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
                   // Marked Absent
                   await Notifications.scheduleNotificationAsync({
                     content: {
-                      title: '⚠️ Attendance Alert: Marked Absent!',
-                      body: `Marked Absent in ${oldSubj.name.substring(0, 30)}. Total: ${percentage}%`,
-                      sound: true,
+                      title: 'Attendance Alert • Marked Absent ⚠️',
+                      body: `${cleanSubjectTitle(oldSubj.name)}: Marked Absent\nCurrent Score: ${percentage}% (${attended}/${total} classes)`,
+                      sound: 'mario_death.mp3',
                       color: '#ef4444',
                       channelId: 'pathwise-streak-v2',
+                      priority: Notifications.AndroidNotificationPriority.MAX,
                     } as any,
                     trigger: null,
                   });
@@ -170,7 +182,7 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
       }
     } catch(e) { console.error('BG Sync Att Err:', e); }
 
-    // 2. Fetch Marks
+    // 2. Fetch Marks from CULKO ERP
     try {
       const marksRes = await fetch('https://student.culko.in/frmStudentMarksView.aspx', {
         headers: { 'Cookie': cookies, 'User-Agent': 'Mozilla/5.0' }
@@ -248,32 +260,38 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
          }
 
          if (newMarks.length > 0) {
-           for (const nm of newMarks) {
-             const oldM = oldMarks.find((om: any) => 
-               (om.code && nm.code && om.code === nm.code) || 
-               (om.subjectName && nm.subjectName && om.subjectName.toLowerCase() === nm.subjectName.toLowerCase())
-             );
+            for (const nm of newMarks) {
+              const oldM = oldMarks.find((om: any) => 
+                (om.code && nm.code && om.code === nm.code) || 
+                (om.subjectName && nm.subjectName && om.subjectName.toLowerCase() === nm.subjectName.toLowerCase())
+              );
 
-             for (const ex of nm.exams) {
-               const hadExam = oldM?.exams?.some((oe: any) => oe.name === ex.name && oe.obtained === ex.obtained);
-               if (!hadExam && (!oldM || oldM.subjectName === '20' || oldM.mstMarks !== `${ex.obtained}/${ex.max}`)) {
-                 await Notifications.scheduleNotificationAsync({
-                   content: {
-                      title: '📊 New Marks Released!',
-                      body: `New marks for ${nm.subjectName.substring(0, 25)}: ${ex.name} - ${ex.obtained}/${ex.max}`,
-                      sound: true,
+              for (const ex of nm.exams) {
+                const hadExam = oldM?.exams?.some((oe: any) => oe.name === ex.name && oe.obtained === ex.obtained);
+                if (!hadExam && (!oldM || oldM.subjectName === '20' || oldM.mstMarks !== `${ex.obtained}/${ex.max}`)) {
+                  const cleanSubj = cleanSubjectTitle(nm.subjectName || nm.fullName || 'Subject');
+                  const percentageScore = (!isNaN(Number(ex.obtained)) && !isNaN(Number(ex.max)) && Number(ex.max) > 0)
+                    ? ` (${Math.round((Number(ex.obtained) / Number(ex.max)) * 100)}%)`
+                    : '';
+
+                  await Notifications.scheduleNotificationAsync({
+                    content: {
+                      title: 'Academic Update • Marks Released 📊',
+                      body: `${cleanSubj}\n${ex.name}: ${ex.obtained}/${ex.max}${percentageScore}`,
+                      sound: 'mario_coin.mp3',
                       color: '#f59e0b',
                       channelId: 'pathwise-coin-v2',
+                      priority: Notifications.AndroidNotificationPriority.MAX,
                     } as any,
                     trigger: null,
-                 });
-                 notificationsSent++;
-               }
-             }
-           }
+                  });
+                  notificationsSent++;
+                }
+              }
+            }
 
-           oldData.marks = newMarks;
-         }
+            oldData.marks = newMarks;
+          }
       }
     } catch(e) { console.error('BG Sync Marks Err:', e); }
 
@@ -293,11 +311,12 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
               if (lastSeenNotifId && newest._id !== lastSeenNotifId) {
                 await Notifications.scheduleNotificationAsync({
                   content: {
-                    title: `📢 CR Announcement: ${newest.title}`,
-                    body: newest.message?.length > 100 ? `${newest.message.substring(0, 97)}...` : newest.message,
-                    sound: true,
+                    title: `Class Notice • ${newest.title || 'Announcement'} 📢`,
+                    body: newest.message?.length > 120 ? `${newest.message.substring(0, 117)}...` : newest.message,
+                    sound: 'ting.mp3',
                     color: '#3b82f6',
                     channelId: 'pathwise-default-v2',
+                    priority: Notifications.AndroidNotificationPriority.MAX,
                   } as any,
                   trigger: null,
                 });
@@ -317,13 +336,18 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
             if (assignments && assignments.length > 0) {
               const newestAsgn = assignments[assignments.length - 1];
               if (lastSeenAsgnId && newestAsgn._id !== lastSeenAsgnId) {
+                const formattedDate = newestAsgn.dueDate 
+                  ? new Date(newestAsgn.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  : 'Upcoming';
+
                 await Notifications.scheduleNotificationAsync({
                   content: {
-                    title: `📝 New Assignment: ${newestAsgn.title}`,
-                    body: `${newestAsgn.subject} — Due: ${new Date(newestAsgn.dueDate).toLocaleDateString()}`,
-                    sound: true,
-                    color: '#3b82f6',
+                    title: 'New Assignment Posted 📝',
+                    body: `${cleanSubjectTitle(newestAsgn.subject || 'Coursework')}: ${newestAsgn.title}\nDue: ${formattedDate}`,
+                    sound: 'ting.mp3',
+                    color: '#8b5cf6',
                     channelId: 'pathwise-default-v2',
+                    priority: Notifications.AndroidNotificationPriority.MAX,
                   } as any,
                   trigger: null,
                 });
@@ -337,13 +361,33 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
     } catch(e) { console.error('BG Sync Backend Err:', e); }
 
     if (notificationsSent > 0) {
-       await AsyncStorage.setItem('studyos_scraped_data', JSON.stringify(oldData));
-       return BackgroundFetch.BackgroundFetchResult.NewData;
+      await AsyncStorage.setItem('studyos_scraped_data', JSON.stringify(oldData));
+      try {
+        const { useStudyOSStore } = require('../store/studyosStore');
+        if (useStudyOSStore && useStudyOSStore.getState) {
+          useStudyOSStore.getState().setScrapedData({
+            subjects: oldData.subjects,
+            marks: oldData.marks,
+          });
+        }
+      } catch (_) {}
     }
     
-    return BackgroundFetch.BackgroundFetchResult.NoData;
+    return notificationsSent;
   } catch (error) {
     console.error('BG Sync Error:', error);
+    return 0;
+  }
+}
+
+TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
+  try {
+    const sent = await runBackgroundSyncCheck();
+    return sent > 0 
+      ? BackgroundFetch.BackgroundFetchResult.NewData 
+      : BackgroundFetch.BackgroundFetchResult.NoData;
+  } catch (error) {
+    console.error('[BackgroundSync Task] Error:', error);
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
 });
